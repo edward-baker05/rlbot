@@ -34,8 +34,9 @@ venv/
 .DS_Store
 compile_commands.json
 
-# Training run logs
-runs/
+# Training run logs (but the run log itself is tracked)
+runs/*
+!runs/RUNLOG.md
 bot/build/metrics/
 runs-driver.log
 bot/rlbot-config/match-vs-generated.toml
