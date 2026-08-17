@@ -5,8 +5,22 @@
 #include <env/Rewards.h>
 
 #include <RLGymCPP/CommonValues.h>
+#include <RLGymCPP/Rewards/CommonRewards.h>
 
 using namespace Hive;
+
+TEST_CASE("GroundedReward pays only on wheels") {
+	GroundedReward r(new RLGC::TouchBallReward());
+	RLGC::Player p = {};
+	p.ballTouchedStep = true;
+	RLGC::GameState s = {};
+
+	p.isOnGround = true;
+	CHECK(r.GetReward(p, s, false) == 1.f);
+
+	p.isOnGround = false;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+}
 
 TEST_CASE("specs and built rewards agree in count and weight") {
 	TrainConfig cfg = {};

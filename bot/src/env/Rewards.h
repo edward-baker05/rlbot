@@ -33,6 +33,27 @@ public:
 	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override;
 };
 
+// Pays the child reward only while the player is on its wheels, and forwards
+// lifecycle calls. Anti-farm gate for approach shaping: flips give free
+// velocity, so an ungated velocity-to-ball term pays tumbling exactly as well
+// as driving -- ~73% of DefaultAction's 90 actions involve air/jump inputs,
+// so a fresh policy is airborne ~90% of the time and never discovers that
+// driving exists unless the money is on the ground.
+class GroundedReward : public RLGC::Reward {
+public:
+	RLGC::Reward* child;
+
+	explicit GroundedReward(RLGC::Reward* child) : child(child) {}
+	~GroundedReward() override { delete child; }
+
+	void Reset(const RLGC::GameState& initialState) override { child->Reset(initialState); }
+	void PreStep(const RLGC::GameState& state) override { child->PreStep(state); }
+
+	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override {
+		return player.isOnGround ? child->GetReward(player, state, isFinal) : 0.f;
+	}
+};
+
 // ============================================================================
 // Reward stack
 // ============================================================================

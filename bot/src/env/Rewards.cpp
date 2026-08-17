@@ -35,14 +35,17 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 	}
 
 	return {
-		{"VelPlayerToBall", w.velPlayerToBall, [] { return new VelocityPlayerToBallReward(); }},
+		{"VelPlayerToBall", w.velPlayerToBall,
+		 []() -> Reward* { return new GroundedReward(new VelocityPlayerToBallReward()); }},
+		{"Touch", w.touch, [] { return new TouchBallReward(); }},
 		{"StrongTouch", w.strongTouch,
 		 []() -> Reward* { return new ZeroSumReward(new StrongTouchReward(TOUCH_MIN_KPH, TOUCH_MAX_KPH), 0.2f); }},
 		{"VelBallToGoal", w.velBallToGoal,
 		 []() -> Reward* { return new ZeroSumReward(new VelocityBallToGoalReward(), 0.3f); }},
 		{"Goal", w.goal, [] { return new GoalReward(); }},
 		{"PickupBoost", w.pickupBoost, [] { return new PickupBoostReward(); }},
-		{"FaceBall", w.faceBall, [] { return new FaceBallReward(); }},
+		{"FaceBall", w.faceBall,
+		 []() -> Reward* { return new GroundedReward(new FaceBallReward()); }},
 	};
 }
 

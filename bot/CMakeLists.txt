@@ -105,6 +105,7 @@ add_executable(HiveTests
 	tests/test_statesetters.cpp
 	tests/test_metrics.cpp
 	tests/test_packetconvert.cpp
+	tests/test_actionspace.cpp
 )
 target_link_libraries(HiveTests PRIVATE HiveCore)
 target_include_directories(HiveTests PRIVATE tests)

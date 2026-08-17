@@ -51,13 +51,30 @@ enum class RewardPhase {
 	Teamplay,
 };
 
+// Derived from measured RewardShare telemetry, not guessed -- see
+// runs/RUNLOG.md for the derivation runs. The 30M-step baseline with the old
+// weights (velPlayerToBall=3, goal=30, no plain touch term) paid 67% of all
+// reward mass to velPlayerToBall and ~5% to outcomes; the policy farmed the
+// approach term by flip-spamming and never learned to touch the ball.
 struct RewardWeights {
-	float velPlayerToBall = 3.f;
+	// Approach shaping. Deliberately small: it pays every step, so at any
+	// real weight it out-earns the rare outcome events and becomes the farm.
+	float velPlayerToBall = 0.5f;
+
+	// Plain per-touch event. StrongTouch pays ~0 for weak grazes, so without
+	// this a bot that has never hit the ball gets no touch gradient at all.
+	float touch = 5.f;
+
 	float strongTouch = 50.f;
-	float velBallToGoal = 4.f;
-	float goal = 30.f;
+
+	// Small: it pays on ball velocity the bot mostly did not cause (kickoff
+	// momentum, bounces), and as zero-sum noise it dilutes the advantage
+	// signal. Measured at 0.67 share at weight 2 with everything else gated.
+	float velBallToGoal = 0.5f;
+
+	float goal = 100.f;
 	float pickupBoost = 5.f;
-	float faceBall = 0.1f;
+	float faceBall = 0.05f;
 };
 
 struct SelfPlayConfig {
@@ -122,11 +139,25 @@ struct TrainConfig {
 	// Minibatch is the main VRAM knob (6 GB available).
 	int miniBatchSize = 25'000;
 
-	int epochs = 1;
-	float entropyScale = 0.035f;
+	// Upstream default. The inherited 1 starved the policy of updates: with
+	// one epoch at half the upstream LR, measured KL divergence and clip
+	// fraction were ~0 for entire runs.
+	int epochs = 2;
+
+	// GigaLearn's entropy is NORMALIZED to [0,1] (divided by log(numActions)),
+	// so this scale is not comparable to rlgym-ppo's. Measured on 30M-step
+	// probes: at 0.035 (inherited) and at 0.018 (upstream default), entropy
+	// sat at ~0.78 for whole runs with KL ~0 -- the policy never left the
+	// uniform distribution and nothing was learned. 0.002 is the largest
+	// value probed that lets entropy actually fall (0.77 -> 0.65 over 30M).
+	// Revisit at every phase gate; too low too early costs exploration.
+	float entropyScale = 0.002f;
+
 	float gaeGamma = 0.99f;
-	float policyLR = 1.5e-4f;
-	float criticLR = 1.5e-4f;
+
+	// Upstream default; the inherited 1.5e-4 compounded the epochs=1 problem.
+	float policyLR = 3e-4f;
+	float criticLR = 3e-4f;
 
 	int64_t maxSteps = 0;
 
