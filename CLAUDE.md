@@ -5,16 +5,25 @@ Context for working in this repo.
 ## What this is
 
 A Rocket League bot: trained with GigaLearn (C++) on RocketSim, deployed through
-RLBot v5. Target is a bot that beats a GC1 human.
+RLBot v5. Target is a bot that beats a GC1 human in 1v1.
 
-**Two policies, not a mixture of experts.** A kickoff policy and a general
-policy, split at first ball touch. An MoE design was considered and rejected;
-`docs/architecture.md` explains why, and that reasoning should not be quietly
-undone. Situation labels survive only as metrics and as curriculum weights.
+**One policy.** The old kickoff/general two-policy split was removed
+deliberately on 2026-08-17 (see
+`docs/superpowers/specs/2026-08-17-hivemind-roadmap-design.md`, decision D1);
+kickoffs are learned via a curriculum entry. Do not reintroduce a policy split
+or an MoE design without a new decision. Situation labels (`PlayPhase`)
+survive only as metrics; curriculum scenarios (`CurriculumState`) only as
+spawn distributions.
+
+Two more standing decisions from that spec worth knowing before touching
+rewards: no dribble/possession reward terms, ever (D4 — the flick-bot local
+optimum); and no magic numbers without measurement behind them (D6).
 
 ## Layout
 
 - `bot/src/` — the only code that is ours. Everything else is third-party.
+- `bot/tests/` — doctest suite; builds as the `HiveTests` target, runs from
+  `bot/build` (`cd bot/build && ./HiveTests`) so collision meshes resolve.
 - `external/` — GigaLearnCPP-Leak, cpp-interface (RLBot v5), RocketSimVis. Each
   has its own git history; do not commit changes here without noting them.
 - `libs/` — libtorch, NCCL, NVSHMEM. Gitignored; `scripts/setup_libs.sh`
@@ -26,7 +35,8 @@ undone. Situation labels survive only as metrics and as curriculum weights.
 scripts/build.sh
 ```
 
-Three things about the build that are easy to trip over:
+Builds `HivemindBot` and `HiveTests`. Three things about the build that are
+easy to trip over:
 
 1. **PIC is required globally.** GigaLearnCPP is a shared library that links
    RLGymCPP and RocketSim statically, which only links on x86-64 if those are
@@ -36,7 +46,7 @@ Three things about the build that are easy to trip over:
 2. **NCCL and NVSHMEM must be linked explicitly.** `libtorch_cuda.so`
    references their symbols even for single-GPU use. They ship as versioned
    files (`libnccl.so.2`) with no unversioned symlink, so `-lnccl` does not
-   resolve — full paths are linked instead.
+   resolve — full paths are linked instead (into `HiveCore`, PUBLIC).
 
 3. **`CMAKE_POLICY_VERSION_MINIMUM` is pinned to 3.10.** Upstream declares
    minimums that CMake 4 rejects. Pinned in our CMakeLists rather than by
@@ -48,11 +58,14 @@ Three things about the build that are easy to trip over:
 GCC 16 no longer pulls it in transitively and `CHAR_BIT` fails to resolve. If
 you re-clone cpp-interface, reapply it.
 
-## Verified working
+## Verified working (2026-08-17)
 
-- Both training targets run on GPU end to end.
-- Observation size 165 at `maxPlayersPerTeam = 3`.
-- ~120k steps/sec at 128 games; ~1.9 GB of 6 GB VRAM.
+- Training runs on GPU end to end at 1v1; observation size 89 at
+  `maxPlayersPerTeam = 1`.
+- ~81k steps/sec at 128 games (the measured optimum; see `runs/RUNLOG.md`),
+  512-wide network, default skill tracking.
+- `HiveTests` passes; `verify` and `eval` subcommands work against smoke
+  checkpoints.
 
 ## Not yet verified
 
@@ -63,19 +76,20 @@ checkpoint.
 ## Parity traps
 
 Training and deployment must agree on `maxPlayersPerTeam`, `tickSkip`,
-`actionDelay`, and the model layer shapes. A mismatch does not crash — the bot
-loads, plays, and is quietly worse. Training values live in `bot/src/Config.h`;
+`actionDelay`, and `ModelShape` (defined in `bot/src/policy/Policy.h`,
+default-constructed by both sides). A mismatch does not crash — the bot loads,
+plays, and is quietly worse. Training values live in `bot/src/Config.h`;
 deployment reads `HIVE_*` environment variables set by
-`bot/rlbot-config/run.sh`, except `ModelShape`, which is compiled into
-`bot/src/rlbot/HivemindBot.h`.
+`bot/rlbot-config/run.sh`. **`./HivemindBot verify <checkpoint>` mechanizes
+the check** — run it before every deployment session.
 
 ## Conventions
 
 - Comments explain *why*, especially where a choice looks arbitrary or where a
-  bug would be silent. The packet conversion and the regime split carry the most
-  of this.
+  bug would be silent. The packet conversion carries the most of this.
 - `Hive::` namespace for our code; `RLGC::` is RLGymCPP, `GGL::` is GigaLearn.
 - Tabs, matching the surrounding GigaLearn/RLGymCPP style.
+- Every run gets a `--label`; record runs that matter in `runs/RUNLOG.md`.
 
 ### Second local patch to external/
 
