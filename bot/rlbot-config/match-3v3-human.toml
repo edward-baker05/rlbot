@@ -1,0 +1,58 @@
+# 3v3 with a human on the blue team, alongside two bots.
+#
+# This is the configuration that exercises the hivemind and human-support paths
+# together:
+#
+#   * The two blue bots share one process (hivemind = true in bot.toml), so
+#     they are inferred in a single batched forward pass and can in principle
+#     coordinate through shared state.
+#   * The three orange bots are a separate process, because hivemind grouping
+#     is per team.
+#   * The human occupies a blue slot. The blue hivemind is given indices for
+#     its own two cars only; the human arrives as another entry in the packet's
+#     player list and flows into the observation like any other car.
+#
+# Swap any "Human" and "RLBot" entry to move yourself around. Nothing in the
+# bot needs to change -- team sizes and human placement are read from the packet
+# at runtime, not configured.
+
+[rlbot]
+launcher = "Steam"
+auto_start_agents = true
+wait_for_agents = true
+
+[match]
+game_mode = "Soccar"
+game_map_upk = "Stadium_P"
+existing_match_behavior = "Restart"
+enable_state_setting = true
+enable_rendering = false
+
+[[cars]]
+team = "Blue"
+type = "Human"
+
+[[cars]]
+team = "Blue"
+type = "RLBot"
+config_file = "bot.toml"
+
+[[cars]]
+team = "Blue"
+type = "RLBot"
+config_file = "bot.toml"
+
+[[cars]]
+team = "Orange"
+type = "RLBot"
+config_file = "bot.toml"
+
+[[cars]]
+team = "Orange"
+type = "RLBot"
+config_file = "bot.toml"
+
+[[cars]]
+team = "Orange"
+type = "RLBot"
+config_file = "bot.toml"
