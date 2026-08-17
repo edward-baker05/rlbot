@@ -27,6 +27,7 @@ fi
 
 if [[ -z "${HIVE_MODEL:-}" || ! -d "${HIVE_MODEL}" ]]; then
 	echo "No model found. Train one first, or set HIVE_MODEL to a checkpoint folder." >&2
+	echo "(HIVE_MODEL must be an ABSOLUTE path: RLBot launches this script from its own cwd, so a relative path set in your shell will not resolve here.)" >&2
 	exit 1
 fi
 export HIVE_MODEL
