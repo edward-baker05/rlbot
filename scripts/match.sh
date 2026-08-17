@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Run an RLBot match: our bot vs an opponent bot's .toml (e.g. from RLBotPack).
 #   scripts/match.sh /path/to/opponent/bot.toml
-# Requires the rlbot CLI and Rocket League runnable on this machine.
+# Requires the RLBot v5 Python package (pip install --user --pre rlbot),
+# the RLBotServer binary in libs/rlbot/, and Rocket League on this machine.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,7 +11,6 @@ OPP="${1:?Usage: scripts/match.sh /path/to/opponent/bot.toml}"
 OPP="$(realpath "$OPP")"
 
 [[ -f "$OPP" ]] || { echo "No such file: $OPP" >&2; exit 1; }
-command -v rlbot > /dev/null || { echo "Install the RLBot CLI: pipx install rlbot" >&2; exit 1; }
 
 GEN="$CONFIG_DIR/match-vs-generated.toml"
 cat > "$GEN" <<EOF
@@ -37,5 +37,4 @@ type = "RLBot"
 config_file = "$OPP"
 EOF
 
-cd "$CONFIG_DIR"
-exec rlbot run "$(basename "$GEN")"
+exec python3 "$REPO/scripts/run_match.py" "$GEN"

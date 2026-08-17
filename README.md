@@ -61,7 +61,9 @@ Before deploying a checkpoint, and to compare two of them:
 ./HivemindBot eval --blue <ckpt A> --orange <ckpt B> --games 20
 ```
 
-Play against it once you have a checkpoint (needs `pipx install rlbot`):
+Play against it once you have a checkpoint (needs `pip install --user --pre
+rlbot` and the RLBotServer binary — `scripts/run_match.py` prints the
+download command if it is missing):
 
 ```bash
 scripts/play.sh                       # 1v1, you vs the bot
@@ -113,9 +115,10 @@ broken ones. See [docs/metrics.md](docs/metrics.md) for what to watch instead.
 
 - Builds clean, trains on GPU end to end at 1v1; test suite passes.
 - The RLBot v5 client compiles and its packet conversion is covered by
-  round-trip tests, but it has **not** been run against a live match yet —
-  that needs the `rlbot` CLI installed (`pipx install rlbot`) and a trained
-  checkpoint.
+  round-trip tests, but it has **not** been run against a live match yet.
+  Note there is no `rlbot` CLI: v5's Python package is a library, so matches
+  are started by `scripts/run_match.py` (which drives `MatchManager` and the
+  RLBotServer binary in `libs/rlbot/`).
 
 ---
 

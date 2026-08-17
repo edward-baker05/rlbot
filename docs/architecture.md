@@ -78,7 +78,8 @@ Both areas are covered by round-trip tests in `bot/tests/test_packetconvert.cpp`
   matches in RocketSim, replaying the training cadence. The
   frozen-reference-pool tool for gate decisions.
 - `scripts/match.sh <opponent bot.toml>` — a live RLBot match against an
-  external bot (requires the `rlbot` CLI and Rocket League).
+  external bot (via `scripts/run_match.py`; requires the rlbot v5 Python
+  package, the RLBotServer binary in `libs/rlbot/`, and Rocket League).
 - `scripts/watch.sh` — stream one real-time game to RocketSimVis.
 - Metrics: see `docs/metrics.md`.
 

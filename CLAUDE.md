@@ -69,9 +69,11 @@ you re-clone cpp-interface, reapply it.
 
 ## Not yet verified
 
-The RLBot v5 client compiles but has never connected to a live match. Needs the
-`rlbot` CLI (`pipx install rlbot`, not currently installed) and a trained
-checkpoint.
+The RLBot v5 client compiles but has never connected to a live match. There is
+no `rlbot` CLI: v5's Python package (`pip install --user --pre rlbot`,
+installed) is a library, and matches are started with `scripts/run_match.py`,
+which drives `rlbot.managers.MatchManager` plus the RLBotServer binary in
+`libs/rlbot/` (downloaded from RLBot/core releases; gitignored).
 
 ## Parity traps
 
