@@ -286,6 +286,53 @@ void RecoverState::ResetArena(Arena* arena) {
 	}
 }
 
+void BallContactState::ResetArena(Arena* arena) {
+	arena->ResetToRandomKickoff();
+
+	const bool moving = RandFloat() < movingBallChance;
+
+	BallState bs = {};
+	// Keep the ball on or near the deck. A high ball here would just recreate
+	// the problem this setter exists to solve.
+	bs.pos = Vec(RandFloat(-3000, 3000), RandFloat(-4000, 4000),
+	             CommonValues::BALL_RADIUS + RandFloat(0, 200));
+	if (moving) {
+		const Vec dir = RandUnitVec();
+		bs.vel = Vec(dir.x, dir.y, 0) * RandFloat(200, 1400);
+	}
+	arena->ball->SetState(bs);
+
+	bool first = true;
+	for (Car* car : arena->_cars) {
+		CarState cs = {};
+
+		if (first) {
+			first = false;
+
+			// Place the car on a random bearing around the ball, facing it.
+			const float ang = RandFloat(-M_PI, M_PI);
+			const float dist = RandFloat(minDist, maxDist);
+			const float x = std::clamp(bs.pos.x + std::cos(ang) * dist, -3900.f, 3900.f);
+			const float y = std::clamp(bs.pos.y + std::sin(ang) * dist, -4900.f, 4900.f);
+
+			// Lead a moving ball slightly rather than aiming where it is now,
+			// so the spawn is a playable position and not an instant miss.
+			const Vec aim = bs.pos + bs.vel * 0.25f;
+			PutOnGround(cs, x, y, aim, RandFloat(300, 1300));
+
+			cs.boost = RandFloat(20, 100);
+		} else {
+			// Everyone else starts at a normal distance, so this does not turn
+			// into a scrum around the ball.
+			PutOnGround(cs, RandFloat(-3500, 3500), RandFloat(-4500, 4500),
+			            bs.pos, RandFloat(0, 1200));
+			cs.boost = RandFloat(20, 100);
+		}
+
+		car->SetState(cs);
+	}
+}
+
 void NeutralPlayState::ResetArena(Arena* arena) {
 	arena->ResetToRandomKickoff();
 

@@ -64,7 +64,20 @@ struct TeamSizeMix {
 // These weights are matched to RewardPhase::Foundations. When the reward phase
 // advances, raise the corresponding scenarios with it.
 struct CurriculumWeights {
-	float neutralPlay = 45.f;   // Ordinary play. Keep this dominant.
+	float neutralPlay = 35.f;   // Ordinary play. Keep this dominant.
+
+	// Car spawned next to the ball, so contact is nearly free.
+	//
+	// Heavily weighted in phase 1 on purpose: touch rate is the binding
+	// constraint (~one touch per 20 seconds), and the phase's main outcome
+	// reward cannot shape anything while it almost never fires. This buys the
+	// touch reward enough firings to be a real gradient.
+	//
+	// LOWER THIS once touch ratio clears ~0.02 -- past that point it is
+	// training on a situation the bot already gets for free, and the weight is
+	// better spent on NeutralPlayState.
+	float ballContact = 20.f;
+
 	float defend = 15.f;
 
 	// Cars end up airborne whether or not we spawn them there, and landing
@@ -257,9 +270,13 @@ struct SelfPlayConfig {
 	// so keep it well under the core count; 8 costs little on a 6-core part.
 	int skillArenas = 8;
 
-	// Iterations between evaluation runs. Higher means less overhead and a
-	// coarser rating curve.
-	int skillUpdateInterval = 20;
+	// Iterations between evaluation runs.
+	//
+	// Measured: at 20 this costs ~30% throughput (91k -> 63k steps/sec), which
+	// is far too much to pay continuously for a diagnostic. At 100 it is ~6%
+	// and the rating curve is still perfectly readable -- ratings move slowly,
+	// so sampling them five times less often loses almost nothing.
+	int skillUpdateInterval = 100;
 
 	float skillSimTime = 45.f;
 	float skillMaxSimTime = 240.f;

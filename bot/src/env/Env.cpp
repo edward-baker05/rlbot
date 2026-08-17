@@ -74,6 +74,7 @@ static StateSetter* BuildGeneralCurriculum(const CurriculumWeights& w) {
 	};
 
 	add(new NeutralPlayState(), w.neutralPlay);
+	add(new BallContactState(), w.ballContact);
 	add(new DefendState(), w.defend);
 	add(new RecoverState(), w.recover);
 	add(new AerialState(), w.aerial);

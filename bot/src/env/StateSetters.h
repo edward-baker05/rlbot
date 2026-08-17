@@ -98,4 +98,36 @@ public:
 	void ResetArena(Arena* arena) override;
 };
 
+// One car spawned right next to the ball, on the ground, already pointed at it.
+//
+// This exists to break a specific deadlock. The touch-quality reward is the
+// main outcome signal of phase 1, but it only pays when the ball is actually
+// struck -- and a fresh policy touches the ball roughly once every twenty
+// seconds. A reward that almost never fires cannot shape behaviour, so the bot
+// has no gradient towards the very skill the phase is meant to teach.
+//
+// Every other setter spawns cars 1200-2600 uu away, which assumes the bot can
+// already drive. This one does not: contact is available within a second or
+// two, so the touch reward fires often enough to reinforce, and the policy can
+// learn "when the ball is in front of you, hit it" before it has learned to
+// navigate to it at all.
+//
+// Deliberately not a permanent fixture. Once touch ratio is healthy this is
+// training on a situation the bot gets for free, and its weight should come
+// down in favour of NeutralPlayState. See docs/rewards.md.
+class BallContactState : public RLGC::StateSetter {
+public:
+	// Spawn distance from the ball. Near enough that contact is close to
+	// unavoidable, far enough that the car still has to steer and commit
+	// rather than starting already inside the ball.
+	float minDist = 250.f, maxDist = 700.f;
+
+	// Fraction of spawns where the ball is already rolling rather than sitting
+	// still. A stationary ball is the easier lesson; a moving one is what the
+	// game actually presents.
+	float movingBallChance = 0.6f;
+
+	void ResetArena(Arena* arena) override;
+};
+
 } // namespace Hive
