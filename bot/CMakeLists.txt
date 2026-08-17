@@ -56,16 +56,16 @@ add_library(HiveCore STATIC
 	src/env/Env.h
 	src/env/Obs.cpp
 	src/env/Obs.h
+	src/env/PlayPhase.cpp
+	src/env/PlayPhase.h
 	src/env/Rewards.cpp
 	src/env/Rewards.h
 	src/env/StateSetters.cpp
 	src/env/StateSetters.h
 	src/env/Terminal.h
 
-	src/policy/PolicySet.cpp
-	src/policy/PolicySet.h
-	src/policy/Regime.cpp
-	src/policy/Regime.h
+	src/policy/Policy.cpp
+	src/policy/Policy.h
 
 	src/rlbot/HivemindBot.cpp
 	src/rlbot/HivemindBot.h

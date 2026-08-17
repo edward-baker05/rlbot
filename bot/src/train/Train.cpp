@@ -2,7 +2,7 @@
 
 #include "../env/Env.h"
 #include "../env/Obs.h"
-#include "../policy/Regime.h"
+#include "../env/PlayPhase.h"
 
 #include <GigaLearnCPP/Learner.h>
 

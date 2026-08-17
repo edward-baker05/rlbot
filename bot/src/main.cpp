@@ -34,7 +34,7 @@ void PrintUsage(const char* argv0) {
 		"  --ts-per-version N   Snapshot the policy every N steps (default 5M)\n"
 		"\n"
 		"Environment (play):\n"
-		"  HIVE_GENERAL_MODEL   Checkpoint folder for the policy (required)\n"
+		"  HIVE_MODEL           Checkpoint folder for the policy (required)\n"
 		"  RLBOT_AGENT_ID       Set by RLBot when it launches the bot\n"
 		"\n"
 		"Environment (both):\n"

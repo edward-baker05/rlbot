@@ -1,6 +1,6 @@
 #pragma once
 
-#include "policy/PolicySet.h"
+#include "policy/Policy.h"
 
 #include <GigaLearnCPP/LearnerConfig.h>
 

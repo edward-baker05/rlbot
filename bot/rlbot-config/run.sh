@@ -18,28 +18,24 @@ if [[ ! -x "$BIN" ]]; then
 fi
 
 # --- Model selection -------------------------------------------------------
-# Point these at GigaLearn checkpoint folders -- the numbered subdirectories
-# holding the .lt files, not the parent. Override either by exporting it before
-# launching RLBot.
-#
-# If HIVE_KICKOFF_MODEL is unset or missing, the general model drives kickoffs
-# too, which is the correct setup until a kickoff model has been trained.
-: "${HIVE_GENERAL_MODEL:=$(ls -d "$BUILD_DIR"/checkpoints/general/*/ 2>/dev/null | sort -V | tail -1)}"
-: "${HIVE_KICKOFF_MODEL:=$(ls -d "$BUILD_DIR"/checkpoints/kickoff/*/ 2>/dev/null | sort -V | tail -1)}"
+# Point HIVE_MODEL at a GigaLearn checkpoint folder -- the numbered
+# subdirectory holding the .lt files, not the parent. Override by exporting it
+# before launching RLBot; the default picks the newest checkpoint. Only
+# numbered step folders count -- the same level also holds policy_versions
+# (the self-play snapshot pool), which is not a loadable checkpoint.
+: "${HIVE_MODEL:=$(ls -d "$BUILD_DIR"/checkpoints/main*/[0-9]*/ 2>/dev/null | sort -V | tail -1)}"
 
-if [[ -z "${HIVE_GENERAL_MODEL:-}" || ! -d "${HIVE_GENERAL_MODEL}" ]]; then
-	echo "No general model found. Train one first, or set HIVE_GENERAL_MODEL to a checkpoint folder." >&2
+if [[ -z "${HIVE_MODEL:-}" || ! -d "${HIVE_MODEL}" ]]; then
+	echo "No model found. Train one first, or set HIVE_MODEL to a checkpoint folder." >&2
 	exit 1
 fi
-
-export HIVE_GENERAL_MODEL
-[[ -n "${HIVE_KICKOFF_MODEL:-}" && -d "${HIVE_KICKOFF_MODEL}" ]] && export HIVE_KICKOFF_MODEL || unset HIVE_KICKOFF_MODEL
+export HIVE_MODEL
 
 # --- Runtime settings ------------------------------------------------------
-# These MUST match what the models were trained with, or the bot will act on a
+# These MUST match what the model was trained with, or the bot will act on a
 # different cadence and read a differently-shaped observation than it learned.
 export HIVE_COLLISION_MESHES="${HIVE_COLLISION_MESHES:-$BUILD_DIR/collision_meshes}"
-export HIVE_MAX_PLAYERS_PER_TEAM="${HIVE_MAX_PLAYERS_PER_TEAM:-3}"
+export HIVE_MAX_PLAYERS_PER_TEAM="${HIVE_MAX_PLAYERS_PER_TEAM:-1}"
 export HIVE_TICK_SKIP="${HIVE_TICK_SKIP:-8}"
 export HIVE_ACTION_DELAY="${HIVE_ACTION_DELAY:-7}"
 

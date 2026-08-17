@@ -2,7 +2,6 @@
 
 #include <RLGymCPP/CommonValues.h>
 
-#include <cmath>
 #include <cstdio>
 #include <limits>
 
@@ -62,18 +61,6 @@ void PacketConverter::Initialize(const rlbot::flat::FieldInfo* fieldInfo) {
 			"Unmatched pads will read as always-available.\n",
 			matched, CommonValues::BOOST_LOCATIONS_AMOUNT);
 	}
-}
-
-bool PacketConverter::IsKickoffPhase(const rlbot::flat::GamePacket* packet) {
-	if (!packet || !packet->match_info())
-		return false;
-
-	const auto phase = packet->match_info()->match_phase();
-	// Countdown is the 3-2-1; Kickoff is after the countdown but before the
-	// ball has been hit. The game moves to Active on first touch, which is
-	// exactly where we want to hand over to the general policy.
-	return phase == rlbot::flat::MatchPhase::Countdown ||
-	       phase == rlbot::flat::MatchPhase::Kickoff;
 }
 
 GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {

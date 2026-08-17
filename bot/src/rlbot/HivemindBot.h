@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../policy/PolicySet.h"
+#include "../policy/Policy.h"
 #include "PacketConvert.h"
 
 #include <rlbot/Bot.h>
@@ -20,28 +20,21 @@ namespace Hive {
 // RLBot v5 gives us this natively: with `hivemind = true` in bot.toml, the
 // framework assigns all same-team cars sharing our agent_id to a single Bot
 // instance, and `indices` holds all of them. There is no coordination protocol
-// to write.
-//
-// Why that matters here beyond tidiness: all our cars are inferred in ONE
-// batched forward pass rather than one pass each. On a 6 GB card, single-car
-// inference is dominated by kernel launch overhead, so a 3v3 hivemind costs
-// barely more than a 1v1.
+// to write, and every car is inferred in ONE batched forward pass.
 //
 // Humans need no handling. RLBot only ever hands us indices for cars we
 // control; every other car -- human or bot, our team or theirs -- arrives as an
 // ordinary entry in the packet's player list and flows into the padded
-// observation like any other. A human joining, leaving, or swapping teams
-// mid-match changes the packet contents and nothing else.
+// observation like any other.
 // ============================================================================
 
 // Settings loaded from the environment before the bot connects, since RLBot
 // gives a bot no config channel of its own.
 struct BotSettings {
-	std::filesystem::path generalModel;  // HIVE_GENERAL_MODEL
-	std::filesystem::path kickoffModel;  // HIVE_KICKOFF_MODEL (optional)
+	std::filesystem::path model;  // HIVE_MODEL
 	std::filesystem::path collisionMeshes = "collision_meshes";
 
-	int maxPlayersPerTeam = 3;
+	int maxPlayersPerTeam = 1;
 	int tickSkip = 8;
 	int actionDelay = 7;
 
@@ -56,22 +49,22 @@ struct BotSettings {
 	bool useGPU = true;
 
 	// Read settings from environment variables, applying the defaults above.
-	// Throws std::runtime_error if HIVE_GENERAL_MODEL is unset.
+	// Throws std::runtime_error if HIVE_MODEL is unset.
 	static BotSettings FromEnvironment();
 };
 
 // Process-wide state shared by every HivemindBot instance. RLBot constructs
 // bots through a factory that takes no user parameters, so this is how settings
-// and the loaded models reach them. Models are loaded once and shared, which
+// and the loaded model reach them. The model is loaded once and shared, which
 // also means a blue and an orange hivemind in the same process share weights.
 struct SharedContext {
 	BotSettings settings;
 	std::unique_ptr<RLGC::ObsBuilder> obsBuilder;
 	std::unique_ptr<RLGC::ActionParser> actionParser;
-	std::unique_ptr<PolicySet> policies;
+	std::unique_ptr<Policy> policy;
 	int obsSize = 0;
 
-	// Initialise RocketSim, build the obs/action pipeline, and load models.
+	// Initialise RocketSim, build the obs/action pipeline, and load the model.
 	// Call once before connecting. Throws on failure.
 	void Initialize(const BotSettings& settings);
 };

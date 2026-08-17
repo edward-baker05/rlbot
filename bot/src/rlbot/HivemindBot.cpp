@@ -36,20 +36,16 @@ static int EnvIntOr(const char* key, int fallback) {
 BotSettings BotSettings::FromEnvironment() {
 	BotSettings s = {};
 
-	const std::string general = EnvOr("HIVE_GENERAL_MODEL", "");
-	if (general.empty()) {
+	const std::string model = EnvOr("HIVE_MODEL", "");
+	if (model.empty()) {
 		throw std::runtime_error(
-			"HIVE_GENERAL_MODEL is not set. Point it at a GigaLearn checkpoint folder, "
-			"e.g. checkpoints/general/50000000");
+			"HIVE_MODEL is not set. Point it at a GigaLearn checkpoint folder, "
+			"e.g. checkpoints/main/50000000");
 	}
-	s.generalModel = general;
-
-	const std::string kickoff = EnvOr("HIVE_KICKOFF_MODEL", "");
-	if (!kickoff.empty())
-		s.kickoffModel = kickoff;
+	s.model = model;
 
 	s.collisionMeshes = EnvOr("HIVE_COLLISION_MESHES", "collision_meshes");
-	s.maxPlayersPerTeam = EnvIntOr("HIVE_MAX_PLAYERS_PER_TEAM", 3);
+	s.maxPlayersPerTeam = EnvIntOr("HIVE_MAX_PLAYERS_PER_TEAM", 1);
 	s.tickSkip = EnvIntOr("HIVE_TICK_SKIP", 8);
 	s.actionDelay = EnvIntOr("HIVE_ACTION_DELAY", 7);
 	s.deterministic = EnvIntOr("HIVE_DETERMINISTIC", 1) != 0;
@@ -76,18 +72,11 @@ void SharedContext::Initialize(const BotSettings& s) {
 	obsBuilder = MakeObsBuilder(settings.maxPlayersPerTeam);
 	actionParser = std::make_unique<DefaultAction>();
 
-	policies = std::make_unique<PolicySet>(
+	policy = std::make_unique<Policy>(
 		obsBuilder.get(), obsSize, actionParser.get(), settings.modelShape, settings.useGPU);
 
-	policies->LoadGeneral(settings.generalModel);
-	std::printf("[HivemindBot] Loaded general model from %s\n", settings.generalModel.c_str());
-
-	if (!settings.kickoffModel.empty()) {
-		policies->LoadKickoff(settings.kickoffModel);
-		std::printf("[HivemindBot] Loaded kickoff model from %s\n", settings.kickoffModel.c_str());
-	} else {
-		std::printf("[HivemindBot] No kickoff model set; the general model will drive kickoffs.\n");
-	}
+	policy->Load(settings.model);
+	std::printf("[HivemindBot] Loaded model from %s\n", settings.model.c_str());
 
 	std::printf("[HivemindBot] Observation size %d, tickSkip %d, actionDelay %d, %s\n",
 	            obsSize, settings.tickSkip, settings.actionDelay,
@@ -147,20 +136,10 @@ void HivemindBot::update(const rlbot::flat::GamePacket* packet,
 		const GameState gs = converter.Convert(packet);
 		const auto& settings = Context().settings;
 
-		// --- Regime ----------------------------------------------------------
-		// RLBot reports the match phase directly, so the kickoff/general split
-		// is read from the game rather than inferred. All our cars are on one
-		// team and kickoff is a global phase, so this is per-packet, not
-		// per-car.
-		const Regime regime = PacketConverter::IsKickoffPhase(packet)
-			? Regime::Kickoff
-			: Regime::General;
-
 		// --- Decide which cars need a fresh action ---------------------------
 		std::vector<unsigned> needInference;
 		std::vector<Player> players;
 		std::vector<GameState> states;
-		std::vector<Regime> regimes;
 
 		for (unsigned idx : indices) {
 			// A car we were assigned may not be in the packet yet (or at all,
@@ -175,14 +154,13 @@ void HivemindBot::update(const rlbot::flat::GamePacket* packet,
 				needInference.push_back(idx);
 				players.push_back(gs.players[idx]);
 				states.push_back(gs);
-				regimes.push_back(regime);
 			}
 		}
 
 		// --- One batched forward pass for every car that needs it ------------
 		if (!needInference.empty()) {
-			auto actions = Context().policies->InferBatch(
-				players, states, regimes, settings.deterministic, settings.temperature);
+			auto actions = Context().policy->InferBatch(
+				players, states, settings.deterministic, settings.temperature);
 
 			for (size_t i = 0; i < needInference.size(); i++) {
 				CarState& car = cars[needInference[i]];

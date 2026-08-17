@@ -41,14 +41,7 @@ public:
 	void Initialize(const rlbot::flat::FieldInfo* fieldInfo);
 
 	// Convert a packet into a GameState.
-	//
-	// `prevState` supplies the previous-step values that some rewards and the
-	// kickoff tracker rely on; pass nullptr on the first packet.
 	RLGC::GameState Convert(const rlbot::flat::GamePacket* packet);
-
-	// True if RLBot says we are in the kickoff countdown or kickoff phase.
-	// Prefer this over heuristics: the game tells us directly.
-	static bool IsKickoffPhase(const rlbot::flat::GamePacket* packet);
 
 	void Reset() { lastTouchTimes.clear(); }
 

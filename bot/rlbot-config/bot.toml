@@ -22,8 +22,8 @@ run_command = ""
 run_command_linux = "./run.sh"
 
 [details]
-description = "Two-model RL bot: a kickoff policy and a general policy, trained with GigaLearn on RocketSim."
-fun_fact = "Kickoff and general play are separate networks; the handover happens on first touch."
+description = "Single-policy RL bot trained with GigaLearn on RocketSim."
+fun_fact = "Trained entirely in RocketSim."
 developer = "edwardb"
 language = "C++"
-tags = ["1v1", "teamplay"]
+tags = ["1v1"]
