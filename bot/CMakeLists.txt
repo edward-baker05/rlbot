@@ -49,9 +49,9 @@ add_subdirectory("${HIVE_EXTERNAL}/cpp-interface" rlbot-cpp)
 # Bot
 # ---------------------------------------------------------------------------
 
-add_executable(HivemindBot
-	src/main.cpp
-
+# Everything except main.cpp lives in a static library so the bot binary and
+# the test binary share one compilation of the project sources.
+add_library(HiveCore STATIC
 	src/env/Env.cpp
 	src/env/Env.h
 	src/env/Obs.cpp
@@ -78,12 +78,22 @@ add_executable(HivemindBot
 	src/Config.h
 )
 
-target_include_directories(HivemindBot PRIVATE src)
+target_include_directories(HiveCore PUBLIC src)
 
-target_link_libraries(HivemindBot PRIVATE
+target_link_libraries(HiveCore PUBLIC
 	GigaLearnCPP
 	RLBotCPP-static
 )
+
+add_executable(HivemindBot src/main.cpp)
+target_link_libraries(HivemindBot PRIVATE HiveCore)
+
+add_executable(HiveTests
+	tests/test_main.cpp
+	tests/test_harness.cpp
+)
+target_link_libraries(HiveTests PRIVATE HiveCore)
+target_include_directories(HiveTests PRIVATE tests)
 
 # ---------------------------------------------------------------------------
 # CUDA collective libraries
@@ -100,7 +110,7 @@ set(HIVE_NVSHMEM_LIB "${HIVE_LIBS}/nvshmem/nvidia/nvshmem/lib/libnvshmem_host.so
 
 foreach(EXTRA_LIB "${HIVE_NCCL_LIB}" "${HIVE_NVSHMEM_LIB}")
 	if(EXISTS "${EXTRA_LIB}")
-		target_link_libraries(HivemindBot PRIVATE "${EXTRA_LIB}")
+		target_link_libraries(HiveCore PUBLIC "${EXTRA_LIB}")
 	else()
 		message(WARNING "Expected CUDA library not found: ${EXTRA_LIB}\n"
 			"If linking fails with undefined ncclXxx / nvshmemXxx references, "
@@ -108,21 +118,24 @@ foreach(EXTRA_LIB "${HIVE_NCCL_LIB}" "${HIVE_NVSHMEM_LIB}")
 	endif()
 endforeach()
 
-# Bake the library paths into the binary so it runs without callers having to
-# export LD_LIBRARY_PATH. RLBot launches the bot itself and will not set it.
-set_target_properties(HivemindBot PROPERTIES
-	BUILD_RPATH "${HIVE_LIBS}/libtorch/lib;${HIVE_LIBS}/nccl/nvidia/nccl/lib;${HIVE_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
-	INSTALL_RPATH "${HIVE_LIBS}/libtorch/lib;${HIVE_LIBS}/nccl/nvidia/nccl/lib;${HIVE_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
-	BUILD_WITH_INSTALL_RPATH FALSE
-)
+# Bake the library paths into the binaries so they run without callers having
+# to export LD_LIBRARY_PATH. RLBot launches the bot itself and will not set it.
+foreach(HIVE_BIN HivemindBot HiveTests)
+	set_target_properties(${HIVE_BIN} PROPERTIES
+		BUILD_RPATH "${HIVE_LIBS}/libtorch/lib;${HIVE_LIBS}/nccl/nvidia/nccl/lib;${HIVE_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
+		INSTALL_RPATH "${HIVE_LIBS}/libtorch/lib;${HIVE_LIBS}/nccl/nvidia/nccl/lib;${HIVE_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
+		BUILD_WITH_INSTALL_RPATH FALSE
+	)
 
-# GigaLearnCPP's own CMakeLists sets TORCH_CXX_FLAGS on CMAKE_CXX_FLAGS, which
-# propagates here because it is added as a subdirectory before this target.
+	# GigaLearnCPP's own CMakeLists sets TORCH_CXX_FLAGS on CMAKE_CXX_FLAGS,
+	# which propagates here because it is added as a subdirectory first.
 
-# Keep the binary next to the shared libraries it loads.
-set_target_properties(HivemindBot PROPERTIES
-	RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
-)
+	# Keep the binaries next to the shared libraries they load; HiveTests also
+	# relies on this so collision_meshes resolves relatively from the build dir.
+	set_target_properties(${HIVE_BIN} PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+	)
+endforeach()
 
 # ---------------------------------------------------------------------------
 # Runtime assets
