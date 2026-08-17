@@ -91,6 +91,7 @@ target_link_libraries(HivemindBot PRIVATE HiveCore)
 add_executable(HiveTests
 	tests/test_main.cpp
 	tests/test_harness.cpp
+	tests/test_playphase.cpp
 )
 target_link_libraries(HiveTests PRIVATE HiveCore)
 target_include_directories(HiveTests PRIVATE tests)
