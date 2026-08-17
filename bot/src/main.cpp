@@ -21,11 +21,19 @@ void PrintUsage(const char* argv0) {
 		"  play             Connect to RLBot v5 and play a match\n"
 		"\n"
 		"Training options:\n"
-		"  --games N        Number of simultaneous games (default 128)\n"
-		"  --render         Stream to RocketSimVis instead of training at speed\n"
-		"  --cpu            Train on CPU instead of CUDA\n"
-		"  --no-metrics     Do not send metrics to wandb\n"
-		"  --seed N         Random seed (default: clock)\n"
+		"  --games N            Number of simultaneous games (default 128)\n"
+		"  --render             Stream to RocketSimVis instead of training at speed\n"
+		"  --cpu                Train on CPU instead of CUDA\n"
+		"  --no-metrics         Do not send metrics to wandb\n"
+		"  --seed N             Random seed (default: clock)\n"
+		"  --max-steps N        Stop after N timesteps (default: run until Q)\n"
+		"  --label NAME         Suffix run and checkpoint names, to keep runs apart\n"
+		"\n"
+		"Self-play options:\n"
+		"  --self-play          Train against saved old versions, and track skill\n"
+		"  --track-skill        Track ELO against old versions without self-play\n"
+		"                       (use this for a comparable baseline)\n"
+		"  --ts-per-version N   Snapshot the policy every N steps (default 5M)\n"
 		"\n"
 		"Environment (play):\n"
 		"  HIVE_GENERAL_MODEL   Checkpoint folder for the general policy (required)\n"
@@ -88,6 +96,19 @@ int RunTrain(Hive::TrainTarget target, int argc, char* argv[]) {
 			cfg.numGames = std::atoi(argv[++i]);
 		} else if (arg == "--seed" && i + 1 < argc) {
 			cfg.randomSeed = std::atoll(argv[++i]);
+		} else if (arg == "--max-steps" && i + 1 < argc) {
+			cfg.maxSteps = std::atoll(argv[++i]);
+		} else if (arg == "--label" && i + 1 < argc) {
+			cfg.runLabel = argv[++i];
+		} else if (arg == "--self-play") {
+			cfg.selfPlay.trainAgainstOldVersions = true;
+			// Skill tracking is what makes the result readable, so turn it on
+			// with self-play unless it was already requested.
+			cfg.selfPlay.trackSkill = true;
+		} else if (arg == "--track-skill") {
+			cfg.selfPlay.trackSkill = true;
+		} else if (arg == "--ts-per-version" && i + 1 < argc) {
+			cfg.selfPlay.tsPerVersion = std::atoll(argv[++i]);
 		} else if (arg == "--render") {
 			// Rendering runs the sim at wall-clock speed so you can watch it in
 			// RocketSimVis. Useful for sanity-checking state setters and

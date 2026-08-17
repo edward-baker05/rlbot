@@ -117,6 +117,63 @@ struct KickoffRewardWeights {
 };
 
 // ---------------------------------------------------------------------------
+// Self-play
+// ---------------------------------------------------------------------------
+// By default the policy only ever plays against its current self. That is
+// cheap and works, but it lets the policy drift into strategies that beat
+// *itself right now* rather than strategies that are actually strong -- both
+// sides co-adapt, and a weakness neither side exploits never gets punished.
+//
+// Training against saved older versions fixes this: periodically the current
+// weights are snapshotted, and some fraction of games are played against a
+// randomly chosen snapshot instead of the live policy. An exploit that only
+// works against the current self stops paying off, because the opponent pool
+// does not co-adapt with you.
+//
+// The skill tracker is the measurement half. It runs evaluation matches
+// between the current policy and old versions and maintains an ELO-style
+// rating per game mode. This is the only honest answer to "is it actually
+// getting better" -- average reward rises in every run, including ones where
+// the policy has just found a better way to farm shaping rewards.
+struct SelfPlayConfig {
+	// Play a fraction of games against saved old versions.
+	bool trainAgainstOldVersions = false;
+
+	// Chance per iteration that it trains against an old version instead of
+	// itself. Low on purpose: the point is to keep the policy honest, not to
+	// stop it improving against a live opponent.
+	float trainAgainstOldChance = 0.15f;
+
+	// How often to snapshot the current policy into the version pool.
+	//
+	// GigaLearn's own default is 25M, which suits multi-billion-step runs. That
+	// is far too coarse to observe anything in a short comparison run -- with a
+	// 50M budget you would snapshot twice and self-play would barely engage.
+	// 5M gives a usable pool quickly; raise it towards 25M for long runs, since
+	// a pool full of near-identical recent versions is not much of a test.
+	int64_t tsPerVersion = 5'000'000;
+
+	// Version pool size. Older versions past this are dropped.
+	int maxOldVersions = 32;
+
+	// --- Skill tracking (measurement) --------------------------------------
+	// Worth enabling even without trainAgainstOldVersions, since it is what
+	// makes two runs comparable.
+	bool trackSkill = false;
+
+	// Arenas used for evaluation matches. These compete with training for CPU,
+	// so keep it well under the core count; 8 costs little on a 6-core part.
+	int skillArenas = 8;
+
+	// Iterations between evaluation runs. Higher means less overhead and a
+	// coarser rating curve.
+	int skillUpdateInterval = 20;
+
+	float skillSimTime = 45.f;
+	float skillMaxSimTime = 240.f;
+};
+
+// ---------------------------------------------------------------------------
 // Top-level training config
 // ---------------------------------------------------------------------------
 struct TrainConfig {
@@ -132,6 +189,7 @@ struct TrainConfig {
 	RewardWeights rewards = {};
 	KickoffRewardWeights kickoffRewards = {};
 	ModelShape modelShape = {};
+	SelfPlayConfig selfPlay = {};
 
 	// Episode limits
 	float noTouchTimeoutSeconds = 12.f;  // General: end a stalled episode.
@@ -165,8 +223,21 @@ struct TrainConfig {
 	float policyLR = 1.5e-4f;
 	float criticLR = 1.5e-4f;
 
+	// Stop after this many timesteps. 0 means run until you press Q.
+	//
+	// Exists so two configurations can be compared over an identical budget.
+	// Comparing by wall clock is misleading when one config is slower per step
+	// -- the slower run would look worse simply for having seen less data.
+	int64_t maxSteps = 0;
+
 	// --- Bookkeeping --------------------------------------------------------
 	std::filesystem::path checkpointRoot = "checkpoints";
+
+	// Distinguishes runs of the same target. Without it, a second run resumes
+	// from the first one's checkpoints, which silently invalidates any
+	// comparison between them.
+	std::string runLabel = {};
+
 	int64_t tsPerSave = 1'000'000;
 	int checkpointsToKeep = 8;
 	int64_t randomSeed = -1; // -1 uses the clock
@@ -181,12 +252,16 @@ struct TrainConfig {
 	bool useGPU = true;
 
 	// Derived helpers
-	std::filesystem::path CheckpointFolder() const {
-		return checkpointRoot / (target == TrainTarget::Kickoff ? "kickoff" : "general");
+	std::string TargetName() const {
+		return std::string(target == TrainTarget::Kickoff ? "kickoff" : "general");
 	}
 
 	std::string RunName() const {
-		return std::string(target == TrainTarget::Kickoff ? "kickoff" : "general");
+		return runLabel.empty() ? TargetName() : TargetName() + "-" + runLabel;
+	}
+
+	std::filesystem::path CheckpointFolder() const {
+		return checkpointRoot / RunName();
 	}
 };
 

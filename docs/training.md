@@ -107,11 +107,7 @@ widths is the most straightforward way to raise the skill ceiling. See
 bot's air game, raise `curriculum.aerial`. Keep `neutralPlay` dominant — a bot
 that can air dribble but cannot rotate loses to one that only rotates.
 
-**Self-play against older versions.** GigaLearn has `trainAgainstOldVersions`
-and an ELO-based skill tracker (`savePolicyVersions`, `SkillTrackerConfig`).
-Neither is wired into `Config.h` yet. This is the standard way to avoid the
-policy overfitting to its current self, and is probably the biggest structural
-improvement available after network size.
+**Self-play against older versions.** Wired up — see the section below.
 
 **Replay-based state setters.** Setting states from real human replays gives a
 far more realistic distribution than hand-written setters. Tools exist in the
@@ -120,6 +116,82 @@ more work than the others but is how several strong bots got their edge.
 
 **Reward shaping.** Listed last on purpose. It is the most tempting knob and the
 easiest way to make things quietly worse.
+
+---
+
+## Self-play
+
+By default the policy only plays against its current self. That works, but both
+sides co-adapt: the policy can drift towards strategies that beat *itself right
+now* rather than strategies that are actually strong, and a weakness neither
+side exploits never gets punished.
+
+Training against saved older versions fixes that. The current weights are
+snapshotted periodically, and a fraction of games are played against a randomly
+chosen snapshot. The opponent pool does not co-adapt with you, so an exploit
+that only works against your current self stops paying off.
+
+```bash
+scripts/train.sh general --self-play
+```
+
+That enables both halves: training against old versions, and the skill tracker
+that measures it.
+
+### Measuring it
+
+The skill tracker runs evaluation matches between the current policy and old
+versions, maintaining an ELO-style rating per game mode (`Rating/1v1`,
+`Rating/2v2`, …). This is the only honest answer to "is it getting better" —
+average reward rises in every run, including ones where the policy has merely
+found a better way to farm shaping rewards.
+
+Enable it without self-play to get a comparable baseline:
+
+```bash
+scripts/train.sh general --track-skill
+```
+
+Ratings only appear once the version pool is non-empty, i.e. after
+`tsPerVersion` steps.
+
+### Settings
+
+`SelfPlayConfig` in `Config.h`:
+
+| Setting | Default | Notes |
+|---|---:|---|
+| `trainAgainstOldChance` | 0.15 | Fraction of iterations played against a snapshot. Low on purpose — the goal is to keep the policy honest, not to stop it improving. |
+| `tsPerVersion` | 5M | Snapshot interval. GigaLearn's own default is 25M, suited to multi-billion-step runs; 5M builds a usable pool fast. Raise it for long runs — a pool of near-identical recent versions is not much of a test. |
+| `maxOldVersions` | 32 | Pool size. |
+| `skillArenas` | 8 | Evaluation arenas. They compete with training for CPU; keep well under core count. |
+| `skillUpdateInterval` | 20 | Iterations between evaluations. Higher is cheaper and coarser. |
+
+### Comparing two configurations
+
+```bash
+scripts/compare_runs.sh 50000000 128
+scripts/summarize_runs.py bot/build/metrics/general-baseline.csv \
+                          bot/build/metrics/general-selfplay.csv
+```
+
+Runs a baseline and a self-play run over an identical **step budget** with the
+same seed, then prints a side-by-side comparison.
+
+Budget rather than wall clock, deliberately: self-play costs time per step, so
+comparing by clock would penalise it for having seen less data rather than for
+being worse. `--max-steps` enforces the budget exactly.
+
+Use `--label` to keep runs apart — without it the second run resumes from the
+first one's checkpoints and the comparison is meaningless.
+
+### Metrics CSV
+
+`bot/metrics/metric_receiver.py` replaces GigaLearn's wandb-only receiver and
+writes every metric to `bot/build/metrics/<run>.csv`. This exists because
+GigaLearn's console output prints a fixed subset that excludes `Rating/*`,
+`Player/*` and `Phase/*` — the metrics you most need. wandb still works if
+installed; set `WANDB_DISABLED=1` for CSV only.
 
 ---
 

@@ -21,26 +21,31 @@ run fewer than ~64 games.
 
 ## What to change first
 
-### 1. Network size — you have the headroom
+### 1. Network size
 
-`modelShape` in `Config.h`. The defaults are conservative:
+`ModelShape` in `bot/src/policy/PolicySet.h`. Currently:
 
 ```cpp
-sharedHeadLayers = {256, 256};
-policyLayers     = {256, 256, 256};
+sharedHeadLayers = {512, 512};
+policyLayers     = {512, 512, 512};
 ```
 
-That is ~530k parameters total. With 4 GB of VRAM spare, doubling to `{512,
-512}` / `{512, 512, 512}` is comfortable and raises the skill ceiling. Bots at
-the level you are targeting are generally larger than 256-wide.
+Measured cost of moving from 256 to 512:
 
-The cost is throughput — expect a meaningful drop in steps/sec. Whether that
-trade is worth it depends on where you are: early on, raw timesteps win; once
-the policy plateaus, capacity is usually the binding constraint.
+| | 256-wide | 512-wide |
+|---|---:|---:|
+| Parameters | 530,523 | 1,978,459 |
+| Steps/sec (128 games) | ~120,000 | ~91,000 |
+| VRAM | 1.9 GB | 1.8 GB |
 
-> Changing layer sizes invalidates existing checkpoints. Start a fresh run, and
-> update `ModelShape` in `bot/src/rlbot/HivemindBot.h` to match or the deployed
-> bot will load garbage.
+24% slower per step for 3.7x the capacity, and VRAM did not move — it is
+dominated by the environment batch, not the weights. There is still room to go
+wider if the policy plateaus.
+
+> `ModelShape` is the single source of truth for both training and deployment:
+> `TrainConfig` and `BotSettings` each hold a default-constructed one. Edit it
+> in `PolicySet.h` only, never duplicate the numbers. Changing it invalidates
+> every existing checkpoint.
 
 ### 2. `numGames` — the CPU knob
 

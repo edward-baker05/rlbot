@@ -136,3 +136,37 @@ add_custom_command(TARGET HivemindBot POST_BUILD
 		"${CMAKE_BINARY_DIR}/collision_meshes"
 	COMMENT "Copying RocketSim collision meshes"
 )
+
+# Our metrics receiver replaces GigaLearn's, which only forwards to wandb.
+# Ours also writes every metric to a CSV -- the console prints a fixed subset
+# that excludes Rating/*, Player/* and Phase/*, so without this there is no way
+# to compare two runs on the metrics that matter.
+#
+# GigaLearn's CMakeLists installs its version with configure_file at CONFIGURE
+# time; this runs at BUILD time and therefore wins.
+#
+# Deliberately NOT a POST_BUILD command on HivemindBot: POST_BUILD only fires
+# when the target actually relinks, so editing just the .py would leave the
+# stale copy in place and the next run would silently use it. An OUTPUT command
+# with DEPENDS re-copies whenever the source changes, regardless of whether any
+# C++ was touched.
+#
+# Python also caches bytecode next to the module, and copy preserves the source
+# timestamp, so a stale .pyc can shadow a fresh .py. Clear it on every copy.
+set(HIVE_METRICS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/metrics/metric_receiver.py")
+set(HIVE_METRICS_DST "${CMAKE_BINARY_DIR}/python_scripts/metric_receiver.py")
+
+# An OUTPUT-based rule does not work here either: GigaLearn's configure_file
+# rewrites the destination on every cmake configure, giving it a timestamp
+# newer than our source, so CMake would consider the copy up to date and skip
+# it -- leaving the stock receiver in place. A custom target has no output to
+# compare against and therefore always runs. The copy is a few kilobytes.
+add_custom_target(hive-metrics-receiver ALL
+	COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/python_scripts"
+	COMMAND ${CMAKE_COMMAND} -E copy "${HIVE_METRICS_SRC}" "${HIVE_METRICS_DST}"
+	COMMAND ${CMAKE_COMMAND} -E touch "${HIVE_METRICS_DST}"
+	COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_BINARY_DIR}/python_scripts/__pycache__"
+	COMMENT "Installing metrics receiver (CSV + optional wandb)"
+	VERBATIM
+)
+add_dependencies(HivemindBot hive-metrics-receiver)

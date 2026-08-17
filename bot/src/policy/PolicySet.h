@@ -12,13 +12,20 @@
 namespace Hive {
 
 // Shape of a policy network, needed to rebuild it for inference.
+//
 // These MUST match the values the model was trained with. Load a checkpoint
 // with the wrong layer sizes and libtorch will either throw a shape error or --
-// worse, if the shapes happen to line up -- load silently and play badly.
-// TrainConfig writes these into the checkpoint folder; see PolicySet::Load.
+// worse, if the sizes happen to line up -- load silently and play badly.
+//
+// This struct is the single source of truth for both sides: TrainConfig and
+// BotSettings each hold a default-constructed ModelShape, so editing the
+// defaults here changes training and deployment together. Do not duplicate
+// these numbers anywhere else.
+//
+// Changing them invalidates every existing checkpoint. Start a fresh run.
 struct ModelShape {
-	std::vector<int> sharedHeadLayers = {256, 256};
-	std::vector<int> policyLayers = {256, 256, 256};
+	std::vector<int> sharedHeadLayers = {512, 512};
+	std::vector<int> policyLayers = {512, 512, 512};
 	GGL::ModelActivationType activation = GGL::ModelActivationType::RELU;
 	bool addLayerNorm = true;
 };

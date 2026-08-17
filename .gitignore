@@ -33,3 +33,8 @@ venv/
 *.swp
 .DS_Store
 compile_commands.json
+
+# Training run logs
+runs/
+bot/build/metrics/
+runs-driver.log

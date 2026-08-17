@@ -25,7 +25,27 @@ namespace Hive {
 //
 // Metrics run on a sampled fraction of steps because iterating every player of
 // every game every step is a real cost at 128 games.
+// Step budget for bounded runs. Set from RunTraining(); 0 disables.
+static int64_t g_MaxSteps = 0;
+
 static void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
+	// --- Step budget --------------------------------------------------------
+	// GigaLearn's training loop runs until the user presses Q; there is no
+	// timestep limit and no documented way to break out of it. The step
+	// callback is the only hook that runs inside the loop with access to the
+	// learner, so the budget is enforced here.
+	//
+	// Save first, then _exit rather than return: unwinding out of a callback
+	// mid-collection would race the worker threads, and there is nothing left
+	// to clean up once the checkpoint is on disk.
+	if (g_MaxSteps > 0 && static_cast<int64_t>(learner->totalTimesteps) >= g_MaxSteps) {
+		std::cout << "\nReached step budget (" << learner->totalTimesteps
+		          << " >= " << g_MaxSteps << "). Saving and exiting.\n";
+		std::cout.flush();
+		learner->Save();
+		std::_Exit(0);
+	}
+
 	// Sample roughly a quarter of steps. Averages over an iteration are just
 	// as accurate and cost a quarter as much.
 	const bool sample = (rand() % 4) == 0;
@@ -93,8 +113,20 @@ void RunTraining(const TrainConfig& cfg) {
 	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam);
 	std::cout << "Observation size: " << obsSize
 	          << " (maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
-	std::cout << "Training target:  " << cfg.RunName() << "\n";
+	std::cout << "Run:              " << cfg.RunName() << "\n";
 	std::cout << "Checkpoints:      " << cfg.CheckpointFolder() << "\n";
+	std::cout << "Self-play:        "
+	          << (cfg.selfPlay.trainAgainstOldVersions
+	                  ? "on (" + std::to_string(static_cast<int>(cfg.selfPlay.trainAgainstOldChance * 100)) +
+	                        "% of iterations, snapshot every " +
+	                        std::to_string(cfg.selfPlay.tsPerVersion / 1'000'000) + "M steps)"
+	                  : "off")
+	          << "\n";
+	std::cout << "Skill tracking:   " << (cfg.selfPlay.trackSkill ? "on" : "off") << "\n";
+	if (cfg.maxSteps > 0)
+		std::cout << "Step budget:      " << cfg.maxSteps << "\n";
+
+	g_MaxSteps = cfg.maxSteps;
 
 	LearnerConfig lc = {};
 
@@ -134,6 +166,22 @@ void RunTraining(const TrainConfig& cfg) {
 	lc.ppo.critic.layerSizes = cfg.modelShape.policyLayers;
 	lc.ppo.critic.activationType = cfg.modelShape.activation;
 	lc.ppo.critic.addLayerNorm = cfg.modelShape.addLayerNorm;
+
+	// --- Self-play ----------------------------------------------------------
+	// The learner forces savePolicyVersions on if either of these is enabled,
+	// since both need the version pool. Setting it explicitly documents the
+	// dependency rather than relying on that.
+	lc.trainAgainstOldVersions = cfg.selfPlay.trainAgainstOldVersions;
+	lc.trainAgainstOldChance = cfg.selfPlay.trainAgainstOldChance;
+	lc.savePolicyVersions = cfg.selfPlay.trainAgainstOldVersions || cfg.selfPlay.trackSkill;
+	lc.tsPerVersion = cfg.selfPlay.tsPerVersion;
+	lc.maxOldVersions = cfg.selfPlay.maxOldVersions;
+
+	lc.skillTracker.enabled = cfg.selfPlay.trackSkill;
+	lc.skillTracker.numArenas = cfg.selfPlay.skillArenas;
+	lc.skillTracker.updateInterval = cfg.selfPlay.skillUpdateInterval;
+	lc.skillTracker.simTime = cfg.selfPlay.skillSimTime;
+	lc.skillTracker.maxSimTime = cfg.selfPlay.skillMaxSimTime;
 
 	lc.sendMetrics = cfg.sendMetrics;
 	lc.metricsProjectName = cfg.wandbProject;
