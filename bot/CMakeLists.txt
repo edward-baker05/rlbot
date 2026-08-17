@@ -93,6 +93,7 @@ add_executable(HiveTests
 	tests/test_harness.cpp
 	tests/test_playphase.cpp
 	tests/test_rewards.cpp
+	tests/test_statesetters.cpp
 )
 target_link_libraries(HiveTests PRIVATE HiveCore)
 target_include_directories(HiveTests PRIVATE tests)
