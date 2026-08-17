@@ -66,6 +66,9 @@ add_library(HiveCore STATIC
 	src/env/StateSetters.h
 	src/env/Terminal.h
 
+	src/eval/Eval.cpp
+	src/eval/Eval.h
+
 	src/policy/Policy.cpp
 	src/policy/Policy.h
 

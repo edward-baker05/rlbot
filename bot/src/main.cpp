@@ -1,5 +1,6 @@
 #include "Config.h"
 #include "Verify.h"
+#include "eval/Eval.h"
 #include "rlbot/HivemindBot.h"
 #include "train/Train.h"
 
@@ -19,6 +20,7 @@ void PrintUsage(const char* argv0) {
 		"  train            Train the policy\n"
 		"  play             Connect to RLBot v5 and play a match\n"
 		"  verify <folder>  Check a checkpoint loads and infers sanely before deploying it\n"
+		"  eval --blue A --orange B   Play two checkpoints against each other in RocketSim\n"
 		"\n"
 		"Training options:\n"
 		"  --games N            Number of simultaneous games (default 128)\n"
@@ -165,6 +167,40 @@ int main(int argc, char* argv[]) {
 			return EXIT_FAILURE;
 		}
 		return Hive::RunVerify(argv[2]);
+	}
+
+	if (command == "eval") {
+		Hive::EvalConfig ecfg = {};
+		for (int i = 2; i < argc; i++) {
+			const std::string arg = argv[i];
+			if (arg == "--blue" && i + 1 < argc) {
+				ecfg.blueModel = argv[++i];
+			} else if (arg == "--orange" && i + 1 < argc) {
+				ecfg.orangeModel = argv[++i];
+			} else if (arg == "--games" && i + 1 < argc) {
+				ecfg.games = std::atoi(argv[++i]);
+			} else if (arg == "--seconds" && i + 1 < argc) {
+				ecfg.maxSeconds = static_cast<float>(std::atof(argv[++i]));
+			} else if (arg == "--seed" && i + 1 < argc) {
+				ecfg.seed = std::atoll(argv[++i]);
+			} else if (arg == "--cpu") {
+				ecfg.useGPU = false;
+			} else {
+				std::fprintf(stderr, "Unknown option: %s\n", arg.c_str());
+				return EXIT_FAILURE;
+			}
+		}
+		if (ecfg.blueModel.empty() || ecfg.orangeModel.empty()) {
+			std::fprintf(stderr, "Usage: %s eval --blue <ckpt> --orange <ckpt> [--games N] [--seconds S] [--cpu]\n", argv[0]);
+			return EXIT_FAILURE;
+		}
+		try {
+			Hive::RunEval(ecfg);
+		} catch (const std::exception& e) {
+			std::fprintf(stderr, "Eval failed: %s\n", e.what());
+			return EXIT_FAILURE;
+		}
+		return EXIT_SUCCESS;
 	}
 
 	if (command == "-h" || command == "--help" || command == "help") {
