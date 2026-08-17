@@ -6,7 +6,6 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <string>
 
 namespace {
@@ -16,8 +15,7 @@ void PrintUsage(const char* argv0) {
 		"Usage: %s <command> [options]\n"
 		"\n"
 		"Commands:\n"
-		"  train-general    Train the main policy (everything except kickoffs)\n"
-		"  train-kickoff    Train the kickoff policy (reset until first touch)\n"
+		"  train            Train the policy\n"
 		"  play             Connect to RLBot v5 and play a match\n"
 		"\n"
 		"Training options:\n"
@@ -36,8 +34,7 @@ void PrintUsage(const char* argv0) {
 		"  --ts-per-version N   Snapshot the policy every N steps (default 5M)\n"
 		"\n"
 		"Environment (play):\n"
-		"  HIVE_GENERAL_MODEL   Checkpoint folder for the general policy (required)\n"
-		"  HIVE_KICKOFF_MODEL   Checkpoint folder for the kickoff policy (optional)\n"
+		"  HIVE_GENERAL_MODEL   Checkpoint folder for the policy (required)\n"
 		"  RLBOT_AGENT_ID       Set by RLBot when it launches the bot\n"
 		"\n"
 		"Environment (both):\n"
@@ -85,9 +82,8 @@ int RunPlay(int argc, char* argv[]) {
 	return EXIT_SUCCESS;
 }
 
-int RunTrain(Hive::TrainTarget target, int argc, char* argv[]) {
+int RunTrain(int argc, char* argv[]) {
 	Hive::TrainConfig cfg = {};
-	cfg.target = target;
 
 	for (int i = 2; i < argc; i++) {
 		const std::string arg = argv[i];
@@ -155,11 +151,8 @@ int main(int argc, char* argv[]) {
 
 	const std::string command = argv[1];
 
-	if (command == "train-general")
-		return RunTrain(Hive::TrainTarget::General, argc, argv);
-
-	if (command == "train-kickoff")
-		return RunTrain(Hive::TrainTarget::Kickoff, argc, argv);
+	if (command == "train")
+		return RunTrain(argc, argv);
 
 	if (command == "play")
 		return RunPlay(argc, argv);

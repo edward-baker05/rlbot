@@ -46,15 +46,4 @@ std::vector<WeightedReward> BuildGeneralRewards(const TrainConfig &cfg) {
           {new FaceBallReward(), w.faceBall}};
 }
 
-std::vector<WeightedReward> BuildKickoffRewards(const KickoffRewardWeights &w) {
-  return {
-      {new VelocityPlayerToBallReward(), w.velPlayerToBall},
-      {new ZeroSumReward(new StrongTouchReward(TOUCH_MIN_KPH, TOUCH_MAX_KPH),
-                         0.f),
-       w.strongTouch},
-      {new ZeroSumReward(new VelocityBallToGoalReward(), 0.f), w.velBallToGoal},
-      {new GoalReward(), w.goal},
-  };
-}
-
 } // namespace Hive
