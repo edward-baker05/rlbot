@@ -1,4 +1,5 @@
 #include "Config.h"
+#include "Verify.h"
 #include "rlbot/HivemindBot.h"
 #include "train/Train.h"
 
@@ -17,6 +18,7 @@ void PrintUsage(const char* argv0) {
 		"Commands:\n"
 		"  train            Train the policy\n"
 		"  play             Connect to RLBot v5 and play a match\n"
+		"  verify <folder>  Check a checkpoint loads and infers sanely before deploying it\n"
 		"\n"
 		"Training options:\n"
 		"  --games N            Number of simultaneous games (default 128)\n"
@@ -156,6 +158,14 @@ int main(int argc, char* argv[]) {
 
 	if (command == "play")
 		return RunPlay(argc, argv);
+
+	if (command == "verify") {
+		if (argc < 3) {
+			std::fprintf(stderr, "Usage: %s verify <checkpoint-folder>\n", argv[0]);
+			return EXIT_FAILURE;
+		}
+		return Hive::RunVerify(argv[2]);
+	}
 
 	if (command == "-h" || command == "--help" || command == "help") {
 		PrintUsage(argv[0]);

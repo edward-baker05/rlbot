@@ -80,6 +80,8 @@ add_library(HiveCore STATIC
 	src/train/Train.h
 
 	src/Config.h
+	src/Verify.cpp
+	src/Verify.h
 )
 
 target_include_directories(HiveCore PUBLIC src)
