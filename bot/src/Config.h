@@ -56,64 +56,156 @@ struct TeamSizeMix {
 // the policy sees too few to learn from. Equally, do not starve NeutralPlay --
 // it is the situation the bot is actually in most of the time, and over-weighting
 // exotic scenarios produces a bot that can air dribble but cannot rotate.
+// The curriculum must agree with the reward function. Spawning air dribble
+// scenarios while the reward pays nothing for air dribbling does not teach air
+// dribbling -- it just spends samples on a situation the policy has no gradient
+// to improve at, and hands it a stream of episodes it can only fail.
+//
+// These weights are matched to RewardPhase::Foundations. When the reward phase
+// advances, raise the corresponding scenarios with it.
 struct CurriculumWeights {
-	float neutralPlay = 40.f;   // Ordinary play. Keep this dominant.
+	float neutralPlay = 45.f;   // Ordinary play. Keep this dominant.
 	float defend = 15.f;
-	float recover = 10.f;
-	float aerial = 12.f;
-	float groundDribble = 8.f;
-	float airDribble = 6.f;
-	float flipReset = 4.f;
-	float demo = 5.f;
 
-	// Full kickoffs mixed into general training. Small but non-zero: the
-	// general policy still has to play the seconds right after the kickoff
-	// model hands over, so it needs to have seen post-kickoff states.
-	float kickoff = 6.f;
+	// Cars end up airborne whether or not we spawn them there, and landing
+	// on your wheels is a prerequisite for everything else.
+	float recover = 8.f;
+
+	// Ball in the air, cars on the ground. A phase-1 scenario despite the
+	// name: the lesson is "the ball is up, go and meet it", which the touch
+	// reward pays for directly. Jumping emerges from this rather than from
+	// being paid to leave the ground.
+	float aerial = 5.f;
+
+	// Close ball control on the deck.
+	float groundDribble = 5.f;
+
+	// Full kickoffs mixed into general training. The general policy has to play
+	// the seconds right after the kickoff model hands over, so it needs to have
+	// seen post-kickoff states.
+	float kickoff = 8.f;
+
+	// --- Later phases -------------------------------------------------------
+	// Zero until the reward function pays for them. CombinedState drops
+	// zero-weight setters entirely, so these cost nothing while disabled.
+	float airDribble = 0.f;   // RewardPhase::Aerial
+	float flipReset = 0.f;    // RewardPhase::Aerial
+	float demo = 0.f;         // RewardPhase::Teamplay
 };
 
 // ---------------------------------------------------------------------------
 // Rewards
 // ---------------------------------------------------------------------------
-// Weights are relative; the learner standardises returns, so what matters is
-// the ratio between them, not the absolute scale.
-struct RewardWeights {
-	// Movement and control
-	float air = 0.25f;
-	float faceBall = 0.25f;
-	float velPlayerToBall = 4.f;
+// Read docs/rewards.md before changing any of these. The weights are derived
+// from measured per-step reward values, not guessed, and the derivation is what
+// keeps the bot from farming instead of playing.
+//
+// THE RULE THAT MATTERS: never pay per-step for a state the policy fully
+// controls. Such a reward is an income stream that requires no skill, and PPO
+// will find it. A previous version of this file paid 0.25/step for being
+// airborne; the policy duly spent 87% of its life in the air, 98.4% of all
+// reward came from shaping terms, and its skill rating fell steadily while the
+// reward curve climbed. Every reward below is instead one of:
+//
+//   TELESCOPING  -- the derivative of a potential, so any closed path in state
+//                   space sums to zero. VelocityPlayerToBall is exactly
+//                   -d(distance to ball)/dt, so approaching and retreating nets
+//                   nothing. Safe at any weight.
+//   BOUNDED      -- total obtainable value is capped by a real resource.
+//                   PickupBoost is a sqrt-delta, so it pays out at most 1.0 for
+//                   an empty-to-full tank and almost nothing for topping up.
+//   IMPULSE      -- requires an actual change in the world. StrongTouch needs
+//                   the ball's velocity to change, so resting against the ball
+//                   pays zero no matter how long you lean on it.
+//   TERMINAL     -- the thing you actually want. Goals.
+//
+// Phases. Rewards are staged: teach one idea, let it consolidate, then add the
+// next. Introducing dribble or demo rewards before the bot can reliably strike
+// the ball just gives it more ways to earn without improving.
+enum class RewardPhase {
+	// Get to the ball, hit it hard, hit it towards their goal. Nothing else.
+	Foundations,
 
-	// Ball striking
-	float strongTouch = 60.f;
-	float velBallToGoal = 2.f;
-
-	// Boost economy
-	float pickupBoost = 10.f;
-	float saveBoost = 0.2f;
-
-	// Contact
-	float bump = 20.f;
-	float demo = 80.f;
-
-	// Terminal
-	float goal = 150.f;
-
-	// Height of touch, which is what pushes the policy off the floor and into
-	// aerial play. Raise this if the bot stays grounded; lower it if it starts
-	// jumping at everything.
-	float touchHeight = 8.f;
+	// Not yet designed. See docs/rewards.md for what each should add and the
+	// measured trigger for advancing. Do not guess at these -- derive them from
+	// the run that precedes them, the way Foundations was.
+	Possession,
+	Aerial,
+	Teamplay,
 };
 
-// Kickoff training uses a much narrower reward set. The objective is simple and
-// short-horizon: get to the ball first, hit it hard, hit it towards their half.
-// Adding general-play rewards here teaches the kickoff model to do things it
-// will never be asked to do, because it hands over at first touch.
+// Phase 1: Foundations.
+//
+// Five components. The bot cannot reliably touch the ball yet, so anything
+// beyond "reach it, strike it, aim it" is noise. Composition at a competent
+// early policy is roughly 68% outcome / 32% shaping, and the shaping half is
+// entirely telescoping or bounded, so the farm ceiling sits near zero.
+struct RewardWeights {
+	// TELESCOPING, and the backbone of this phase.
+	//
+	// It looks like a mere shaping term, but in phase 1 it is the car-control
+	// curriculum expressed as a reward: to earn it the bot must land on its
+	// wheels, orient itself, and drive somewhere deliberate. A fresh policy is
+	// airborne and tumbling ~89% of the time, and nothing else here pays for
+	// fixing that.
+	//
+	// This was set to 0.75 on the theory that a large approach reward produces
+	// a ball-chaser. Measured over 20M steps that was wrong in a way worth
+	// recording: the raw value collapsed from 0.146 to 0.017 and touch rate
+	// halved -- the bot simply stopped driving at the ball, and with nothing
+	// else dense enough to bootstrap from, learning stalled. Ball-chasing is a
+	// phase-2 problem; being unable to reach the ball is a phase-1 one.
+	//
+	// A high weight is safe here in a way it would not be for an occupancy
+	// reward: this is exactly -d(distance to ball)/dt, so any path that returns
+	// to its starting point sums to zero. There is nothing to farm, only a bias
+	// towards being near the ball.
+	float velPlayerToBall = 3.f;
+
+	// IMPULSE. The main outcome signal and the largest single term. Rewards
+	// changing the ball's velocity, scaled 0..1 between a gentle nudge and a
+	// solid strike, so it teaches "hit it" and "hit it hard" with one gradient.
+	float strongTouch = 30.f;
+
+	// Directional outcome: is the ball going the right way? Zero-sum, so it
+	// measures progress against the opponent rather than absolute ball motion.
+	float velBallToGoal = 3.5f;
+
+	// TERMINAL. Sized against the discount horizon, not against its share of
+	// average reward. At gaeGamma 0.99 and 15 steps/sec the horizon is ~100
+	// steps (~7s), over which good play accrues ~0.3/step for a total future
+	// value near 30. A goal worth 30 therefore roughly doubles the value of the
+	// moment it happens -- strong, but not so large it drowns the dense signal
+	// that makes early learning possible. Conceding costs the same.
+	float goal = 30.f;
+
+	// BOUNDED. A nudge towards collecting boost rather than driving past it.
+	// Small on purpose: boost is already instrumentally valuable because it
+	// gets you to the ball faster, which the approach reward pays for. This
+	// only breaks ties.
+	float pickupBoost = 4.f;
+};
+
+// Kickoff: from reset to first touch, so roughly 20-40 steps.
+//
+// Only one thing happens in a kickoff, so the reward is dominated by that one
+// thing. Note there is deliberately no boost-conservation term: the episode can
+// be extended to its timeout by simply not going for the ball, which would turn
+// any per-step term into a reward for dodging the kickoff entirely.
 struct KickoffRewardWeights {
-	float velPlayerToBall = 6.f;
-	float strongTouch = 100.f;
-	float velBallToGoal = 3.f;
-	float saveBoost = 0.5f;
-	float goal = 150.f;
+	// Denser than in general play -- the episode is far too short for a sparse
+	// signal to carry it.
+	float velPlayerToBall = 1.f;
+
+	// Winning the touch is essentially the whole objective.
+	float strongTouch = 40.f;
+
+	// Which way the ball went afterwards. Only measurable because
+	// FirstTouchCondition holds the episode open briefly past contact.
+	float velBallToGoal = 6.f;
+
+	// Kickoff goals are rare but real. Same scale as general play.
+	float goal = 30.f;
 };
 
 // ---------------------------------------------------------------------------
@@ -186,6 +278,12 @@ struct TrainConfig {
 
 	TeamSizeMix teamSizes = {};
 	CurriculumWeights curriculum = {};
+	// Which staged reward set to train with. Advance this only on the measured
+	// triggers in docs/rewards.md, and start a fresh run when you do -- a
+	// policy carried across a reward change is optimising a different objective
+	// than the one it was trained on.
+	RewardPhase rewardPhase = RewardPhase::Foundations;
+
 	RewardWeights rewards = {};
 	KickoffRewardWeights kickoffRewards = {};
 	ModelShape modelShape = {};

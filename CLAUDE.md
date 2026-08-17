@@ -76,3 +76,15 @@ deployment reads `HIVE_*` environment variables set by
   of this.
 - `Hive::` namespace for our code; `RLGC::` is RLGymCPP, `GGL::` is GigaLearn.
 - Tabs, matching the surrounding GigaLearn/RLGymCPP style.
+
+### Second local patch to external/
+
+`external/GigaLearnCPP-Leak/.../Util/KeyPressDetector.cpp` is guarded with
+`isatty(0)`.
+
+Upstream, when stdin is not a terminal — any backgrounded or redirected run —
+`tcgetattr`/`tcsetattr` fail and `read()` returns EOF immediately. The caller
+loops on it forever, so it busy-spins a full CPU core for the whole run and
+emits three `perror` lines per iteration. One 50M-step run wrote an 8.1 GB log.
+The patch parks the thread instead; there is no interactive 'Q' to detect
+without a terminal anyway. Reapply if you re-clone.

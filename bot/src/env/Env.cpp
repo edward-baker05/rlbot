@@ -118,7 +118,7 @@ EnvCreateResult CreateEnv(int index, const TrainConfig& cfg) {
 		};
 	} else {
 		result.stateSetter = BuildGeneralCurriculum(cfg.curriculum);
-		result.rewards = BuildGeneralRewards(cfg.rewards);
+		result.rewards = BuildGeneralRewards(cfg);
 		result.terminalConditions = {
 			new NoTouchCondition(cfg.noTouchTimeoutSeconds),
 			new GoalScoreCondition(),

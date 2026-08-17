@@ -114,8 +114,15 @@ far more realistic distribution than hand-written setters. Tools exist in the
 RLGym community (Rolv-Arild's replay work is the usual starting point). This is
 more work than the others but is how several strong bots got their edge.
 
-**Reward shaping.** Listed last on purpose. It is the most tempting knob and the
-easiest way to make things quietly worse.
+**Reward phases.** The reward function is staged — see
+[rewards.md](rewards.md). Advancing a phase introduces a new skill once the
+previous one has consolidated. Do not advance early; a bot given dribble rewards
+before it can strike the ball just gets more ways to earn without improving.
+
+**Ad-hoc reward tweaking.** Listed last on purpose. It is the most tempting knob
+and the easiest way to make things quietly worse. If you do change a weight,
+decompose the resulting run (`Rewards/*` columns x weights) and check the farm
+ceiling before trusting the reward curve.
 
 ---
 

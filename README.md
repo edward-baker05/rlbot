@@ -67,16 +67,20 @@ scripts/play.sh match-3v3-human.toml  # 3v3, you on blue with two bot teammates
 
 ## Measured on this machine
 
-A Ryzen 3600 and RTX 2060, at the default settings:
+A Ryzen 3600 and RTX 2060, 128 games:
 
-| Games | Steps/sec | Notes |
-|---:|---:|---|
-| 8 | ~24,000 | Inference-bound; too few games to amortise the GPU |
-| 128 | ~120,000 | Default. ~400M steps/hour |
+| Config | Params | Steps/sec | VRAM |
+|---|---:|---:|---:|
+| 256-wide | 530k | ~120,000 | 1.9 GB |
+| **512-wide** (current) | **1.98M** | **~91,000** | 1.8 GB |
+| 512-wide + skill tracking | 1.98M | ~62,000 | 1.8 GB |
 
-VRAM at 128 games sits around **1.9 GB of 6 GB**, so there is real headroom to
-grow the network — see [docs/tuning.md](docs/tuning.md). The default 256-unit
-layers are a starting point chosen to get a run going, not a ceiling.
+Widening to 512 costs 24% throughput for 3.7x the capacity, and VRAM did not
+move — it is dominated by the environment batch, not the weights. There is still
+room to go wider. See [docs/tuning.md](docs/tuning.md).
+
+Skill tracking costs a further ~30%; it is a measurement tool, so turn it off
+for production runs once you have the numbers you need.
 
 ---
 
@@ -85,18 +89,19 @@ layers are a starting point chosen to get a run going, not a ceiling.
 Ordered by how much they matter, most first:
 
 1. **Total timesteps.** Nothing substitutes for this. Nexto-level play is a
-   billions-of-steps proposition; at 400M/hour that is days of wall clock, not
+   billions-of-steps proposition; at ~300M/hour that is days of wall clock, not
    hours.
-2. **Curriculum weights** (`CurriculumWeights` in `bot/src/Config.h`). Rare
-   skills need to be spawned deliberately — a flip reset essentially never
-   occurs under random play.
-3. **Network size.** You have VRAM spare. See tuning.
-4. **Reward shaping** (`RewardWeights`). Easy to fiddle with, easy to make
-   worse. Change one thing at a time and compare on the metrics, not on vibes.
+2. **A reward function that cannot be farmed.** The first one paid 98.4% of its
+   reward for shaping and the policy's skill rating fell for 20M steps while its
+   reward curve climbed. See [docs/rewards.md](docs/rewards.md).
+3. **Curriculum weights** (`CurriculumWeights` in `bot/src/Config.h`). Rare
+   skills need to be spawned deliberately — and the curriculum must match what
+   the reward actually pays for.
+4. **Network size.** You still have VRAM spare. See tuning.
 
-Watch `Player/Touch Height` and the `Phase/*` metrics at least as closely as
-reward — reward goes up in every run, including ones where the bot has quietly
-stopped doing anything interesting.
+**Never judge a run by its reward curve.** It rises in every run, including
+broken ones. Watch `Rating/*` (losing to your own past selves means farming),
+`Player/Ball Touch Ratio`, and the `Phase/*` distribution.
 
 ---
 
@@ -114,6 +119,8 @@ stopped doing anything interesting.
 
 - [docs/architecture.md](docs/architecture.md) — the two-model design, the
   observation, and how humans and variable team sizes are handled
+- [docs/rewards.md](docs/rewards.md) — how the reward function is derived, why
+  every term is farm-proof, and the staging plan
 - [docs/training.md](docs/training.md) — the plan from zero to a bot that beats
   you
 - [docs/tuning.md](docs/tuning.md) — hardware knobs and what to change first

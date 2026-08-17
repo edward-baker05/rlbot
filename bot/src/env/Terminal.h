@@ -23,26 +23,49 @@ namespace Hive {
 // critic would learn that every kickoff ends in nothing.
 class FirstTouchCondition : public RLGC::TerminalCondition {
 public:
-	// Small grace period so a car spawned in contact with the ball (which
-	// state setters can occasionally produce) does not end the episode on
-	// step zero.
-	float graceSeconds;
+	// Small grace period so a car spawned in contact with the ball (which state
+	// setters can occasionally produce) does not end the episode on step zero.
+	float startGraceSeconds;
 
-	explicit FirstTouchCondition(float graceSeconds = 0.05f)
-		: graceSeconds(graceSeconds) {}
+	// How long to keep the episode alive AFTER first contact.
+	//
+	// Without this the episode ends on the very step the ball is touched, and
+	// the ball's post-hit velocity is never observed -- which makes "did the
+	// kickoff go towards their goal" almost pure noise, despite being the thing
+	// a kickoff is actually for. A short window is enough to register the
+	// direction of the strike without straying into general play, which is not
+	// this policy's job.
+	float holdAfterTouchSeconds;
+
+	explicit FirstTouchCondition(float holdAfterTouchSeconds = 0.3f,
+	                             float startGraceSeconds = 0.05f)
+		: startGraceSeconds(startGraceSeconds),
+		  holdAfterTouchSeconds(holdAfterTouchSeconds) {}
 
 	void Reset(const RLGC::GameState& initialState) override {
 		elapsed = 0.f;
+		sinceTouch = -1.f;
 	}
 
 	bool IsTerminal(const RLGC::GameState& currentState) override {
 		elapsed += currentState.deltaTime;
-		if (elapsed < graceSeconds)
+
+		if (sinceTouch >= 0.f) {
+			// Already touched; run out the hold window.
+			sinceTouch += currentState.deltaTime;
+			return sinceTouch >= holdAfterTouchSeconds;
+		}
+
+		if (elapsed < startGraceSeconds)
 			return false;
 
 		for (const auto& player : currentState.players) {
-			if (player.ballTouchedStep)
-				return true;
+			if (player.ballTouchedStep) {
+				sinceTouch = 0.f;
+				// Hold for at least one more step so the post-hit ball state is
+				// observed even if the window is shorter than a step.
+				return false;
+			}
 		}
 		return false;
 	}
@@ -51,6 +74,7 @@ public:
 
 private:
 	float elapsed = 0.f;
+	float sinceTouch = -1.f;
 };
 
 // ============================================================================

@@ -14,14 +14,16 @@ namespace Hive {
 
 // Rewards touching the ball high off the ground, scaled 0..1 by height.
 //
-// This is the single most useful addition to the stock reward set for getting
-// a bot off the floor. Without it a policy converges on a strong ground game
-// and simply never explores aerials, because every airborne attempt initially
-// costs it ground-game reward. It is not in CommonRewards, so it lives here.
+// NOT used in RewardPhase::Foundations. It belongs to the aerial phase, and
+// enabling it early is actively harmful: before the bot can reliably strike a
+// ball at all, paying for height just teaches it to jump at everything and
+// miss. Kept here because it is the right tool once touch rate is healthy.
+//
+// Measured from the ball's resting height so that a touch on the ground scores
+// zero rather than a small constant -- otherwise a ground dribble farms it.
 class TouchHeightReward : public RLGC::Reward {
 public:
-	// Height at which the reward saturates. Roughly the height of a
-	// comfortable aerial; above this, more height is not more skill.
+	// Height at which the reward saturates: roughly a comfortable aerial.
 	float maxHeight;
 
 	explicit TouchHeightReward(float maxHeight = 1500.f) : maxHeight(maxHeight) {}
@@ -32,27 +34,25 @@ public:
 // ============================================================================
 // Reward stacks
 // ============================================================================
-// Both builders return heap-allocated rewards. GigaLearn's EnvSet takes
-// ownership of them, so the caller does not free them.
+// Both builders return heap-allocated rewards; GigaLearn's EnvSet takes
+// ownership, so the caller does not free them.
 //
-// A note on ZeroSumReward, which several entries are wrapped in: it converts a
-// reward into "how much better did I do than the opposition", and its first
-// argument is team spirit -- the fraction of a reward shared across teammates.
+// ZeroSumReward wraps several entries. It converts a reward into "how much
+// better did I do than the opposition", which matters for two reasons:
 //
-// Team spirit is the main lever for teamplay in 2s and 3s. At 0 each car is
-// selfish and you get three bots chasing the same ball. At 1 credit is fully
-// shared and individual contributions get lost in the noise, which slows
-// learning badly. The values below sit deliberately low-to-middle: enough to
-// discourage ball-chasing, not so much that the gradient signal washes out.
+//   * It keeps the game adversarial. Without it, both teams can be paid for the
+//     same event and total reward inflates while nobody plays better.
+//   * Its first argument is team spirit -- the fraction of a reward shared
+//     across teammates. Spirit is kept LOW in this phase (0.0-0.3). High spirit
+//     is how you eventually get rotations, but it also smears credit across
+//     cars, and a bot that cannot yet strike the ball needs to know precisely
+//     which of its own actions worked. Raise it in the teamplay phase.
 
-// The general policy: full-game rewards.
-std::vector<RLGC::WeightedReward> BuildGeneralRewards(const RewardWeights& w);
+// The general policy. See RewardWeights in Config.h for the derivation of each
+// weight and docs/rewards.md for the method.
+std::vector<RLGC::WeightedReward> BuildGeneralRewards(const TrainConfig& cfg);
 
-// The kickoff policy: short-horizon rewards only.
-//
-// Kickoff training ends at first touch, so rewards that need a long horizon
-// (boost economy over a whole possession, positioning) have nothing to act on.
-// Everything here pays off within the two seconds the model actually controls.
+// The kickoff policy: reset to first touch, so short-horizon only.
 std::vector<RLGC::WeightedReward> BuildKickoffRewards(const KickoffRewardWeights& w);
 
 } // namespace Hive
