@@ -12,6 +12,7 @@ JOBS="${JOBS:-$(nproc)}"
 
 echo "==> Configuring ($BUILD_DIR)"
 cmake -S "$REPO/bot" -B "$BUILD_DIR" \
+	-DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DRLBOT_CPP_ENABLE_LTO=OFF
 

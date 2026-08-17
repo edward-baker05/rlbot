@@ -12,6 +12,7 @@
 #include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 using namespace RLGC;
@@ -24,9 +25,16 @@ TeamSizes PickTeamSizes(int index, const TrainConfig& cfg) {
 	if (total <= 0.f)
 		throw std::runtime_error("PickTeamSizes(): team size weights sum to zero");
 
-	// Deterministic stratification: map the game index onto [0, total) evenly,
-	// so the realised mix matches the configured mix exactly.
-	const float pos = (static_cast<float>(index % 1000) / 1000.f) * total;
+	// Deterministic stratification via a Weyl sequence (index * golden ratio,
+	// mod 1). This spreads game indices evenly across [0, total) without
+	// needing to know how many indices there actually are -- a plain
+	// index/N mapping needs N fixed and large, and silently collapsed to
+	// all-1v1 here: N was hardcoded to 1000 while the real index range was
+	// only numGames (128) for training or skillArenas (8) for skill
+	// evaluation, both far short of even the first bucket boundary.
+	constexpr float kGoldenRatioConjugate = 0.6180339887f;
+	const float frac = std::fmod(static_cast<float>(index) * kGoldenRatioConjugate, 1.f);
+	const float pos = frac * total;
 
 	float acc = m.weight1v1;
 	if (pos < acc)

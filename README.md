@@ -44,6 +44,8 @@ docs/                   Architecture, training plan, tuning
 
 ## Quickstart
 
+%command% -rlbot RLBot_ControllerURL=127.0.0.1:23233 RLBot_PacketSendRate=120 -nomovie
+
 ```bash
 scripts/build.sh              # First build takes a while; later ones are fast
 scripts/train.sh general      # Start training. Press Q to save and quit.

@@ -88,3 +88,13 @@ loops on it forever, so it busy-spins a full CPU core for the whole run and
 emits three `perror` lines per iteration. One 50M-step run wrote an 8.1 GB log.
 The patch parks the thread instead; there is no interactive 'Q' to detect
 without a terminal anyway. Reapply if you re-clone.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
