@@ -10,40 +10,47 @@ using namespace RLGC;
 
 namespace Hive {
 
-float TouchHeightReward::GetReward(const Player &player, const GameState &state,
+float TouchHeightReward::GetReward(const Player& player, const GameState& state,
                                    bool isFinal) {
-  if (!player.ballTouchedStep)
-    return 0.f;
+	if (!player.ballTouchedStep)
+		return 0.f;
 
-  const float height = state.ball.pos.z - CommonValues::BALL_RADIUS;
-  if (height <= 0.f)
-    return 0.f;
+	const float height = state.ball.pos.z - CommonValues::BALL_RADIUS;
+	if (height <= 0.f)
+		return 0.f;
 
-  return RS_MIN(1.f, height / maxHeight);
+	return RS_MIN(1.f, height / maxHeight);
 }
 
 static constexpr float TOUCH_MIN_KPH = 5.f;
 static constexpr float TOUCH_MAX_KPH = 100.f;
 
-std::vector<WeightedReward> BuildGeneralRewards(const TrainConfig &cfg) {
-  const RewardWeights &w = cfg.rewards;
+std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
+	const RewardWeights& w = cfg.rewards;
 
-  if (cfg.rewardPhase != RewardPhase::Foundations) {
-    throw std::runtime_error(
-        "BuildGeneralRewards(): only RewardPhase::Foundations is designed. "
-        "See docs/rewards.md -- later phases must be derived from the run "
-        "that precedes them, not guessed at.");
-  }
+	if (cfg.rewardPhase != RewardPhase::Foundations) {
+		throw std::runtime_error(
+			"GeneralRewardSpecs(): only RewardPhase::Foundations is designed. "
+			"Later phases are derived from the telemetry of the run before them.");
+	}
 
-  return {{new VelocityPlayerToBallReward(), w.velPlayerToBall},
-          {new ZeroSumReward(
-               new StrongTouchReward(TOUCH_MIN_KPH, TOUCH_MAX_KPH), 0.2f),
-           w.strongTouch},
-          {new ZeroSumReward(new VelocityBallToGoalReward(), 0.3f),
-           w.velBallToGoal},
-          {new GoalReward(), w.goal},
-          {new PickupBoostReward(), w.pickupBoost},
-          {new FaceBallReward(), w.faceBall}};
+	return {
+		{"VelPlayerToBall", w.velPlayerToBall, [] { return new VelocityPlayerToBallReward(); }},
+		{"StrongTouch", w.strongTouch,
+		 []() -> Reward* { return new ZeroSumReward(new StrongTouchReward(TOUCH_MIN_KPH, TOUCH_MAX_KPH), 0.2f); }},
+		{"VelBallToGoal", w.velBallToGoal,
+		 []() -> Reward* { return new ZeroSumReward(new VelocityBallToGoalReward(), 0.3f); }},
+		{"Goal", w.goal, [] { return new GoalReward(); }},
+		{"PickupBoost", w.pickupBoost, [] { return new PickupBoostReward(); }},
+		{"FaceBall", w.faceBall, [] { return new FaceBallReward(); }},
+	};
+}
+
+std::vector<WeightedReward> BuildGeneralRewards(const TrainConfig& cfg) {
+	std::vector<WeightedReward> out;
+	for (auto& spec : GeneralRewardSpecs(cfg))
+		out.push_back({spec.make(), spec.weight});
+	return out;
 }
 
 } // namespace Hive
