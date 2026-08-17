@@ -38,3 +38,4 @@ compile_commands.json
 runs/
 bot/build/metrics/
 runs-driver.log
+bot/rlbot-config/match-vs-generated.toml
