@@ -8,6 +8,15 @@ Prints, for each run, the metrics that actually tell you whether it worked --
 averaged over the last quarter of the run so a single noisy iteration does not
 decide the comparison.
 
+    scripts/summarize_runs.py --trend bot/build/metrics/main-p1-validate.csv
+
+`--trend` instead splits ONE run into equal buckets and averages each, which is
+how you see a plateau. The tail-mean view above cannot: a run that learned for
+40M steps and then stalled for 80M has a perfectly healthy last quarter. It also
+prints PPO health first, because a frozen policy produces flat behavioural
+metrics and entirely plausible reward shares, and the two look identical from
+the reward side. See docs/metrics.md.
+
 Only stdlib; no pandas.
 """
 
@@ -150,8 +159,89 @@ def compare(paths, all_rows):
             print(f"  {label:<22} {a:>11.1f} {b:>11.1f} {b - a:>+11.1f}")
 
 
+# PPO health goes first: these say whether the policy moved at all, and nothing
+# below them means anything until they look right.
+TREND_PPO = [
+    ("Policy Entropy", "entropy", "{:.4f}"),
+    ("Mean KL Divergence", "KL", "{:.5f}"),
+    ("SB3 Clip Fraction", "clip frac", "{:.5f}"),
+    ("Policy Update Magnitude", "update mag", "{:.4f}"),
+    ("GAE/Avg Advantage", "advantage", "{:.4f}"),
+    ("GAE/Returns STD", "returns std", "{:.2f}"),
+]
+
+TREND_BEHAV = [
+    ("Player/Ball Touch Ratio", "touch ratio", "{:.5f}"),
+    ("Player/In Air Ratio", "air ratio", "{:.4f}"),
+    ("Player/Touch Height", "touch height", "{:.1f}"),
+    ("Game/Goal Speed", "goal speed", "{:.0f}"),
+    ("Average Step Reward", "reward", "{:.4f}"),
+]
+
+
+def trend(path, buckets=8):
+    """Bucket-averaged view of one run, to expose plateaus."""
+    rows = load(path)
+    if not rows:
+        print(f"{path}: no data")
+        return
+
+    n = min(buckets, len(rows))
+    edges = [round(i * len(rows) / n) for i in range(n + 1)]
+    groups = [rows[edges[i]:edges[i + 1]] for i in range(n) if edges[i + 1] > edges[i]]
+
+    def mean(group, key):
+        vals = [r[key] for r in group if key in r]
+        return sum(vals) / len(vals) if vals else None
+
+    print(f"\n{'=' * 62}")
+    print(f"{Path(path).stem}   ({len(rows)} iterations, bucket means)")
+    print("=" * 62)
+
+    header = "".join(
+        f"{(mean(g, 'Total Timesteps') or 0) / 1e6:>10.0f}M" for g in groups
+    )
+    print(f"\n  {'metric':<16}{header}")
+    print(f"  {'-' * (16 + 11 * len(groups))}")
+
+    shares = sorted({k for r in rows for k in r if k.startswith("RewardShare/")})
+    sections = [
+        ("PPO health", TREND_PPO),
+        ("behaviour", TREND_BEHAV),
+        ("reward shares", [(k, k[len("RewardShare/"):], "{:.3f}") for k in shares]),
+    ]
+    for title, keys in sections:
+        if not keys:
+            continue
+        print(f"  {title}")
+        for key, label, fmt in keys:
+            cells = []
+            for g in groups:
+                v = mean(g, key)
+                cells.append((fmt.format(v) if v is not None else "-").rjust(11))
+            if any(c.strip() != "-" for c in cells):
+                print(f"  {label:<16}" + "".join(cells))
+
+    # Ratings are sparse (one point per skillUpdateInterval iterations), so a
+    # bucket mean would hide how few there are. List them.
+    for key in sorted({k for r in rows for k in r if k.startswith(RATING_PREFIX)}):
+        pts = [(r["Total Timesteps"] / 1e6, r[key]) for r in rows if key in r]
+        print(f"\n  {key}: " + "  ".join(f"{s:.0f}M={v:.3f}" for s, v in pts))
+    print()
+
+
 def main():
-    paths = sys.argv[1:]
+    args = sys.argv[1:]
+    if "--trend" in args:
+        args = [a for a in args if a != "--trend"]
+        if not args:
+            print(__doc__)
+            return 1
+        for p in args:
+            trend(p)
+        return 0
+
+    paths = args
     if not paths:
         print(__doc__)
         return 1

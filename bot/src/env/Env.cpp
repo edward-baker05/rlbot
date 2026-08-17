@@ -14,7 +14,7 @@ using namespace RLGC;
 
 namespace Hive {
 
-static StateSetter* BuildGeneralCurriculum(const CurriculumWeights& w) {
+StateSetter* BuildGeneralCurriculum(const CurriculumWeights& w) {
 	// CurriculumState drops zero-weight entries and remembers which scenario
 	// each reset came from, which is what the Scenario/* metrics report.
 	return new CurriculumState({

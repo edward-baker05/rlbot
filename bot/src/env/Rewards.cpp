@@ -22,9 +22,6 @@ float TouchHeightReward::GetReward(const Player& player, const GameState& state,
 	return RS_MIN(1.f, height / maxHeight);
 }
 
-static constexpr float TOUCH_MIN_KPH = 5.f;
-static constexpr float TOUCH_MAX_KPH = 100.f;
-
 std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 	const RewardWeights& w = cfg.rewards;
 
@@ -46,6 +43,12 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 		{"PickupBoost", w.pickupBoost, [] { return new PickupBoostReward(); }},
 		{"FaceBall", w.faceBall,
 		 []() -> Reward* { return new GroundedReward(new FaceBallReward()); }},
+
+		// Not zero-summed and not gated. Both are pure car-control terms: what
+		// the opponent is doing has no bearing on whether this car should have
+		// its wheels down, so subtracting their score would only inject noise.
+		{"AirRecovery", w.airRecovery, [] { return new AirRecoveryReward(); }},
+		{"Grounded", w.grounded, [] { return new GroundedBonusReward(); }},
 	};
 }
 

@@ -105,6 +105,28 @@ emits three `perror` lines per iteration. One 50M-step run wrote an 8.1 GB log.
 The patch parks the thread instead; there is no interactive 'Q' to detect
 without a terminal anyway. Reapply if you re-clone.
 
+### Third local patch to external/
+
+`external/GigaLearnCPP-Leak/.../PPO/PPOLearner.cpp` standardizes GAE advantages
+per minibatch before the clipped objective:
+
+```cpp
+advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8);
+```
+
+Upstream feeds raw advantages in, so the policy step scales with their absolute
+magnitude — and that magnitude shrinks as the critic improves, because a better
+critic means smaller TD residuals. The effective step size therefore *decays*
+over a run. Measured on `p1-validate` (117M steps): `GAE/Avg Advantage` 0.151 →
+0.088, `Mean KL` 1.25e-3 → 6.9e-4, `SB3 Clip Fraction` 6.1e-3 → 4.1e-3, against
+a healthy PPO clip fraction of roughly 0.05–0.2. This is what "learning stops at
+~40M" was: not a reward plateau, an update size decaying to nothing.
+
+With the patch (`p1probe-j`), clip fraction rose ~4x and entropy finally fell
+under its own steam (0.683 → 0.533 in 10M steps). **It does not on its own make
+the bot better** — it makes the policy converge faster on whatever the reward
+actually rewards, which is a separate problem. Reapply if you re-clone.
+
 ## Agent skills
 
 ### Issue tracker

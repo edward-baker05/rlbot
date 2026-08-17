@@ -80,8 +80,56 @@ Both areas are covered by round-trip tests in `bot/tests/test_packetconvert.cpp`
 - `scripts/match.sh <opponent bot.toml>` — a live RLBot match against an
   external bot (via `scripts/run_match.py`; requires the rlbot v5 Python
   package, the RLBotServer binary in `libs/rlbot/`, and Rocket League).
-- `scripts/watch.sh` — stream one real-time game to RocketSimVis.
+- `scripts/spectate.sh <label>` — watch a checkpoint play in RocketSimVis
+  while training continues. See below.
+- `scripts/watch.sh` — `train --render`: a *learner* on one arena, for
+  inspecting a state setter or reward change you just wrote.
 - Metrics: see `docs/metrics.md`.
+
+### Watching a run without disturbing it
+
+```bash
+scripts/vis.sh &                        # the viewer, UDP 9273
+scripts/spectate.sh p1-validate         # follows that run's newest checkpoint
+```
+
+`spectate` loads a checkpoint, plays it against itself in one arena at
+wall-clock speed, and streams the gamestate. It is not a learner: no optimizer,
+no experience collection, no checkpoint writes. It infers on CPU by default, so
+it is safe to point at a run that is in flight.
+
+Measured cost against the 128-game `p1-validate` run on the 3600: **0.45%** of
+training throughput (65.3k vs 65.6k steps/sec idle). That number depends on one
+non-obvious thing — `RunSpectate` pins `OMP_NUM_THREADS`/`MKL_NUM_THREADS` to 1
+before the first inference. Without it, libtorch spreads two-car inference
+across all six cores and the cost is **4.4%** (62.7k steps/sec), which is enough
+to matter over a long run. Passing `--gpu` skips the pinning and contends for
+VRAM instead; don't, during a run.
+
+With `--follow <label>` it re-checks the run folder between episodes and picks
+up the newest *complete* checkpoint, so the bot visibly improves as training
+proceeds. Completeness matters: the trainer writes a new folder every
+`tsPerSave` steps while you are reading, and a half-written one would either
+crash the load or, worse, load without `RUNNING_STATS.json` and play with an
+unnormalized observation. `FindLatestCheckpoint` (`eval/Checkpoints.cpp`)
+handles this and is covered by `bot/tests/test_checkpoints.cpp`.
+
+| Option | Default | Notes |
+|---|---|---|
+| `--follow LABEL` | — | Follow a run; mutually exclusive with `--model` |
+| `--model FOLDER` | — | Pin one checkpoint folder |
+| `--spawns MODE` | `curriculum` | `curriculum` shows the scenario mix training actually samples; `kickoff` reads as a normal match but is only ~8% of training resets |
+| `--deterministic` | off | Argmax instead of sampling. Off matches what training is exploring; on matches what deployment does |
+| `--time-scale X` | `1.0` | Real time |
+| `--episodes N` | until Ctrl-C | |
+| `--gpu` | off | Leave it off during a run; training owns the VRAM |
+
+Useful variants:
+
+```bash
+scripts/spectate.sh p1-validate --spawns kickoff --deterministic
+scripts/spectate.sh --model bot/build/checkpoints/main-p1probe-f/30012928
+```
 
 ## Code map
 

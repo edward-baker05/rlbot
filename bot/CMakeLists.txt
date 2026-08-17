@@ -66,8 +66,12 @@ add_library(HiveCore STATIC
 	src/env/StateSetters.h
 	src/env/Terminal.h
 
+	src/eval/Checkpoints.cpp
+	src/eval/Checkpoints.h
 	src/eval/Eval.cpp
 	src/eval/Eval.h
+	src/eval/Spectate.cpp
+	src/eval/Spectate.h
 
 	src/policy/Policy.cpp
 	src/policy/Policy.h
@@ -89,10 +93,35 @@ add_library(HiveCore STATIC
 
 target_include_directories(HiveCore PUBLIC src)
 
+# GigaLearn declares src/private PRIVATE, so Learner.h can only forward-declare
+# PPOLearner ("class PPOLearner* ppo"). The critic-value metrics in Train.cpp
+# need the real definition to call InferCritic(). Added here rather than by
+# editing external/GigaLearnCPP-Leak's CMakeLists, so `git pull` there stays
+# clean -- same policy as CMAKE_POLICY_VERSION_MINIMUM above.
+# PPOLearner.h pulls in ATen directly. GigaLearn's find_package(Torch) runs in
+# its own subdirectory scope so TORCH_INCLUDE_DIRS never reaches us, and calling
+# find_package(Torch) again here re-runs CUDA arch detection and fails, so the
+# two libtorch include roots are named directly.
+target_include_directories(HiveCore PRIVATE
+	"${HIVE_EXTERNAL}/GigaLearnCPP-Leak/GigaLearnCPP/src/private"
+	"${HIVE_LIBS}/libtorch/include"
+	"${HIVE_LIBS}/libtorch/include/torch/csrc/api/include"
+)
+
 target_link_libraries(HiveCore PUBLIC
 	GigaLearnCPP
 	RLBotCPP-static
 )
+
+# Train.cpp calls into libtorch directly (critic-value metrics), so HiveCore
+# needs its own link to c10/torch_cpu. GigaLearnCPP links them but does not
+# re-export them, so without this the c10 symbols behind torch::NoGradGuard
+# resolve at compile time and fail at link with "DSO missing from command line".
+foreach(TORCH_LIB "libc10.so" "libtorch_cpu.so")
+	if(EXISTS "${HIVE_LIBS}/libtorch/lib/${TORCH_LIB}")
+		target_link_libraries(HiveCore PUBLIC "${HIVE_LIBS}/libtorch/lib/${TORCH_LIB}")
+	endif()
+endforeach()
 
 add_executable(HivemindBot src/main.cpp)
 target_link_libraries(HivemindBot PRIVATE HiveCore)
@@ -106,6 +135,7 @@ add_executable(HiveTests
 	tests/test_metrics.cpp
 	tests/test_packetconvert.cpp
 	tests/test_actionspace.cpp
+	tests/test_checkpoints.cpp
 )
 target_link_libraries(HiveTests PRIVATE HiveCore)
 target_include_directories(HiveTests PRIVATE tests)

@@ -1,6 +1,7 @@
 #include "Config.h"
 #include "Verify.h"
 #include "eval/Eval.h"
+#include "eval/Spectate.h"
 #include "rlbot/HivemindBot.h"
 #include "train/Train.h"
 
@@ -21,6 +22,17 @@ void PrintUsage(const char* argv0) {
 		"  play             Connect to RLBot v5 and play a match\n"
 		"  verify <folder>  Check a checkpoint loads and infers sanely before deploying it\n"
 		"  eval --blue A --orange B   Play two checkpoints against each other in RocketSim\n"
+		"  spectate         Watch a checkpoint play live in RocketSimVis (no training)\n"
+		"\n"
+		"Spectate options (pass exactly one of --follow / --model):\n"
+		"  --follow LABEL       Follow a run's newest checkpoint, reloading between\n"
+		"                       episodes -- safe to point at a run in progress\n"
+		"  --model FOLDER       Play one specific checkpoint folder\n"
+		"  --spawns MODE        curriculum (default) or kickoff\n"
+		"  --deterministic      Take the argmax action instead of sampling\n"
+		"  --time-scale X       Speed multiplier (default 1.0 = real time)\n"
+		"  --episodes N         Stop after N episodes (default: run until Ctrl-C)\n"
+		"  --gpu                Use CUDA (default CPU, to leave the GPU to training)\n"
 		"\n"
 		"Training options:\n"
 		"  --games N            Number of simultaneous games (default 128)\n"
@@ -198,6 +210,61 @@ int main(int argc, char* argv[]) {
 			Hive::RunEval(ecfg);
 		} catch (const std::exception& e) {
 			std::fprintf(stderr, "Eval failed: %s\n", e.what());
+			return EXIT_FAILURE;
+		}
+		return EXIT_SUCCESS;
+	}
+
+	if (command == "spectate") {
+		Hive::SpectateConfig scfg = {};
+		Hive::TrainConfig defaults = {};
+		for (int i = 2; i < argc; i++) {
+			const std::string arg = argv[i];
+			if (arg == "--follow" && i + 1 < argc) {
+				// Take a label, not a path: the point of this command is to
+				// watch a run, and the caller should not have to know how
+				// checkpoint folders are named.
+				defaults.runLabel = argv[++i];
+				scfg.followRun = defaults.CheckpointFolder();
+			} else if (arg == "--model" && i + 1 < argc) {
+				scfg.model = argv[++i];
+			} else if (arg == "--spawns" && i + 1 < argc) {
+				const std::string mode = argv[++i];
+				if (mode == "curriculum") {
+					scfg.spawns = Hive::SpectateSpawns::Curriculum;
+				} else if (mode == "kickoff") {
+					scfg.spawns = Hive::SpectateSpawns::Kickoff;
+				} else {
+					std::fprintf(stderr, "--spawns must be curriculum or kickoff\n");
+					return EXIT_FAILURE;
+				}
+			} else if (arg == "--time-scale" && i + 1 < argc) {
+				scfg.timeScale = static_cast<float>(std::atof(argv[++i]));
+			} else if (arg == "--episodes" && i + 1 < argc) {
+				scfg.episodes = std::atoi(argv[++i]);
+			} else if (arg == "--seed" && i + 1 < argc) {
+				scfg.seed = std::atoll(argv[++i]);
+			} else if (arg == "--deterministic") {
+				scfg.deterministic = true;
+			} else if (arg == "--gpu") {
+				scfg.useGPU = true;
+			} else {
+				std::fprintf(stderr, "Unknown option: %s\n", arg.c_str());
+				return EXIT_FAILURE;
+			}
+		}
+		if (scfg.model.empty() == scfg.followRun.empty()) {
+			std::fprintf(stderr,
+			             "Usage: %s spectate --follow <label> | --model <ckpt>\n"
+			             "       [--spawns curriculum|kickoff] [--deterministic]\n"
+			             "       [--time-scale X] [--episodes N] [--gpu]\n",
+			             argv[0]);
+			return EXIT_FAILURE;
+		}
+		try {
+			Hive::RunSpectate(scfg);
+		} catch (const std::exception& e) {
+			std::fprintf(stderr, "Spectate failed: %s\n", e.what());
 			return EXIT_FAILURE;
 		}
 		return EXIT_SUCCESS;
