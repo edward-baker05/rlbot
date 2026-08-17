@@ -52,6 +52,8 @@ add_subdirectory("${HIVE_EXTERNAL}/cpp-interface" rlbot-cpp)
 # Everything except main.cpp lives in a static library so the bot binary and
 # the test binary share one compilation of the project sources.
 add_library(HiveCore STATIC
+	src/env/Curriculum.cpp
+	src/env/Curriculum.h
 	src/env/Env.cpp
 	src/env/Env.h
 	src/env/Obs.cpp
@@ -72,6 +74,8 @@ add_library(HiveCore STATIC
 	src/rlbot/PacketConvert.cpp
 	src/rlbot/PacketConvert.h
 
+	src/train/Metrics.cpp
+	src/train/Metrics.h
 	src/train/Train.cpp
 	src/train/Train.h
 
@@ -94,6 +98,7 @@ add_executable(HiveTests
 	tests/test_playphase.cpp
 	tests/test_rewards.cpp
 	tests/test_statesetters.cpp
+	tests/test_metrics.cpp
 )
 target_link_libraries(HiveTests PRIVATE HiveCore)
 target_include_directories(HiveTests PRIVATE tests)

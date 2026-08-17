@@ -1,13 +1,19 @@
 #include "Train.h"
 
+#include "../env/Curriculum.h"
 #include "../env/Env.h"
 #include "../env/Obs.h"
 #include "../env/PlayPhase.h"
+#include "../env/Rewards.h"
+#include "Metrics.h"
 
 #include <GigaLearnCPP/Learner.h>
+#include <RLGymCPP/EnvSet/EnvSet.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <map>
 
 using namespace GGL;
 using namespace RLGC;
@@ -27,6 +33,11 @@ namespace Hive {
 // every game every step is a real cost at 128 games.
 // Step budget for bounded runs. Set from RunTraining(); 0 disables.
 static int64_t g_MaxSteps = 0;
+
+// (name, weight) per reward term, in spec order -- the same order EnvSet
+// stores per-term rewards in. Set once in RunTraining() before the learner
+// starts; no rewards are allocated for this.
+static std::vector<std::pair<std::string, float>> g_RewardLabels;
 
 static void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
 	// --- Step budget --------------------------------------------------------
@@ -97,6 +108,58 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			              static_cast<float>(phases.counts[i]) / static_cast<float>(total));
 		}
 	}
+
+	// --- Reward shares ------------------------------------------------------
+	// lastRewards holds each term's raw (unweighted, pre-zero-sum) reward for
+	// one sampled player per arena; |r * w| across terms approximates where
+	// the realized reward mass is going. This is the farming detector.
+	auto& envSet = *learner->envSet;
+	if (!g_RewardLabels.empty()) {
+		std::vector<float> totals(g_RewardLabels.size(), 0.f);
+		bool any = false;
+		for (size_t a = 0; a < envSet.state.lastRewards.size(); a++) {
+			const auto& last = envSet.state.lastRewards[a];
+			if (last.size() != totals.size())
+				continue;
+			for (size_t j = 0; j < totals.size(); j++)
+				totals[j] += std::fabs(last[j] * g_RewardLabels[j].second);
+			any = true;
+		}
+		if (any) {
+			auto shares = NormalizeShares(totals);
+			for (size_t j = 0; j < shares.size(); j++)
+				report.AddAvg("RewardShare/" + g_RewardLabels[j].first, shares[j]);
+		}
+	}
+
+	// --- Scenario outcomes --------------------------------------------------
+	// Terminal arenas have not been reset yet at callback time, so the
+	// curriculum's last-picked name still labels the episode that just ended.
+	std::map<std::string, int> scenarioCounts;
+	for (size_t a = 0; a < envSet.stateSetters.size(); a++) {
+		auto* cs = dynamic_cast<CurriculumState*>(envSet.stateSetters[a]);
+		if (!cs || cs->LastPickedName().empty())
+			continue;
+		if (scenarioCounts.empty()) {
+			// Seed every configured scenario with zero so names not picked
+			// this step still contribute a sample; otherwise rare scenarios'
+			// Share averages are biased upward.
+			for (const auto& name : cs->EntryNames())
+				scenarioCounts[name] = 0;
+		}
+		scenarioCounts[cs->LastPickedName()]++;
+		if (envSet.state.terminals[a]) {
+			const bool goal = states[a].goalScored;
+			report.AddAvg("Scenario/" + cs->LastPickedName() + "/EndedInGoal", goal ? 1.f : 0.f);
+		}
+	}
+	if (!envSet.stateSetters.empty()) {
+		// A true share: count per name across all arenas, so a scenario that
+		// never runs is distinguishable from one that always does.
+		const float arenaCount = static_cast<float>(envSet.stateSetters.size());
+		for (const auto& [name, count] : scenarioCounts)
+			report.AddAvg("Scenario/" + name + "/Share", static_cast<float>(count) / arenaCount);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +190,10 @@ void RunTraining(const TrainConfig& cfg) {
 		std::cout << "Step budget:      " << cfg.maxSteps << "\n";
 
 	g_MaxSteps = cfg.maxSteps;
+
+	g_RewardLabels.clear();
+	for (auto& s : GeneralRewardSpecs(cfg))
+		g_RewardLabels.push_back({s.name, s.weight});
 
 	LearnerConfig lc = {};
 

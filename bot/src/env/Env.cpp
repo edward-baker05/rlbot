@@ -1,49 +1,33 @@
 #include "Env.h"
 
+#include "Curriculum.h"
 #include "Obs.h"
 #include "Rewards.h"
 #include "StateSetters.h"
 
 #include <RLGymCPP/ActionParsers/DefaultAction.h>
-#include <RLGymCPP/StateSetters/CombinedState.h>
 #include <RLGymCPP/StateSetters/FuzzedKickoffState.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
 #include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
-
-#include <stdexcept>
 
 using namespace RLGC;
 
 namespace Hive {
 
 static StateSetter* BuildGeneralCurriculum(const CurriculumWeights& w) {
-	// CombinedState picks one child per episode reset, weighted. Zero-weight
-	// entries are dropped rather than passed through, because CombinedState
-	// treats weights as a cumulative distribution and a zero-weight setter can
-	// still be selected at an exact boundary.
-	std::vector<std::pair<StateSetter*, float>> setters;
-
-	auto add = [&](StateSetter* s, float weight) {
-		if (weight > 0.f)
-			setters.emplace_back(s, weight);
-		else
-			delete s;
-	};
-
-	add(new NeutralPlayState(), w.neutralPlay);
-	add(new BallContactState(), w.ballContact);
-	add(new DefendState(), w.defend);
-	add(new RecoverState(), w.recover);
-	add(new AerialState(), w.aerial);
-	add(new AirDribbleState(), w.airDribble);
-	add(new FlipResetState(), w.flipReset);
-	add(new DemoState(), w.demo);
-	add(new FuzzedKickoffState(), w.kickoff);
-
-	if (setters.empty())
-		throw std::runtime_error("BuildGeneralCurriculum(): every curriculum weight is zero");
-
-	return new CombinedState(setters);
+	// CurriculumState drops zero-weight entries and remembers which scenario
+	// each reset came from, which is what the Scenario/* metrics report.
+	return new CurriculumState({
+		{new NeutralPlayState(), w.neutralPlay, "NeutralPlay"},
+		{new BallContactState(), w.ballContact, "BallContact"},
+		{new DefendState(), w.defend, "Defend"},
+		{new RecoverState(), w.recover, "Recover"},
+		{new AerialState(), w.aerial, "Aerial"},
+		{new AirDribbleState(), w.airDribble, "AirDribble"},
+		{new FlipResetState(), w.flipReset, "FlipReset"},
+		{new DemoState(), w.demo, "Demo"},
+		{new FuzzedKickoffState(), w.kickoff, "Kickoff"},
+	});
 }
 
 EnvCreateResult CreateEnv(int index, const TrainConfig& cfg) {
