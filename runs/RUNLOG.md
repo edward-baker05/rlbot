@@ -83,6 +83,49 @@ The epsilon-floor is orthogonal to all of this and should be kept regardless of
 which reward direction wins: it is the only thing that has ever reversed an
 extinction, and it is verified to do so on an already-dead policy.
 
+## PRE-REGISTERED: p9rel (not yet run)
+
+Written before the run, per the one-variable protocol. If any of this is edited
+after seeing results, say so explicitly in the outcome row.
+
+**Single variable vs p8ref:** `TrainConfig::obs` Default -> Relative. Frozen:
+all four reward budgets, `REFERENCE_EPISODE_STEPS = 171` (known 6.6x stale, and
+changing it is a reward change in disguise), `RandomState` spawns, unmasked
+actions, LR 2e-4, entropyScale 0.002, tsPerItr 50k.
+
+**Baseline, p8ref at 98M:** touch ratio 0.01428, `Velocity Alignment` 0.5932,
+`Jump When Grounded Upright` 0.00444 (1.11x the eps-floor), `In Air Ratio`
+0.120, `Touch/Above 450` 0.035, `Player/Touch Height` 149.
+
+**Predictions:**
+
+1. **Alignment rises to >0.65** at 98M. `dirToBall` in car frame is now a
+   supplied feature rather than a four-vector computation, and it is the literal
+   argument of both dense terms. Weakest prediction to be wrong about; if this
+   does not move, the obs change did nothing at all and the layout is suspect.
+2. **Touch ratio >0.018** at 98M (p8ref 0.01428).
+3. **Jumping still dies:** `Jump When Grounded Upright` stays below 0.008, i.e.
+   within 2x of the 0.004 floor. The reward economics are untouched and air
+   still costs ~50x what it pays. **If jumping recovers, this prediction is
+   falsified and the p8ref conclusion was wrong** -- it would mean
+   representation cost, not reward economics, was suppressing air play. That is
+   the outcome that would most change the plan.
+4. **`Touch/Above 450` >0.05** (p8ref 0.035). This is the actual aerial
+   hypothesis and the one I am least confident in. If alignment and touch
+   improve while height does not, representation cost is not what keeps the bot
+   2D, and the air-touch reward becomes the only lever left.
+
+**Kill criteria:**
+
+- **10M:** `Policy Entropy` falling and `SB3 Clip Fraction` in [0.02, 0.25]. Stop
+  if not -- hyperparameter problem, no obs conclusion available.
+- **25M:** `Velocity Alignment` > 0.50 (p8ref reached ~0.52 by 30M). Below that
+  and the new obs is worse than the old one; stop and diff the layout.
+- **50M:** touch ratio >= 0.010 (p8ref 0.0106). Below that, stop.
+
+Run to ~100M for comparability with p8ref, then keep going if it is still
+climbing -- p8ref had not plateaued on any metric at its cutoff.
+
 ## Standing lesson from p7approach: write down the null
 
 `Player/Velocity Alignment`, `FaceBall/*`, `Action/Jump When Grounded` and every
