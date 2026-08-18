@@ -22,6 +22,7 @@ StateSetter* BuildGeneralCurriculum(const CurriculumWeights& w) {
 		{new BallContactState(), w.ballContact, "BallContact"},
 		{new DefendState(), w.defend, "Defend"},
 		{new RecoverState(), w.recover, "Recover"},
+		{new StrikeState(), w.strike, "Strike"},
 		{new AerialState(), w.aerial, "Aerial"},
 		{new AirDribbleState(), w.airDribble, "AirDribble"},
 		{new FlipResetState(), w.flipReset, "FlipReset"},

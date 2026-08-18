@@ -16,10 +16,8 @@ std::unique_ptr<DefaultObsPadded> MakeObsBuilder(int maxPlayersPerTeam) {
 }
 
 int ProbeObsSize(int maxPlayersPerTeam) {
-	// Build a full-size arena so the padding is exercised at its maximum.
-	// A smaller arena would give the same answer (padding is what makes the
-	// width fixed) but building the biggest case also validates that
-	// maxPlayersPerTeam is actually large enough for the cars we intend to add.
+	// Build a full-size arena so padding is exercised at its maximum, which
+	// also validates maxPlayersPerTeam is large enough for the intended cars.
 	Arena* arena = Arena::Create(GameMode::SOCCAR);
 	for (int i = 0; i < maxPlayersPerTeam; i++) {
 		arena->AddCar(Team::BLUE);

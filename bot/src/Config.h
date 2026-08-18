@@ -18,10 +18,9 @@ namespace Hive {
 struct CurriculumWeights {
   float neutralPlay = 35.f; // Ordinary play. Keep this dominant.
 
-  // Car spawned next to the ball, so contact is nearly free. Heavily
-  // weighted while touch rate is the binding constraint: outcome rewards
-  // cannot shape anything while they almost never fire.
-  float ballContact = 20.f;
+  // Car spawned next to the ball, so contact is nearly free -- mostly
+  // training on a situation the bot already gets for free at this point.
+  float ballContact = 10.f;
 
   float defend = 15.f;
 
@@ -29,9 +28,14 @@ struct CurriculumWeights {
   // on wheels is a prerequisite for everything else.
   float recover = 8.f;
 
+  // The jump-flip strike: ball at jump height, car already rolling at it with
+  // pace, so the only open decisions are when to leave the ground and
+  // whether to flip.
+  float strike = 15.f;
+
   // Ball in the air, cars on the ground: the lesson is "the ball is up, go
   // and meet it", which the touch reward pays for directly.
-  float aerial = 5.f;
+  float aerial = 10.f;
 
   // Full kickoffs mixed into training; the one policy plays its own
   // kickoffs, so it has to practise them here.
@@ -51,52 +55,37 @@ enum class RewardPhase {
   Teamplay,
 };
 
-// Derived from measured RewardShare telemetry, not guessed -- see
-// runs/RUNLOG.md for the derivation runs. The 30M-step baseline with the old
-// weights (velPlayerToBall=3, goal=30, no plain touch term) paid 67% of all
-// reward mass to velPlayerToBall and ~5% to outcomes; the policy farmed the
-// approach term by flip-spamming and never learned to touch the ball.
+// Weights are derived from measured RewardShare telemetry, not guessed --
+// see runs/RUNLOG.md for the derivation runs.
 struct RewardWeights {
   float velPlayerToBall = 0.5f;
 
   float touch = 5.f;
-  float strongTouch = 50.f;
+  float strongTouch = 75.f;
 
-  // Small: it pays on ball velocity the bot mostly did not cause (kickoff
-  // momentum, bounces), and as zero-sum noise it dilutes the advantage
-  // signal. Measured at 0.67 share at weight 2 with everything else gated.
-  //
-  // p1probe-h zeroed this to test the "variance pump" hypothesis and
-  // FALSIFIED it: removing 44.3% of all reward mass moved GAE/Returns STD by
-  // 4% (21.3 -> 20.5) and left the advantage decay identical (-39% vs -40%
-  // over 30M). Rewards are standardized (GAE.cpp divides every reward by
-  // returnStd), so absolute mass share is not what sets the noise floor.
-  // It also made things worse: mass reflowed onto VelPlayerToBall (0.14 ->
-  // 0.40) and PickupBoost (0.13 -> 0.22), re-establishing the approach farm.
-  // Left at 0.5. Do not re-probe reward weights without a new mechanism.
+  // Kept small: it pays on ball velocity the bot mostly did not cause
+  // (kickoff momentum, bounces), and as zero-sum noise it dilutes the
+  // advantage signal.
   float velBallToGoal = 1.f;
 
-  float goal = 150.f;
-  float pickupBoost = 10.f;
-  float faceBall = 0.05f;
+  float goal = 100.f;
+  float pickupBoost = 5.f;
+  float faceBall = 0.075f;
 
-  // --- Air handling (added 2026-08-17, see runs/RUNLOG.md p1age) ----------
-  // Both weights are anchored to what a grounded approach step actually pays,
-  // measured rather than guessed: at the observed 233 uu/s approach speed,
-  // VelPlayerToBall pays 0.0453 per step (Pay/VelPlayerToBall Per Step
-  // Grounded). These are set around that number so the ordering per step is
-  //
-  //   grounded + approaching   0.05 + up to 0.5   <- best
-  //   grounded, doing nothing  0.05
-  //   airborne, wheels down    0.04
-  //   airborne, tumbling       ~0
-  //   airborne, inverted       down to -0.04      <- worst
-  //
-  // with no ties, so being on the ground strictly dominates being in the air.
-  // Verify against the Pay/* metrics on the first run and correct from the
-  // realized split -- these are a derivation, not a measurement, until then.
+  // Exponent on the aim multiplier for StrongTouch. 1 = the plain
+  // 0.5*(1+cos) curve; higher narrows the cone toward the goal (D6).
+  float aimSharpness = 1.f;
+
+  // Note: airborne-upright currently outpays grounded-idle (0.04 vs 0.02),
+  // an intentional inversion -- the aerial phase wants the ground bias gone
+  // anyway, so it is left rather than rebalanced.
   float airRecovery = 0.04f;
-  float grounded = 0.02f;
+  float grounded = 0.05f;
+
+  // Aerial phase only. Pays TouchHeightReward (height/1500 at contact, zero
+  // for a ground touch) as a tiebreaker between floor and air contact, small
+  // enough not to outbid actually striking the ball well.
+  float touchHeight = 15.f;
 };
 
 struct SelfPlayConfig {
@@ -161,44 +150,18 @@ struct TrainConfig {
   // Minibatch is the main VRAM knob (6 GB available).
   int miniBatchSize = 25'000;
 
-  // Upstream default. The inherited 1 starved the policy of updates: with
-  // one epoch at half the upstream LR, measured KL divergence and clip
-  // fraction were ~0 for entire runs.
+  // Upstream default.
   int epochs = 2;
 
   // GigaLearn's entropy is NORMALIZED to [0,1] (divided by log(numActions)),
-  // so this scale is not comparable to rlgym-ppo's. Measured on 30M-step
-  // probes: at 0.035 (inherited) and at 0.018 (upstream default), entropy
-  // sat at ~0.78 for whole runs with KL ~0 -- the policy never left the
-  // uniform distribution and nothing was learned. 0.002 is the largest
-  // value probed that lets entropy actually fall (0.77 -> 0.65 over 30M).
-  // Revisit at every phase gate; too low too early costs exploration.
-  //
-  // p1probe-i tried 0.0005 and FALSIFIED the exploration hypothesis below.
-  // Entropy did collapse -- 0.729 -> 0.330 over 26M, i.e. ~4.4 effective
-  // actions vs ~23 at baseline, the most deterministic policy this project
-  // has produced -- and behaviour did not move at all: In Air Ratio 0.916 vs
-  // baseline 0.918, Phase/Recover 0.852 vs 0.862. The flip-spam is not
-  // exploration noise; a committed policy commits to flipping. Back to 0.002.
-  // Caveat on that reading: Policy Entropy is a batch mean and the batch is
-  // 92% airborne states, so 0.330 mostly describes the AIRBORNE policy. It
-  // does not prove the grounded policy concentrated.
-  //
-  // Superseded reasoning for the 0.0005 probe: at 0.002 the entropy bonus
-  // (scale * entropy = 0.002 * 0.68 = 1.4e-3) is the same order as the whole
-  // policy loss (|Policy Loss| ~2e-3 from 20M on, oscillating through zero),
-  // so the policy sits at the entropy-regularization fixed point rather than
-  // a reward optimum -- which is why entropy bottoms at 0.650 (36M) and
-  // drifts back UP to 0.700 over p1-validate's remaining 80M steps. Uniform
-  // over the action mask reads 0.83 grounded / 0.95 airborne, so at 0.68 the
-  // policy is still roughly half-random, and 42.9% of the 42 actions a
-  // grounded car may choose press jump. The flip-spam is the prior showing
-  // through, not a learned farm.
-  float entropyScale = 0.002f;
+  // so this scale is not comparable to rlgym-ppo's. Kept low so entropy can
+  // actually fall over a run rather than sitting near-uniform; revisit at
+  // every phase gate, since too low too early costs exploration.
+  float entropyScale = 0.004f;
 
   float gaeGamma = 0.99f;
 
-  // Upstream default; the inherited 1.5e-4 compounded the epochs=1 problem.
+  // Upstream default.
   float policyLR = 3e-4f;
   float criticLR = 3e-4f;
 

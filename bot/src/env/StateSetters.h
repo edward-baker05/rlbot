@@ -4,32 +4,47 @@
 
 namespace Hive {
 
-// ============================================================================
-// Situation state setters
-// ============================================================================
-// Each setter spawns the arena into the *start* of one situation, so the policy
-// gets a dense supply of that situation instead of waiting for it to occur
-// naturally. This is the single highest-leverage tool you have: a flip reset
-// happens roughly never under random play, so without a setter the policy will
-// never see enough of them to learn anything.
+// Each setter spawns the arena into the *start* of one situation, so the
+// policy gets a dense supply of it instead of waiting for it to occur
+// naturally (a flip reset happens roughly never under random play).
 //
 // Design rules followed throughout:
-//   * Always call arena->ResetToRandomKickoff() first. It resets boost pads,
-//     the ball, and every car to a known-good state; we then overwrite what we
-//     care about. Skipping it leaves stale boost pad timers.
-//   * Randomise generously. A setter that always spawns the identical scenario
-//     teaches the policy to memorise one trajectory rather than learn a skill.
-//   * Set state for EVERY car, not just one, or leftover cars sit at kickoff
-//     positions and pollute the episode.
-//   * Respect team symmetry: mirror positions by team so both sides see the
-//     same distribution.
-// ============================================================================
+//   * Always call arena->ResetToRandomKickoff() first, then overwrite what we
+//     care about -- it resets boost pad timers, the ball, and every car.
+//   * Randomise generously; a fixed scenario teaches memorisation, not skill.
+//   * Set state for EVERY car, or leftover cars pollute the episode.
+//   * Respect team symmetry: mirror positions by team.
 
-// Ball high in the air, cars on the ground with boost. Teaches driving-to-aerial
-// takeoff and mid-air ball contact.
+// The jump-flip strike: ball at jump height, car already rolling at it and
+// already at pace, so the only open decisions are timing and steering trim.
+class StrikeState : public RLGC::StateSetter {
+public:
+	// Jump-reachable band, above where the bot can reach on wheels.
+	float minBallZ = 250.f, maxBallZ = 550.f;
+
+	// Close enough that contact is likely, far enough that the jump has to be
+	// timed rather than mashed on spawn.
+	float minDist = 700.f, maxDist = 1400.f;
+
+	float minSpeed = 900.f, maxSpeed = 1600.f;
+
+	// Full boost on a fraction of spawns, to connect "full tank" with "can hit
+	// harder".
+	float fullBoostChance = 0.4f;
+	float minBoost = 20.f, maxBoost = 100.f;
+
+	void ResetArena(Arena* arena) override;
+};
+
+// Ball off the ground, cars on the ground with boost. Teaches driving-to-takeoff
+// and airborne ball contact. Height and distance are one setting, not two,
+// because the curriculum instantiates this twice at different heights and
+// spawn distance has to track ball height (too far and the ball is back on
+// the ground before the car arrives).
 class AerialState : public RLGC::StateSetter {
 public:
 	float minBallZ = 700.f, maxBallZ = 1700.f;
+	float minCarDist = 1200.f, maxCarDist = 2600.f;
 	float minBoost = 40.f, maxBoost = 100.f;
 
 	void ResetArena(Arena* arena) override;
@@ -98,33 +113,19 @@ public:
 	void ResetArena(Arena* arena) override;
 };
 
-// One car spawned right next to the ball, on the ground, already pointed at it.
-//
-// This exists to break a specific deadlock. The touch-quality reward is the
-// main outcome signal of phase 1, but it only pays when the ball is actually
-// struck -- and a fresh policy touches the ball roughly once every twenty
-// seconds. A reward that almost never fires cannot shape behaviour, so the bot
-// has no gradient towards the very skill the phase is meant to teach.
-//
-// Every other setter spawns cars 1200-2600 uu away, which assumes the bot can
-// already drive. This one does not: contact is available within a second or
-// two, so the touch reward fires often enough to reinforce, and the policy can
-// learn "when the ball is in front of you, hit it" before it has learned to
-// navigate to it at all.
-//
-// Deliberately not a permanent fixture. Once touch ratio is healthy this is
-// training on a situation the bot gets for free, and its weight should come
-// down in favour of NeutralPlayState. See docs/rewards.md.
+// One car spawned right next to the ball, on the ground, already pointed at
+// it. Unlike other setters (which assume the bot can already drive), contact
+// here is available within a second or two, so the touch reward fires often
+// enough to reinforce "hit the ball" before the bot has learned to navigate
+// to it. Not a permanent fixture -- weight should come down in favour of
+// NeutralPlayState once touch ratio is healthy.
 class BallContactState : public RLGC::StateSetter {
 public:
-	// Spawn distance from the ball. Near enough that contact is close to
-	// unavoidable, far enough that the car still has to steer and commit
-	// rather than starting already inside the ball.
+	// Near enough that contact is close to unavoidable, far enough that the
+	// car still has to steer and commit.
 	float minDist = 250.f, maxDist = 700.f;
 
-	// Fraction of spawns where the ball is already rolling rather than sitting
-	// still. A stationary ball is the easier lesson; a moving one is what the
-	// game actually presents.
+	// Fraction of spawns where the ball is already rolling rather than still.
 	float movingBallChance = 0.6f;
 
 	void ResetArena(Arena* arena) override;

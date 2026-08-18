@@ -11,8 +11,7 @@ namespace Hive {
 RLGC::EnvCreateResult CreateEnv(int index, const TrainConfig& cfg);
 
 // The scenario mix training spawns from. Exposed so the spectator can show the
-// same distribution the policy is actually practising -- if this diverged from
-// what CreateEnv uses, watching would quietly stop being evidence about the run.
+// same distribution the policy is actually practising.
 RLGC::StateSetter* BuildGeneralCurriculum(const CurriculumWeights& weights);
 
 } // namespace Hive

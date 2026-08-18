@@ -7,10 +7,8 @@
 
 namespace Hive {
 
-// Play phases are metrics and curriculum labels only, never routing. They
-// describe what the (single) policy is doing at a given moment, so wandb can
-// show how often each situation occurs and how the policy performs in it.
-// Deliberately NOT used to select a model; there is only one.
+// Play phases are metrics labels only, never routing: they describe what the
+// single policy is doing at a given moment, for wandb, not which model runs.
 
 enum class PlayPhase : int {
 	Aerial = 0,

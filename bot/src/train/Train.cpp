@@ -14,9 +14,11 @@
 #include <RLGymCPP/Math.h>
 
 #include <cmath>
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <map>
+#include <sstream>
 
 using namespace GGL;
 using namespace RLGC;
@@ -26,16 +28,20 @@ namespace Hive {
 // ---------------------------------------------------------------------------
 // Metrics
 // ---------------------------------------------------------------------------
-// These are what tell you whether training is working, and they are worth more
-// than the reward curve. Reward goes up in every run; what you actually need to
-// know is *how* the bot is earning it -- a bot that stopped aerialling and
-// started farming ground touches shows a healthy reward curve and a collapsing
-// touch height.
-//
-// Metrics run on a sampled fraction of steps because iterating every player of
-// every game every step is a real cost at 128 games.
+// These track HOW the bot earns reward, not just how much -- reward goes up
+// in every run, but a healthy curve can still hide a collapsing touch height.
+// Sampled on a fraction of steps, since iterating every player of every game
+// every step is a real cost at 128 games.
+
 // Step budget for bounded runs. Set from RunTraining(); 0 disables.
 static int64_t g_MaxSteps = 0;
+
+// Set by HandleSigint, checked in StepCallback. wandb's "Stop run" button
+// sends SIGINT to this process; a plain Ctrl-C does too. Only async-signal-
+// safe work happens in the handler itself -- the actual save/exit runs from
+// StepCallback on the main thread.
+static volatile std::sig_atomic_t g_StopRequested = 0;
+static void HandleSigint(int) { g_StopRequested = 1; }
 
 // (name, weight) per reward term, in spec order -- the same order EnvSet
 // stores per-term rewards in. Set once in RunTraining() before the learner
@@ -140,32 +146,37 @@ static void CriticValueMetrics(Learner* learner, const std::vector<GameState>& s
 	}
 }
 
+// Save first, then _exit rather than return: unwinding out of a callback
+// mid-collection would race the worker threads, and there is nothing left to
+// clean up once the checkpoint is on disk.
+static void SaveAndExit(Learner* learner, const char* reason) {
+	std::cout << "\n" << reason << ". Saving and exiting.\n";
+	std::cout.flush();
+	learner->Save();
+	if (learner->metricSender)
+		learner->metricSender->Finish();
+	std::_Exit(0);
+}
+
 static void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
-	// --- Step budget --------------------------------------------------------
 	// GigaLearn's training loop runs until the user presses Q; there is no
 	// timestep limit and no documented way to break out of it. The step
 	// callback is the only hook that runs inside the loop with access to the
-	// learner, so the budget is enforced here.
-	//
-	// Save first, then _exit rather than return: unwinding out of a callback
-	// mid-collection would race the worker threads, and there is nothing left
-	// to clean up once the checkpoint is on disk.
+	// learner, so the budget and the SIGINT check are both enforced here.
+	if (g_StopRequested) {
+		SaveAndExit(learner, "Interrupted (Ctrl-C or wandb Stop)");
+	}
 	if (g_MaxSteps > 0 && static_cast<int64_t>(learner->totalTimesteps) >= g_MaxSteps) {
-		std::cout << "\nReached step budget (" << learner->totalTimesteps
-		          << " >= " << g_MaxSteps << "). Saving and exiting.\n";
-		std::cout.flush();
-		learner->Save();
-		std::_Exit(0);
+		std::ostringstream reason;
+		reason << "Reached step budget (" << learner->totalTimesteps << " >= " << g_MaxSteps << ")";
+		SaveAndExit(learner, reason.str().c_str());
 	}
 
 	// --- Episode age --------------------------------------------------------
 	// Tracked OUTSIDE the sampling gate below, because it has to count every
-	// step to stay accurate. Answers a specific observation from watching
-	// p1advnorm play: that the bot drives at the ball confidently off a fresh
-	// spawn, touches it or nearly does, and then never re-orients for a second
-	// attempt. If that is real, the approach skill exists and the failure is
-	// entirely in recovery -- which is a completely different problem from
-	// "cannot approach the ball".
+	// step to stay accurate. Buckets behaviour by time since spawn, so an
+	// approach failure right after spawn is distinguishable from a recovery
+	// failure later in the episode.
 	{
 		auto& es = learner->envSet->state;
 		if (g_EpisodeAge.size() != states.size())
@@ -232,28 +243,47 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 				report.AddAvg("Player/Touch Height", state.ball.pos.z);
 
 			// --- Which term pays for a flip? ---------------------------------
-			// p1probe-j showed jumping has POSITIVE advantage: give the policy
-			// gradient more force and it jumps more. So some term pays for it.
-			// StrongTouch is the suspect -- weight 50, scaled by impact speed --
-			// because a flip into the ball is a far harder hit than rolling into
-			// it, and the bot forgoes only VelPlayerToBall (weight 0.5) to try.
-			//
-			// This mirrors StrongTouchReward exactly (hitForce is the ball's
-			// velocity CHANGE, not the car's speed) so the numbers are the
-			// reward, not a proxy for it. Reported per-step rather than
-			// per-touch: what matters is earnings per decision, since that is
-			// what the forgone approach reward is measured in.
+			// Mirrors StrongTouchReward exactly (hitForce is the ball's velocity
+			// CHANGE, not the car's speed), so these numbers are the reward
+			// itself, not a proxy. Reported per-step rather than per-touch, since
+			// that is the unit the forgone approach reward is measured in.
 			if (state.prev) {
 				const bool air = !player.isOnGround;
 				float strong = 0.f;
 				if (player.ballTouchedStep) {
-					const float hitForce = (state.ball.vel - state.prev->ball.vel).Length();
+					const Vec delta = state.ball.vel - state.prev->ball.vel;
+					const float hitForce = delta.Length();
 					report.AddAvg(air ? "Touch/HitForce Airborne" : "Touch/HitForce Grounded",
 					              hitForce);
-					if (hitForce >= RLGC::Math::KPHToVel(TOUCH_MIN_KPH))
-						strong = RS_MIN(1.f, hitForce / RLGC::Math::KPHToVel(TOUCH_MAX_KPH));
+
+					// StrongTouchValue and AimMultiplier are the reward's own
+					// functions, not a re-implementation, so this cannot drift
+					// from what the policy is actually paid.
+					const float aim = AimMultiplier(delta, state.ball.pos, player.team,
+					                                g_RewardWeights.aimSharpness);
+					strong = StrongTouchValue(hitForce) * aim;
+
 					report.AddAvg(air ? "Touch/StrongValue Airborne" : "Touch/StrongValue Grounded",
 					              strong);
+
+					// Aim on its own, so a change in payout can be attributed to
+					// hitting harder or to hitting straighter. 0.5 is the value
+					// of a hit square across the goal line; below 0.5 the bot is
+					// sending the ball back towards its own half.
+					report.AddAvg("Touch/Aim", aim);
+
+					// Distribution rather than the mean. The mean touch height
+					// (~147) hides the thing we care about: whether ANY touches
+					// are happening in the jump-only band at all.
+					const float h = state.ball.pos.z;
+					report.AddAvg("Touch/Above 200", h > 200.f ? 1.f : 0.f);
+					report.AddAvg("Touch/Above 300", h > 300.f ? 1.f : 0.f);
+					report.AddAvg("Touch/Above 450", h > 450.f ? 1.f : 0.f);
+
+					// Did it get there with a jump, and did it flip into the
+					// ball? This is the target skill, stated as a metric.
+					report.AddAvg("Touch/Had Jumped", player.hasJumped ? 1.f : 0.f);
+					report.AddAvg("Touch/Had Flipped", player.hasFlipped ? 1.f : 0.f);
 				}
 				report.AddAvg(air ? "Touch/Rate Airborne" : "Touch/Rate Grounded",
 				              player.ballTouchedStep ? 1.f : 0.f);
@@ -275,11 +305,9 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 
 			// --- What the policy actually DID --------------------------------
 			// Everything above is a state statistic: it says where the car
-			// ended up, not what the policy chose. Those differ. "In Air Ratio
-			// 0.91" is consistent with a policy that jumps constantly AND with
-			// one that never jumps but keeps getting launched, and the two need
-			// opposite fixes. p1probe-h and p1probe-i were both aimed without
-			// this number, so measure the decision itself.
+			// ended up, not what the policy chose. "In Air Ratio 0.91" is
+			// consistent with a policy that jumps constantly AND with one that
+			// never jumps but keeps getting launched, which need opposite fixes.
 			//
 			// prevAction is the action applied during this step, so it must be
 			// conditioned on the PREVIOUS state -- that is the state the policy
@@ -312,12 +340,50 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 					report.AddAvg("Action/Jump When Airborne", player.prevAction.jump);
 			}
 
+			// --- Is it just standing there? ----------------------------------
+			// `Grounded` is the only unconditional, non-negative term in the
+			// stack: every other term is either zero for a motionless car or
+			// SIGNED (VelPlayerToBall goes negative moving away, VelBallToGoal
+			// is zero-sum, Goal is -100 conceded). So standing still is a
+			// risk-free annuity and everything else carries downside, which is
+			// a local optimum a risk-averse policy will find and hold.
+			//
+			// Reported as a ratio and as realized pay so the annuity can be
+			// compared directly against what playing earns, rather than against
+			// RewardShare -- which is mean |r*w| and so cannot tell a term that
+			// nets zero from one that pays every step.
+			if (player.isOnGround) {
+				const float sp = player.vel.Length();
+				report.AddAvg("Player/Grounded Speed", sp);
+				report.AddAvg("Player/Grounded Stationary Ratio", sp < 200.f ? 1.f : 0.f);
+				report.AddAvg("Pay/Grounded Per Step", g_RewardWeights.grounded);
+				if (sp < 200.f)
+					report.AddAvg("Pay/Per Step While Stationary", g_RewardWeights.grounded);
+			}
+
+			// --- Is it actually driving? -------------------------------------
+			// Added while diagnosing a policy that boosts in straight lines and
+			// never turns. Everything else here measures resulting STATE; these
+			// measure the grounded control inputs directly, because "it does not
+			// steer" and "it steers but cannot hold a line" look identical from
+			// speed and position alone.
+			//
+			// Split by whether boost is even available: DefaultAction masks out
+			// every boost action at zero boost, so a raw boost rate conflates
+			// "chose not to boost" with "could not".
+			if (before.isOnGround && upright) {
+				report.AddAvg("Action/Steer Nonzero", player.prevAction.steer != 0.f ? 1.f : 0.f);
+				report.AddAvg("Action/Throttle Forward", player.prevAction.throttle > 0.f ? 1.f : 0.f);
+				report.AddAvg("Action/Throttle Zero", player.prevAction.throttle == 0.f ? 1.f : 0.f);
+				report.AddAvg("Action/Handbrake", player.prevAction.handbrake);
+				if (before.boost > 0.f)
+					report.AddAvg("Action/Boost When Available", player.prevAction.boost);
+			}
+
 			// --- What KIND of flip? ------------------------------------------
-			// Watching p1advnorm: "essentially always diagonal flipping" and
-			// "jumping and delaying the flip". Both are checkable from the
-			// chosen action. DefaultAction's jump entries always have yaw == 0
-			// (jump+yaw combinations are skipped when the table is built), so a
-			// diagonal is pitch and roll together; a straight flip is one axis.
+			// DefaultAction's jump entries always have yaw == 0 (jump+yaw
+			// combinations are skipped when the table is built), so a diagonal
+			// flip is pitch and roll together; a straight flip is one axis.
 			if (player.prevAction.jump != 0.f) {
 				const bool pitching = player.prevAction.pitch != 0.f;
 				const bool rolling = player.prevAction.roll != 0.f;
@@ -355,15 +421,10 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 				report.AddAvg("Player/Air Time", player.airTime);
 
 			// --- What does a flip actually buy? ------------------------------
-			// Measured 2026-08-17 on p1-validate's 116075520: total speed is
-			// the same just after landing (740) as while already grounded
-			// (734), but the toward-ball component is 29% lower (166 vs 233).
-			// So the flip is not a speed pump -- it is a heading randomizer,
-			// and it costs the only dense reward the bot can earn.
-			//
-			// Caveat on both splits: "sustained" cars have had time to
-			// accelerate, so this is not a clean counterfactual for "what if it
-			// had driven instead". It bounds the effect, it does not isolate it.
+			// Landing vs sustained split: tests whether a flip is a speed pump
+			// or just a heading randomizer. Not a clean counterfactual --
+			// "sustained" cars have had time to accelerate -- but it bounds the
+			// effect.
 			if (player.isOnGround && dist > 1.f) {
 				const float towards = RS_MAX(0.f, player.vel.Dot(toBall / dist));
 				const bool landed = !before.isOnGround;
@@ -445,23 +506,12 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 	}
 
 	// --- What does the CRITIC think? ----------------------------------------
-	// The policy jumps from 74% of grounded-upright states, which costs it
-	// approach speed and therefore reward. Two explanations survive everything
-	// measured so far, and they need opposite fixes:
-	//
-	//   (a) the critic values airborne states at least as highly as grounded
-	//       ones, so the policy is correctly following its own advantage and
-	//       the REWARD is what favours air time;
-	//   (b) the critic prefers grounded states, the gradient does point the
-	//       right way, and something stops it reaching this decision.
-	//
-	// V(grounded) vs V(airborne) separates them directly. The TD split goes
-	// further: out of a grounded state, does bootstrapping through the jump
-	// action look better than not jumping?
-	//
-	// NOTE the TD figure omits the immediate reward -- it is gamma*V(s') - V(s),
-	// not the full residual -- so read it as "where does jumping take me", not
-	// as an advantage. The per-player reward is not addressable from here.
+	// V(grounded) vs V(airborne) says whether the critic favours air time on
+	// its own, independent of what the reward does. The TD split goes further:
+	// out of a grounded state, does bootstrapping through the jump action look
+	// better than not jumping? Note the TD figure omits the immediate reward
+	// (it's gamma*V(s') - V(s), not the full residual), so read it as "where
+	// does jumping take me", not as an advantage.
 	CriticValueMetrics(learner, states, report);
 }
 
@@ -570,6 +620,11 @@ void RunTraining(const TrainConfig& cfg) {
 	};
 
 	Learner learner(envCreateFn, lc, StepCallback);
+
+	// Installed after the Learner (and its embedded Python interpreter) is
+	// constructed, since Python init can otherwise install its own handler.
+	std::signal(SIGINT, HandleSigint);
+
 	learner.Start();
 }
 

@@ -127,6 +127,33 @@ under its own steam (0.683 → 0.533 in 10M steps). **It does not on its own mak
 the bot better** — it makes the policy converge faster on whatever the reward
 actually rewards, which is a separate problem. Reapply if you re-clone.
 
+### Fourth local patch to external/
+
+`external/GigaLearnCPP-Leak/.../PPO/PPOLearner.cpp` mixes the policy with a
+uniform distribution over the *valid* actions before sampling
+(`ACTION_EXPLORE_EPS = 0.02` in `InferPolicyProbsFromModels`).
+
+This project has lost three control dimensions to extinction: jump on p1air
+(`Action/Jump When Grounded Upright` 0.49 -> 0.0000 by ~20M steps, and the
+p2 probes then proved curriculum, entropy and reward changes are all inert
+against it), then steer and throttle on p3strike (`Action/Steer Nonzero`
+0.0006 at 100M). PPO's gradient is proportional to the probability of the
+action taken, so once an action reaches ~0 probability it gets no gradient and
+cannot recover, whatever the reward says.
+
+The entropy bonus does not substitute: p2entropy raised `entropyScale` 2.5x and
+moved measured entropy 0.0665 -> 0.0659. Entropy describes the whole
+distribution and says nothing about whether one particular action retains
+support. The pre-existing `ACTION_MIN_PROB` clamp cannot serve either, since it
+is applied after masking and raising it would give *disabled* actions sampling
+probability.
+
+Verified live: resuming the extinct p3strike policy with the patch moved
+`Action/Steer Nonzero` 0.0005 -> 0.0082 and Policy Entropy 0.155 -> 0.224 with
+no retraining. Applied inside `InferPolicyProbsFromModels` so that collection,
+the update's log-probs and the KL computations all use the identical
+distribution, which PPO's importance ratio requires. Reapply if you re-clone.
+
 ## Agent skills
 
 ### Issue tracker

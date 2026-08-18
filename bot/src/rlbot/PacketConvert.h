@@ -9,29 +9,13 @@
 
 namespace Hive {
 
-// ============================================================================
-// PacketConverter
-// ============================================================================
 // Translates an RLBot v5 GamePacket into the RLGymCPP GameState the policy was
-// trained on.
-//
-// This is the highest-risk file in the deployment path, because every error in
-// it is silent. The bot loads, connects, drives around, and simply plays worse
-// than it did in training -- there is no crash and no warning. The two classic
-// ways to get it wrong:
-//
-//   1. BOOST PAD ORDER. The observation includes 34 boost pad states. RLGymCPP
-//      indexes them by its own hardcoded location table; RLBot orders them by
-//      y then x. These orders happen to agree today, but relying on that is a
-//      silent-corruption bug waiting to happen. We build an explicit index map
-//      from FieldInfo locations instead, once, at connect time.
-//
-//   2. FLIP AVAILABILITY. The observation includes HasFlipOrJump(), which
-//      RocketSim derives from several internal fields. RLBot reports the same
-//      fact directly via dodge_timeout. We set the internal fields to whatever
-//      makes RocketSim's derivation agree with RLBot's ground truth, rather
-//      than trying to reconstruct the internal state.
-// ============================================================================
+// trained on. Errors here are silent -- the bot just plays worse than in
+// training -- so two traps get explicit handling instead of relying on
+// upstream agreement: boost pad order (RLGymCPP's hardcoded table vs RLBot's
+// y-then-x order, reconciled via an index map built from FieldInfo) and flip
+// availability (RocketSim derives it from internal fields, which we set to
+// match RLBot's dodge_timeout ground truth).
 
 class PacketConverter {
 public:

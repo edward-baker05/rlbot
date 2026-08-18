@@ -50,6 +50,37 @@ static inline void PutOnGround(CarState& cs, float x, float y, const Vec& lookTa
 
 // ----------------------------------------------------------------------------
 
+void StrikeState::ResetArena(Arena* arena) {
+	arena->ResetToRandomKickoff();
+
+	// Ball falling rather than rising: a rising ball climbs out of the strike
+	// band while the car closes, which turns half the spawns into a scenario
+	// that cannot be solved by the skill being taught.
+	BallState bs = {};
+	bs.pos = Vec(RandFloat(-2600, 2600), RandFloat(-3200, 3200),
+	             RandFloat(minBallZ, maxBallZ));
+	bs.vel = Vec(RandFloat(-350, 350), RandFloat(-350, 350), RandFloat(-450, 0));
+	arena->ball->SetState(bs);
+
+	for (Car* car : arena->_cars) {
+		CarState cs = {};
+
+		const float dist = RandFloat(minDist, maxDist);
+		const float ang = RandFloat(-M_PI, M_PI);
+		const float x = std::clamp(bs.pos.x + std::cos(ang) * dist, -3800.f, 3800.f);
+		const float y = std::clamp(bs.pos.y + std::sin(ang) * dist, -4800.f, 4800.f);
+
+		// Aim at the ball's ground position, not the ball: pointing the car up
+		// at an airborne ball would spawn it nose-high off the floor.
+		PutOnGround(cs, x, y, Vec(bs.pos.x, bs.pos.y, 17.f),
+		            RandFloat(minSpeed, maxSpeed));
+
+		cs.boost = (RandFloat(0, 1) < fullBoostChance) ? 100.f
+		                                               : RandFloat(minBoost, maxBoost);
+		car->SetState(cs);
+	}
+}
+
 void AerialState::ResetArena(Arena* arena) {
 	arena->ResetToRandomKickoff();
 
@@ -62,7 +93,7 @@ void AerialState::ResetArena(Arena* arena) {
 		CarState cs = {};
 		// Spawn on the ground a workable distance from the ball so the policy
 		// has to actually drive-and-jump rather than start already underneath.
-		const float dist = RandFloat(1200, 2600);
+		const float dist = RandFloat(minCarDist, maxCarDist);
 		const float ang = RandFloat(-M_PI, M_PI);
 		PutOnGround(cs,
 		            std::clamp(bs.pos.x + std::cos(ang) * dist, -3800.f, 3800.f),

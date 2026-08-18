@@ -109,6 +109,15 @@ def add_metrics(metrics):
             print(f"[metrics] wandb log failed: {e!r}")
 
 
+def finish():
+    """Called on every clean exit path (Q, SIGINT, step budget) so wandb
+    doesn't mark the run crashed."""
+    global _wandb_run
+    if _wandb_run is not None:
+        _wandb_run.finish()
+        _wandb_run = None
+
+
 def _write_csv(metrics):
     global _csv_columns, _csv_rows
 

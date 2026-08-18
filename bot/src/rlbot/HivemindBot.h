@@ -12,21 +12,10 @@
 
 namespace Hive {
 
-// ============================================================================
-// HivemindBot
-// ============================================================================
-// One process, one team, every car on it.
-//
-// RLBot v5 gives us this natively: with `hivemind = true` in bot.toml, the
-// framework assigns all same-team cars sharing our agent_id to a single Bot
-// instance, and `indices` holds all of them. There is no coordination protocol
-// to write, and every car is inferred in ONE batched forward pass.
-//
-// Humans need no handling. RLBot only ever hands us indices for cars we
-// control; every other car -- human or bot, our team or theirs -- arrives as an
-// ordinary entry in the packet's player list and flows into the padded
-// observation like any other.
-// ============================================================================
+// One process, one team, every car on it. With `hivemind = true` in bot.toml,
+// RLBot v5 assigns all same-team cars sharing our agent_id to a single Bot
+// instance (`indices` holds all of them), and every car is inferred in one
+// batched forward pass.
 
 // Settings loaded from the environment before the bot connects, since RLBot
 // gives a bot no config channel of its own.

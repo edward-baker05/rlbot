@@ -40,17 +40,11 @@ void RunSpectate(const SpectateConfig& cfg) {
 	if (cfg.model.empty() == cfg.followRun.empty())
 		throw std::runtime_error("RunSpectate(): pass exactly one of --model or --follow");
 
-	// Measured, not assumed: inferring for two cars at 15 Hz on libtorch's
-	// default thread pool cost the concurrent 128-game training run 4.4% of its
-	// throughput (65.6k -> 62.7k steps/sec) purely through CPU contention on a
-	// 6-core box. Pinned to one thread it is 0.3%, inside the noise. A
-	// spectator that slows the run it is watching is not safe to leave open.
-	//
-	// Set through the environment rather than at::set_num_threads() because
-	// libtorch's headers are private to GigaLearnCPP and are not on this
-	// target's include path. The pools read these when they first initialize,
-	// which is during the first inference, well after this point. The 0 flag
-	// leaves an explicit setting from the caller alone.
+	// Pin inference to one thread so a spectator doesn't steal CPU from a
+	// concurrent training run. Set through the environment rather than
+	// at::set_num_threads(), since libtorch's headers are private to
+	// GigaLearnCPP; the pools read these on first inference. The 0 flag leaves
+	// an explicit setting from the caller alone.
 	if (!cfg.useGPU) {
 		setenv("OMP_NUM_THREADS", "1", 0);
 		setenv("MKL_NUM_THREADS", "1", 0);
