@@ -232,33 +232,57 @@ TEST_CASE("budget conversion is the only route to a per-step weight") {
 	      doctest::Approx(cfg.rewards.faceBall / REFERENCE_EPISODE_STEPS));
 	CHECK(weightOf("Air") ==
 	      doctest::Approx(cfg.rewards.air / REFERENCE_EPISODE_STEPS));
+	CHECK(weightOf("SaveBoost") ==
+	      doctest::Approx(cfg.rewards.saveBoost / REFERENCE_EPISODE_STEPS));
 
 	// Event budgets are per occurrence, so they are the weight unchanged.
 	CHECK(weightOf("StrongTouch") == doctest::Approx(cfg.rewards.strongTouch));
 	CHECK(weightOf("TouchEdge") == doctest::Approx(cfg.rewards.touchEdge));
+	CHECK(weightOf("PickupBoost") == doctest::Approx(cfg.rewards.pickupBoost));
 }
 
-// The unit is one FULL-POWER ball touch, 1.0 by definition. Anything else and
-// the ledger stops reading in touches, which is the whole reason the
-// denominator moved off goals: a goal arrives 0.116 times per episode and
-// cannot be checked against telemetry.
-TEST_CASE("a full-power touch is the unit") {
-	CHECK(TrainConfig{}.rewards.strongTouch == doctest::Approx(1.f));
-
-	// Arriving is worth strictly less than connecting.
-	CHECK(TrainConfig{}.rewards.touchEdge < TrainConfig{}.rewards.strongTouch);
-}
-
-// The single biggest numerical departure p7approach made from the reference,
-// and it went unnoticed because the two stacks were denominated in different
-// currencies. Restated in touch-units, p7approach paid 1.83 for a whole
-// episode of PERFECT approach where the guide pays 20.5.
-TEST_CASE("dense approach dominates a single touch by an order of magnitude") {
+// The currency is one ball touch. `strongTouch = 3.0` means a MAXIMAL strike
+// (3611 uu/s of delta-v) is worth three of them, which is the right shape --
+// a maximal hit is a big deal. What must stay true is the ordering: connecting
+// beats merely arriving.
+TEST_CASE("connecting outranks arriving") {
 	const RewardBudget b = {};
-	const float dense = b.speedToBall + b.faceBall;
+	CHECK(b.touchEdge < b.strongTouch);
 
-	CHECK(dense > 10.f * b.strongTouch);
-	CHECK(dense == doctest::Approx(20.52f).epsilon(1e-3));
+	// And at the REALIZED value p10touch measured, not just the raw budget.
+	// This is the assertion the recalibration exists to satisfy.
+	constexpr float MEASURED_STRONG_VALUE = 0.104f;
+	CHECK(b.strongTouch * MEASURED_STRONG_VALUE > b.touchEdge);
+}
+
+// Budgets are stated per REFERENCE episode (171 steps) but episodes now run
+// ~1734 steps, so the raw numbers no longer describe the realized ledger. The
+// property that must survive is the one p7approach got wrong: dense approach
+// has to dominate contact for a bot still learning to reach the ball.
+//
+// Checked in realized per-episode terms at p10touch's measured rates, which is
+// the only comparison that means anything once REFERENCE_EPISODE_STEPS is
+// 10x stale.
+TEST_CASE("dense approach still dominates contact in realized terms") {
+	const RewardBudget b = {};
+
+	// p10touch, last 60 iterations.
+	constexpr float EPISODE_STEPS = 1734.f;
+	constexpr float ALIGNMENT = 0.7465f;
+	constexpr float EDGE_RATE = 0.021f;
+	constexpr float STRONG_VALUE = 0.104f;
+
+	const float densePerEp =
+		(b.speedToBall + b.faceBall) / REFERENCE_EPISODE_STEPS * ALIGNMENT * EPISODE_STEPS;
+	const float touches = EDGE_RATE * EPISODE_STEPS;
+	const float touchPerEp = touches * (b.touchEdge + b.strongTouch * STRONG_VALUE);
+
+	CHECK(densePerEp > touchPerEp);
+
+	// But not by so much that contact is noise: p7approach's stack paid 1.83
+	// touch-units for a whole episode of perfect approach and never learned to
+	// approach at all, while p9rel's inverted the ratio and learned to dribble.
+	CHECK(densePerEp < 10.f * touchPerEp);
 }
 
 // The guide's proportions: touch 50, speed 5, face 1, air 0.15. Divided
@@ -278,7 +302,7 @@ TEST_CASE("budgets keep the guide's proportions") {
 	CHECK(b.air < 0.03f * (b.speedToBall + b.faceBall));
 }
 
-TEST_CASE("the spec list is the five designed terms, with positive weights") {
+TEST_CASE("the spec list is the seven designed terms, with positive weights") {
 	auto specs = GeneralRewardSpecs(TrainConfig{});
 
 	std::vector<std::string> names;
@@ -288,15 +312,19 @@ TEST_CASE("the spec list is the five designed terms, with positive weights") {
 	}
 
 	const std::vector<std::string> expected = {"StrongTouch", "TouchEdge", "SpeedToBall",
-	                                           "FaceBall", "Air"};
+	                                           "FaceBall", "SaveBoost", "PickupBoost", "Air"};
 	CHECK(names == expected);
 }
 
-// Every one of these was in the stack at some point and each is a decision to
-// leave out, not an oversight. Goal is noise at a touch ratio of 0.001;
-// WrongSurface held 30% of p7approach's reward mass as a tuning penalty; the
-// rest are tuning rewards the guide's troubleshooting section says to remove.
-TEST_CASE("no goal, boost, ball-to-goal or tuning terms are in the stack") {
+// Every one of these was in the stack at some point and each is a standing
+// decision to leave out. Goal is noise until the bot can cause one; the rest
+// are tuning rewards the guide's troubleshooting section says to remove, and
+// WrongSurface held 30% of p7approach's reward mass on its own.
+//
+// Boost is NOT on this list any more: p10touch measured `Player/Boost` at 7.3
+// out of 100 while the bot was trying to air dribble, and the guide prescribes
+// a boost economy at exactly this stage.
+TEST_CASE("no goal, ball-to-goal or tuning terms are in the stack") {
 	auto specs = GeneralRewardSpecs(TrainConfig{});
 	for (auto& s : specs) {
 		CHECK(s.name != "Goal");
@@ -304,7 +332,50 @@ TEST_CASE("no goal, boost, ball-to-goal or tuning terms are in the stack") {
 		CHECK(s.name != "CleanLanding");
 		CHECK(s.name != "HarshSpeedLoss");
 		CHECK(s.name != "VelBallToGoal");
-		CHECK(s.name != "PickupBoost");
-		CHECK(s.name != "SaveBoost");
 	}
 }
+
+// The boost economy, added in p11 after p10touch measured `Player/Boost` at
+// 7.3 out of 100 while the bot was trying to air dribble.
+TEST_CASE("SaveBoost pays sqrt of the tank, so the first drops are worth most") {
+	RLGC::SaveBoostReward r;
+	RLGC::GameState s = {};
+	RLGC::Player p = {};
+
+	auto at = [&](float boost) { p.boost = boost; return r.GetReward(p, s, false); };
+
+	CHECK(at(0.f) == doctest::Approx(0.f));
+	CHECK(at(100.f) == doctest::Approx(1.f));
+	CHECK(at(25.f) == doctest::Approx(0.5f).epsilon(1e-4));
+
+	// Concave: 0 -> 50 is worth more than 50 -> 100. This is the whole reason
+	// the guide specifies sqrt rather than a linear term.
+	CHECK((at(50.f) - at(0.f)) > (at(100.f) - at(50.f)));
+}
+
+TEST_CASE("PickupBoost is the increment of SaveBoost's potential") {
+	RLGC::PickupBoostReward r;
+	RLGC::GameState s = {};
+
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+
+	auto gain = [&](float from, float to) {
+		prev.boost = from;
+		cur.boost = to;
+		return r.GetReward(cur, s, false);
+	};
+
+	// A full grab from empty is the unit of this term.
+	CHECK(gain(0.f, 100.f) == doctest::Approx(1.f).epsilon(1e-4));
+
+	// Topping up when low pays far more than the same 12 boost when nearly
+	// full -- which is what makes small pads worth taking.
+	CHECK(gain(0.f, 12.f) > 3.f * gain(88.f, 100.f));
+
+	// Spending boost is not punished; only gaining is paid.
+	CHECK(gain(100.f, 40.f) == 0.f);
+	CHECK(gain(50.f, 50.f) == 0.f);
+}
+

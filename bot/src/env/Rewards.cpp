@@ -21,7 +21,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 	// `Touch/Edge Rate` and `Player/Ball Touch Ratio`, so the ledger can be
 	// checked against telemetry instead of reconstructed by hand.
 	//
-	// Five terms. The early-stage stack from Zealan's RLGym-PPO-Guide
+	// Seven terms. The early-stage stack from Zealan's RLGym-PPO-Guide
 	// (making_a_good_bot.md) with its touch term taken to the guide's
 	// MIDDLE-stage form, because p9rel hit the transition the guide describes:
 	// "The default touch part of EventReward is not very good once your bot can
@@ -66,6 +66,12 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 		// Pays for being airborne. Measured ~50x too small to cover what a jump
 		// costs in traction and contact, and deliberately left that way: see
 		// the note on RewardBudget::air.
+		// Per step, on the boost LEVEL: discourages wasting it.
+		{"SaveBoost", RateWeight(b.saveBoost), [] { return new SaveBoostReward(); }},
+
+		// Per pickup, on the boost INCREMENT: encourages collecting it.
+		{"PickupBoost", b.pickupBoost, [] { return new PickupBoostReward(); }},
+
 		{"Air", RateWeight(b.air), [] { return new AirReward(); }},
 	};
 }

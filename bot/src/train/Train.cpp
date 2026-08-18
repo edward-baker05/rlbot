@@ -405,12 +405,24 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			// the correct way out of it, so an upright split is needed before
 			// a high grounded jump rate can be read as a farm rather than as
 			// recovery. Wheels-down is rotMat.up.z near +1.
+			//
+			// BUT: a car driving on a WALL is also grounded with up.z near 0,
+			// so it lands in the non-upright bucket too. That bucket was named
+			// "Inverted" and read as upside-down recovery for three runs, while
+			// p10touch's 0.0615 there -- 15x the eps-floor and rising -- was
+			// overwhelmingly wall jumping, the one place this bot leaves a
+			// surface on purpose. The name is now "Tilted" and the denominator
+			// is published alongside it, because "jumping is extinct" was drawn
+			// from the Upright bucket alone and was wrong.
 			const bool upright = before.rotMat.up.z > 0.7f;
+
+			if (before.isOnGround)
+				report.AddAvg("Player/Grounded Tilted Ratio", upright ? 0.f : 1.f);
 
 			if (couldJump) {
 				if (before.isOnGround)
 					report.AddAvg(upright ? "Action/Jump When Grounded Upright"
-					                      : "Action/Jump When Grounded Inverted",
+					                      : "Action/Jump When Grounded Tilted",
 					              player.prevAction.jump);
 				else
 					report.AddAvg("Action/Jump When Airborne", player.prevAction.jump);

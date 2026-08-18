@@ -127,7 +127,18 @@ struct RewardBudget {
   // PROVISIONAL. Per roadmap D6 (no magic numbers without measurement), this
   // stands until `Touch/Hit Force` says what a realized touch is actually
   // worth; the first run that reports it is what sets the final value.
-  float strongTouch = 1.0f;
+  // RE-DERIVED FROM MEASUREMENT, not guessed. p10touch shipped this at a
+  // provisional 1.0 and added `Touch/Strong Value` to find out what a realized
+  // touch is worth: the answer was **0.104**, against the 0.3-0.4 predicted
+  // from p1pay's old hit-force figures. So the term earned 0.104 per touch
+  // against TouchEdge's 0.25 -- arriving paid 2.4x more than connecting, the
+  // inverse of the intent -- and `RewardShare/StrongTouch` sat at 0.037,
+  // effectively inert.
+  //
+  // 3.0 puts a realized touch at ~0.31, just above TouchEdge. Per p10touch's
+  // pre-registration the lever is the BUDGET, not the curve: one thing moves,
+  // and the same metric measures it again.
+  float strongTouch = 3.0f;
 
   // Arriving at the ball, worth a quarter of a full-power hit. Rising edge, so
   // carrying pays this exactly once (see TouchEdgeReward). Kept small and
@@ -147,6 +158,31 @@ struct RewardBudget {
   // the ball is punished rather than merely unpaid -- see the pairing note in
   // Rewards.h.
   float faceBall = 3.42f;
+
+  // --- The boost economy -------------------------------------------------
+  //
+  // p10touch's bot found air dribbling off the wall and could only sustain it
+  // when it happened to have boost, running at `Player/Boost` **7.3 out of
+  // 100** all run. Aerial play is boost-gated in a way ground play is not, and
+  // nothing in the stack had ever paid for boost. This is the guide's
+  // middle-stage prescription and the most direct lever on the air game that
+  // does not involve paying for height directly.
+
+  // sqrt(boost/100) per step. The sqrt is the point: it makes boost worth more
+  // the less you have, which is simply true in Rocket League -- 0 to 50 is
+  // worth more than 50 to 100.
+  //
+  // Kept small because a per-step reward for a HOLDABLE state is a do-nothing
+  // attractor, which is what p1air's flat `grounded = 0.05` was. The guide:
+  // "If your bot is hogging boost and is afraid to use it, decrease the
+  // reward."
+  float saveBoost = 1.5f;
+
+  // sqrt(new) - sqrt(old) on pickup, i.e. the increment of saveBoost's own
+  // potential, so a full grab from empty pays 1.0 x this budget. Being the
+  // derivative of a sqrt, it pays disproportionately for topping up when low,
+  // which is most of what the guide wants from small-pad behaviour.
+  float pickupBoost = 0.5f;
 
   // 0.15/50 per step over 171 steps: 2.5% of the dense budget. Measured to be
   // ~50x too small to pay for the traction and contact a jump costs (p8ref
