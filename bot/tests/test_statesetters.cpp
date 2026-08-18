@@ -100,3 +100,63 @@ TEST_CASE("FlipResetState puts the car airborne below the ball") {
 		CHECK(anyAirborneBelow);
 	}
 }
+
+// THE FAILURE THIS TEST EXISTS FOR: the mutator config belongs to the ARENA and
+// outlives the episode. If InfiniteBoostState only wrote `boostUsedPerSecond`
+// on the infinite episodes and never restored it, the first infinite episode
+// would make that arena infinite forever -- and the run would simply look like
+// a bot that had solved its own boost problem.
+TEST_CASE("InfiniteBoostState restores the normal drain rate every reset") {
+	Hive::Test::EnsureRocketSim();
+
+	Arena* arena = Arena::Create(GameMode::SOCCAR);
+	arena->AddCar(Team::BLUE);
+	arena->AddCar(Team::ORANGE);
+
+	SUBCASE("chance 1 gives every episode a full, non-draining tank") {
+		Hive::InfiniteBoostState setter(new Hive::NeutralPlayState(), 1.f);
+		for (int i = 0; i < 5; i++) {
+			setter.ResetArena(arena);
+			CHECK(setter.LastWasInfinite());
+			CHECK(arena->GetMutatorConfig().boostUsedPerSecond == 0.f);
+			for (Car* car : arena->_cars)
+				CHECK(car->GetState().boost == doctest::Approx(100.f));
+		}
+	}
+
+	SUBCASE("chance 0 never touches the drain rate") {
+		Hive::InfiniteBoostState setter(new Hive::NeutralPlayState(), 0.f);
+		for (int i = 0; i < 5; i++) {
+			setter.ResetArena(arena);
+			CHECK(!setter.LastWasInfinite());
+			CHECK(arena->GetMutatorConfig().boostUsedPerSecond ==
+			      doctest::Approx(RLConst::BOOST_USED_PER_SECOND));
+		}
+	}
+
+	SUBCASE("an infinite episode does not leak into the next normal one") {
+		// Force infinite, then force normal on the same arena.
+		Hive::InfiniteBoostState infinite(new Hive::NeutralPlayState(), 1.f);
+		infinite.ResetArena(arena);
+		REQUIRE(arena->GetMutatorConfig().boostUsedPerSecond == 0.f);
+
+		Hive::InfiniteBoostState normal(new Hive::NeutralPlayState(), 0.f);
+		normal.ResetArena(arena);
+		CHECK(arena->GetMutatorConfig().boostUsedPerSecond ==
+		      doctest::Approx(RLConst::BOOST_USED_PER_SECOND));
+	}
+
+	SUBCASE("the share is roughly the configured chance") {
+		Hive::InfiniteBoostState setter(new Hive::NeutralPlayState(), 0.25f);
+		int infinite = 0;
+		for (int i = 0; i < 2000; i++) {
+			setter.ResetArena(arena);
+			infinite += setter.LastWasInfinite() ? 1 : 0;
+		}
+		// 2000 draws at p=0.25 has sd ~0.0097, so 0.20-0.30 is ~5 sigma.
+		CHECK(infinite / 2000.f > 0.20f);
+		CHECK(infinite / 2000.f < 0.30f);
+	}
+
+	delete arena;
+}

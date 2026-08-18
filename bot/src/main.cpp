@@ -115,6 +115,8 @@ int RunTrain(int argc, char* argv[]) {
 			cfg.runLabel = argv[++i];
 		} else if (arg == "--entropy" && i + 1 < argc) {
 			cfg.entropyScale = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--infinite-boost" && i + 1 < argc) {
+			cfg.infiniteBoostChance = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--self-play") {
 			cfg.selfPlay.trainAgainstOldVersions = true;
 			// Skill tracking is what makes the result readable, so turn it on

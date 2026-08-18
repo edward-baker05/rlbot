@@ -20,10 +20,16 @@ namespace Hive {
 // velocities for both the ball and the cars, with cars spawning airborne on
 // half of resets so they learn to land.
 StateSetter* BuildSpawner(const TrainConfig& cfg) {
-	if (cfg.spawn == TrainConfig::SpawnMode::Curriculum)
-		return BuildGeneralCurriculum(cfg.curriculum);
+	StateSetter* base = (cfg.spawn == TrainConfig::SpawnMode::Curriculum)
+		? BuildGeneralCurriculum(cfg.curriculum)
+		: new RandomState(true, true, false);
 
-	return new RandomState(true, true, false);
+	if (cfg.infiniteBoostChance <= 0.f)
+		return base;
+
+	// Wraps rather than replaces, so the spawn distribution is unchanged and
+	// the only difference is whether the tank drains.
+	return new InfiniteBoostState(base, cfg.infiniteBoostChance);
 }
 
 StateSetter* BuildGeneralCurriculum(const CurriculumWeights& w) {

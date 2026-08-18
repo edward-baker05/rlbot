@@ -225,6 +225,48 @@ away) -- the property whose loss defined p7approach.
 Everything else -- instrumentation, curriculum setters, eval/verify/spectate,
 the four external patches, PacketConvert, RLBot client -- is untouched.
 
+## Run sequence and the fresh-vs-resume rule
+
+**Every run in this sequence starts from scratch.** Not because restarting is
+free, but because comparability is the only thing making the sequence work: all
+thresholds are stated as "X at 100M against the previous run's X at 100M", and a
+resumed run has no such baseline.
+
+The project has direct evidence that resumed probes mislead. p1probe-j's
+conclusion had to be retracted precisely because it resumed a policy that had
+spent 117M steps baking in a preference, and the whole p2 series (p2low,
+p2entropy, p2height) produced three null results from resumed runs on a policy
+whose jump action was already extinct. A resumed p11 would carry 100M steps of
+"boost is worthless" and could easily report a null that means nothing.
+
+At 100M steps and ~52k steps/s a fresh run costs **31 minutes**, so this is
+cheap. It stops being cheap once runs are billions of steps.
+
+**When to switch to one continuous run:** when the reward stack stops changing.
+Concretely, when two consecutive runs change no reward term and no spawn
+distribution -- at that point the config is settled, comparability has done its
+job, and the guide's "training momentum" argument takes over: drastic reward
+changes on an old policy slow learning, and a settled config should simply cook.
+Everything after that point is resumed.
+
+## Planned sequence
+
+| Run | Change | Why now |
+|---|---|---|
+| p11boost | Boost economy (`SaveBoost` + `PickupBoost`); `strongTouch` 1.0 -> 3.0 | p10touch ran at 7.3 boost/100 while air-dribbling; StrongTouch measured inert at share 0.037 |
+| p12goal | `VelocityBallToGoalReward` + a moderate `GoalReward` | The guide's middle-stage gate: "once your bot is capable of hitting the ball, introduce rewards for moving the ball to the goal and scoring". The bot now touches ~36x per episode, so it is capable. **This is also the only thing that can end an episode** -- `Episode/Mean Steps` is 1734 and rising because nothing does |
+| p13boostcur | `infiniteBoostChance` on | Held until the boost economy has been measured on its own, because infinite-boost episodes inflate `Player/Boost` directly. Becomes the *diagnostic* if p11 fails: it separates "does not value boost" from "cannot get boost" |
+| later | Air-touch reward `min(air_time, height)`; episode cap; re-derive `REFERENCE_EPISODE_STEPS` | Air play is currently developing on its own via wall dribbles, so a height term risks paying for the wall-shot farm the guide names. The cap may prove unnecessary once goals end episodes |
+
+**On goal rewards specifically.** They were excluded from phase C because at a
+touch ratio of 0.001 a goal was pure unpredictable variance -- the guide is
+explicit that scoring rewards before the bot can hit the ball "adds lots of
+noise". That condition no longer holds. p12 adds them at a **moderate** weight,
+per the guide's warning against massive goal rewards: "A giant goal reward will
+drown out every other reward you have." The dense partner
+(`VelocityBallToGoalReward`) is what actually teaches direction; the event
+reward alone is far too sparse to bootstrap anything.
+
 ## Next phases (not this spec)
 
 - **Phase B, bisect:** with a working baseline, reintroduce this project's

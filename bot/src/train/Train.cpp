@@ -1,6 +1,7 @@
 #include "Train.h"
 
 #include "../env/Curriculum.h"
+#include "../env/StateSetters.h"
 #include "../env/Env.h"
 #include "../env/Obs.h"
 #include "../env/PlayPhase.h"
@@ -560,6 +561,15 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			for (size_t j = 0; j < shares.size(); j++)
 				report.AddAvg("RewardShare/" + g_RewardLabels[j].first, shares[j]);
 		}
+	}
+
+	// --- Infinite-boost episodes --------------------------------------------
+	// Published so `Player/Boost` can never be read without knowing what share
+	// of episodes had a tank that could not drain.
+	for (size_t a = 0; a < envSet.stateSetters.size(); a++) {
+		auto* ib = dynamic_cast<InfiniteBoostState*>(envSet.stateSetters[a]);
+		if (ib)
+			report.AddAvg("Boost/Infinite Episode Share", ib->LastWasInfinite() ? 1.f : 0.f);
 	}
 
 	// --- Scenario outcomes --------------------------------------------------

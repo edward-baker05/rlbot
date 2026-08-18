@@ -2,7 +2,46 @@
 
 #include <RLGymCPP/StateSetters/StateSetter.h>
 
+#include <memory>
+
 namespace Hive {
+
+// Wraps any spawner and, on a fraction of episodes, gives both cars a full tank
+// that never drains (RocketSim's `boostUsedPerSecond = 0`).
+//
+// WHY. p10touch's bot found air dribbling off the wall and could only sustain
+// it when it happened to have boost, running at `Player/Boost` **7.3 out of
+// 100** for the whole run. A policy cannot learn the value of a resource it
+// never has: with a near-empty tank, every aerial it attempts fails for a
+// reason that has nothing to do with the aerial. This gives it a supply of
+// episodes where the boost constraint is simply absent, so the behaviour can be
+// discovered first and the economy learned second.
+//
+// The observation carries `boost / 100`, so the policy can tell an infinite
+// episode from a normal one within a step or two of boosting and does not have
+// to average the two regimes into one behaviour.
+//
+// MUST RESTORE. The mutator config is arena state, not episode state, so an
+// arena that goes infinite stays infinite for every subsequent episode unless
+// the normal rate is written back. That failure would be invisible -- the run
+// would simply look like a bot that solved its boost problem. Asserted in
+// bot/tests/test_statesetters.cpp.
+class InfiniteBoostState : public RLGC::StateSetter {
+public:
+	// Takes ownership of the inner spawner.
+	InfiniteBoostState(RLGC::StateSetter* inner, float chance)
+		: inner(inner), chance(chance) {}
+
+	void ResetArena(Arena* arena) override;
+
+	// Whether the episode just spawned has infinite boost, for metrics.
+	bool LastWasInfinite() const { return lastWasInfinite; }
+
+private:
+	std::unique_ptr<RLGC::StateSetter> inner;
+	float chance;
+	bool lastWasInfinite = false;
+};
 
 // Each setter spawns the arena into the *start* of one situation, so the
 // policy gets a dense supply of it instead of waiting for it to occur

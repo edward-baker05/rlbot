@@ -262,6 +262,18 @@ struct TrainConfig {
   // explicitly.
   ObsMode obs = ObsMode::Relative;
 
+  // Fraction of episodes spawned with a full tank that never drains. See
+  // InfiniteBoostState: a policy cannot learn the value of a resource it never
+  // has, and p10touch spent its whole run at 7.3 boost out of 100 while trying
+  // to air dribble.
+  //
+  // ZERO for p11boost, deliberately. p11's primary metric is `Player/Boost`
+  // and its first prediction is that boost rises above 25; infinite-boost
+  // episodes would inflate exactly that number and make the run
+  // uninterpretable. Turned on in p12 once the boost economy has been measured
+  // on its own. Settable at runtime with `--infinite-boost`.
+  float infiniteBoostChance = 0.f;
+
   RewardBudget rewards = {};
   ModelShape modelShape = {};
   SelfPlayConfig selfPlay = {};

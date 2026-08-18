@@ -388,4 +388,29 @@ void NeutralPlayState::ResetArena(Arena* arena) {
 	}
 }
 
+
+void InfiniteBoostState::ResetArena(Arena* arena) {
+	inner->ResetArena(arena);
+
+	lastWasInfinite = RandFloat() < chance;
+
+	// Written back on EVERY reset, not just the infinite ones. The mutator
+	// config belongs to the arena and outlives the episode, so skipping the
+	// restore would leave an arena permanently infinite after its first
+	// infinite episode -- and nothing downstream would look wrong.
+	MutatorConfig cfg = arena->GetMutatorConfig();
+	cfg.boostUsedPerSecond =
+		lastWasInfinite ? 0.f : RLConst::BOOST_USED_PER_SECOND;
+	arena->SetMutatorConfig(cfg);
+
+	if (lastWasInfinite) {
+		for (Car* car : arena->_cars) {
+			CarState state = car->GetState();
+			state.boost = 100;
+			car->SetState(state);
+		}
+	}
+}
+
 } // namespace Hive
+
