@@ -182,8 +182,14 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			// reset happens after. Count first, then zero, so the final step of
 			// an episode is still attributed to that episode.
 			g_EpisodeAge[a]++;
-			if (a < es.terminals.size() && es.terminals[a])
+			if (a < es.terminals.size() && es.terminals[a]) {
+				// Re-derives REFERENCE_EPISODE_STEPS, which ships as a working
+				// figure of 150. Recorded at the terminal step so it is a real
+				// episode length rather than a running age, and outside the
+				// sampling gate so no episode is missed.
+				report.AddAvg("Episode/Mean Steps", static_cast<float>(g_EpisodeAge[a]));
 				g_EpisodeAge[a] = 0;
+			}
 		}
 	}
 
@@ -221,6 +227,73 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			const float dist = toBall.Length();
 			if (dist > 1.f)
 				report.AddAvg("Player/Speed Towards Ball", RS_MAX(0.f, player.vel.Dot(toBall / dist)));
+
+			// --- Surface contact ---------------------------------------------
+			// The WrongSurface term as a rate. If this does not fall over a
+			// run, the bot is not learning to land, whatever the reward says.
+			const bool wrongSurface = player.worldContact.hasContact && !player.isOnGround;
+			report.AddAvg("Surface/Wrong Contact Rate", wrongSurface ? 1.f : 0.f);
+
+			// A front flip drives the nose into the floor for a few ticks, and
+			// Player samples the final tick of eight, so the scrape is caught
+			// ~25% of the time. The design prices that at ~11x cheaper than the
+			// flip's own speed gain; this is the check on that arithmetic.
+			if (player.isFlipping)
+				report.AddAvg("Surface/Wrong Contact While Flipping", wrongSurface ? 1.f : 0.f);
+
+			// --- Landings -------------------------------------------------------
+			if (player.prev && player.isOnGround && !player.prev->isOnGround) {
+				report.AddAvg("Landing/Rate", 1.f);
+				report.AddAvg("Landing/Clean Share", player.worldContact.hasContact ? 0.f : 1.f);
+				report.AddAvg("Landing/Impact Speed", RS_MAX(0.f, -player.prev->vel.z));
+			} else {
+				report.AddAvg("Landing/Rate", 0.f);
+			}
+
+			// --- Speed ----------------------------------------------------------
+			const float speed = player.vel.Length();
+			report.AddAvg("Speed/Mean", speed);
+
+			// Is the squared term buying boost- and flip-derived speed, or is
+			// the bot parked on the free coasting floor? This is half of the
+			// pre-committed farm trigger: this rising while Touch/Edge Rate
+			// stays flat means the speed term is being farmed.
+			report.AddAvg("Speed/Above Throttle Cap Share",
+			              speed > THROTTLE_TOP_SPEED ? 1.f : 0.f);
+
+			if (player.prev) {
+				const float lost = player.prev->vel.Length() - speed;
+				// Validates HARSH_LOSS_THRESHOLD against the real
+				// distribution. The 400 uu/s figure rests on an empirical
+				// ~3500 uu/s^2 braking rate, not a RocketSim constant, so it
+				// has to be checked rather than trusted. Hits are excluded for
+				// the same reason the reward excludes them.
+				if (!player.ballTouchedStep) {
+					report.AddAvg("Speed/Max Step Decel", RS_MAX(0.f, lost));
+					report.AddAvg("Speed/Harsh Loss Rate",
+					              lost > HARSH_LOSS_THRESHOLD ? 1.f : 0.f);
+				}
+			}
+
+			// --- Facing -----------------------------------------------------
+			// If the |c| lobe is being farmed, Mean Cos goes negative while
+			// Axis Share stays high: the bot is driving away from the ball and
+			// being paid for it. RewardShare cannot show this, because it
+			// reports mean |r*w| and cannot tell a signed term from a
+			// rectified one.
+			if (dist > 1.f) {
+				const float cosToBall = player.rotMat.forward.Dot(toBall / dist);
+				report.AddAvg("FaceBall/Mean Cos", cosToBall);
+				report.AddAvg("FaceBall/Axis Share", std::fabs(cosToBall));
+			}
+
+			// --- Touch edge -------------------------------------------------
+			// The rate the Touch term actually pays at, as opposed to
+			// Player/Ball Touch Ratio which counts every step of contact. The
+			// gap between them is how much carrying is happening.
+			report.AddAvg("Touch/Edge Rate",
+			              (player.ballTouchedStep
+			               && !(player.prev && player.prev->ballTouchedStep)) ? 1.f : 0.f);
 
 			// Same three quantities, split by how old the episode is. If the
 			// Early numbers are strong and Mid/Late collapse, the bot can

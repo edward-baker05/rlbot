@@ -29,12 +29,19 @@ from pathlib import Path
 INTERESTING = [
     ("Average Step Reward", "reward", "{:.4f}"),
     ("Policy Entropy", "entropy", "{:.4f}"),
-    ("Player/Touch Height", "touch height", "{:.1f}"),
     ("Player/Ball Touch Ratio", "touch ratio", "{:.4f}"),
+    ("Touch/Edge Rate", "touch edges", "{:.5f}"),
+    ("Player/Touch Height", "touch height", "{:.1f}"),
+    ("Surface/Wrong Contact Rate", "wrong surface", "{:.4f}"),
+    ("Landing/Clean Share", "clean landings", "{:.3f}"),
+    ("Landing/Impact Speed", "landing impact", "{:.1f}"),
+    ("Speed/Mean", "speed", "{:.1f}"),
+    ("Speed/Above Throttle Cap Share", "above coast", "{:.3f}"),
+    ("Speed/Harsh Loss Rate", "harsh losses", "{:.4f}"),
+    ("FaceBall/Mean Cos", "facing", "{:.3f}"),
     ("Player/In Air Ratio", "air ratio", "{:.4f}"),
-    ("Player/Speed", "speed", "{:.1f}"),
     ("Player/Boost", "boost", "{:.1f}"),
-    ("Game/Goal Speed", "goal speed", "{:.1f}"),
+    ("Episode/Mean Steps", "episode steps", "{:.1f}"),
     ("Overall Steps/Second", "steps/sec", "{:,.0f}"),
 ]
 
