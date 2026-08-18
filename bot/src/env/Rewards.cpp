@@ -2,72 +2,43 @@
 
 #include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/Rewards/CommonRewards.h>
-#include <RLGymCPP/Rewards/ZeroSumReward.h>
-
-#include <stdexcept>
 
 using namespace RLGC;
 
 namespace Hive {
 
-float TouchHeightReward::GetReward(const Player& player, const GameState& state,
-                                   bool isFinal) {
-	if (!player.ballTouchedStep)
-		return 0.f;
-
-	const float height = state.ball.pos.z - CommonValues::BALL_RADIUS;
-	if (height <= 0.f)
-		return 0.f;
-
-	return RS_MIN(1.f, height / maxHeight);
-}
-
 std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
-	const RewardWeights& w = cfg.rewards;
+	const RewardBudget& b = cfg.rewards;
 
-	if (cfg.rewardPhase != RewardPhase::Foundations &&
-	    cfg.rewardPhase != RewardPhase::Aerial) {
-		throw std::runtime_error(
-			"GeneralRewardSpecs(): only RewardPhase::Foundations and ::Aerial are "
-			"designed. Later phases are derived from the telemetry of the run "
-			"before them.");
-	}
-
-	// Aerial differs from Foundations in exactly two places, both marked below:
-	// TouchHeightReward switches on, and the flat Grounded bonus switches off.
-	// The GroundedReward gates on VelPlayerToBall/FaceBall stay in both phases
-	// as the anti-farm anchor; the bot is paid for arriving (TouchHeight,
-	// StrongTouch), not for approaching while airborne.
-	const bool aerial = (cfg.rewardPhase == RewardPhase::Aerial);
-
+	// Budgets become per-step weights HERE and nowhere else. That single
+	// conversion site is the whole point of the redesign: p1air's do-nothing
+	// attractor was a per-step float whose episode integral nobody computed.
+	//
+	// SIGN CONVENTION: penalty classes return negative values and carry
+	// POSITIVE weights, matching upstream BumpedPenalty/DemoedPenalty. A
+	// negative weight here would double-negate a penalty into a reward, and
+	// nothing downstream would reveal it.
+	//
+	// Nothing except Goal is ZeroSum-wrapped. These are car-control terms;
+	// wrapping them would add opponent variance for no competitive meaning,
+	// and GoalReward already carries the entire adversarial structure.
 	return {
-		// Restored to the p1air form. p4pbrs replaced this with a car-to-ball
-		// potential and touch rate FELL 0.0011 -> 0.0007: the potential telescoped
-		// to zero over chase-hit-chase, leaving outcomes alone to bootstrap at a
-		// touch rate too low to do it. The farmability is what made it teach.
-		{"VelPlayerToBall", w.velPlayerToBall,
-		 []() -> Reward* { return new GroundedReward(new VelocityPlayerToBallReward()); }},
-		{"Touch", w.touch, [] { return new TouchBallReward(); }},
-		{"StrongTouch", w.strongTouch,
-		 [sharpness = w.aimSharpness]() -> Reward* { return new ZeroSumReward(new AimedStrongTouchReward(sharpness), 0.2f); }},
-		// Potential-based on ball->their-goal: same quantity this slot always
-		// measured, but farm-proof, and it pays for striking the ball goalward
-		// instead of for passive ball motion. Not ZeroSum-wrapped -- see class.
-		{"VelBallToGoal", w.velBallToGoal,
-		 []() -> Reward* { return new BallGoalProgressReward(); }},
-		{"Goal", w.goal, [] { return new GoalReward(); }},
-		{"PickupBoost", w.pickupBoost, [] { return new PickupBoostReward(); }},
-		{"FaceBall", w.faceBall,
-		 []() -> Reward* { return new GroundedReward(new FaceBallReward()); }},
+		// The unit. Already zero-sum: +1 scored, -1 conceded.
+		{"Goal", RewardBudget::GOAL, [] { return new GoalReward(); }},
 
-		// Not zero-summed or gated: pure car-control, unaffected by the opponent.
-		{"AirRecovery", w.airRecovery, [] { return new AirRecoveryReward(); }},
+		{"Touch", b.touch, [] { return new TouchEdgeReward(); }},
+		{"CleanLanding", b.cleanLanding, [] { return new CleanLandingReward(); }},
+		{"WrongSurface", PerSecondWeight(b.wrongSurface),
+		 [] { return new WrongSurfaceReward(); }},
+		{"HarshSpeedLoss", b.harshSpeedLoss, [] { return new HarshSpeedLossReward(); }},
 
-		// Zero-weight specs stay in the list (rather than omitted) so RewardShare
-		// metric indices stay aligned between Foundations and Aerial runs.
-		{"Grounded", aerial ? 0.f : w.grounded, [] { return new GroundedBonusReward(); }},
-		{"TouchHeight", aerial ? w.touchHeight : 0.f,
-		 [] { return new TouchHeightReward(); }},
+		{"Speed", RateWeight(b.speed), [] { return new SpeedSquaredReward(); }},
+		// Upstream's FaceBallReward is already the full 3-D dot product; the
+		// old stack gated it to grounded steps, which left the airborne policy
+		// with no directional signal at all. Ungated here.
+		{"FaceBall", RateWeight(b.faceBall), [] { return new FaceBallReward(); }},
+		{"FaceBallAxis", RateWeight(b.faceBallAxis),
+		 [] { return new FaceBallAxisReward(); }},
 	};
 }
 

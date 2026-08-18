@@ -52,10 +52,6 @@ static std::vector<std::pair<std::string, float>> g_RewardLabels;
 // not carry it. Set once in RunTraining() before the learner starts.
 static int g_MaxPlayersPerTeam = 1;
 
-// The Pay/* metrics express each term's earnings in the same units the reward
-// stack uses, so they need the live weights rather than the defaults.
-static RewardWeights g_RewardWeights = {};
-
 // Decision steps since each arena last reset, for the Episode/* buckets.
 static std::vector<int> g_EpisodeAge;
 
@@ -242,39 +238,15 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			if (player.ballTouchedStep)
 				report.AddAvg("Player/Touch Height", state.ball.pos.z);
 
-			// --- Which term pays for a flip? ---------------------------------
-			// Mirrors StrongTouchReward exactly (hitForce is the ball's velocity
-			// CHANGE, not the car's speed), so these numbers are the reward
-			// itself, not a proxy. Reported per-step rather than per-touch, since
-			// that is the unit the forgone approach reward is measured in.
-			if (state.prev) {
+			// --- Touch distribution -------------------------------------------
+			// Distribution rather than the mean touch height (~147 measured):
+			// the mean hides the thing that actually matters, which is whether
+			// ANY touches are happening in the jump-only band at all. None of
+			// these depend on state.prev -- they read the current touch and
+			// grounded state, not a velocity delta.
+			{
 				const bool air = !player.isOnGround;
-				float strong = 0.f;
 				if (player.ballTouchedStep) {
-					const Vec delta = state.ball.vel - state.prev->ball.vel;
-					const float hitForce = delta.Length();
-					report.AddAvg(air ? "Touch/HitForce Airborne" : "Touch/HitForce Grounded",
-					              hitForce);
-
-					// StrongTouchValue and AimMultiplier are the reward's own
-					// functions, not a re-implementation, so this cannot drift
-					// from what the policy is actually paid.
-					const float aim = AimMultiplier(delta, state.ball.pos, player.team,
-					                                g_RewardWeights.aimSharpness);
-					strong = StrongTouchValue(hitForce) * aim;
-
-					report.AddAvg(air ? "Touch/StrongValue Airborne" : "Touch/StrongValue Grounded",
-					              strong);
-
-					// Aim on its own, so a change in payout can be attributed to
-					// hitting harder or to hitting straighter. 0.5 is the value
-					// of a hit square across the goal line; below 0.5 the bot is
-					// sending the ball back towards its own half.
-					report.AddAvg("Touch/Aim", aim);
-
-					// Distribution rather than the mean. The mean touch height
-					// (~147) hides the thing we care about: whether ANY touches
-					// are happening in the jump-only band at all.
 					const float h = state.ball.pos.z;
 					report.AddAvg("Touch/Above 200", h > 200.f ? 1.f : 0.f);
 					report.AddAvg("Touch/Above 300", h > 300.f ? 1.f : 0.f);
@@ -287,20 +259,6 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 				}
 				report.AddAvg(air ? "Touch/Rate Airborne" : "Touch/Rate Grounded",
 				              player.ballTouchedStep ? 1.f : 0.f);
-
-				// The decisive pair: weighted reward per step spent in each
-				// mode. Compare against what a grounded step earns from
-				// approach shaping, reported alongside it.
-				report.AddAvg(air ? "Pay/StrongTouch Per Step Airborne"
-				                  : "Pay/StrongTouch Per Step Grounded",
-				              g_RewardWeights.strongTouch * strong);
-				report.AddAvg(air ? "Pay/Touch Per Step Airborne" : "Pay/Touch Per Step Grounded",
-				              g_RewardWeights.touch * (player.ballTouchedStep ? 1.f : 0.f));
-				if (!air && dist > 1.f) {
-					const float towards = RS_MAX(0.f, player.vel.Dot(toBall / dist));
-					report.AddAvg("Pay/VelPlayerToBall Per Step Grounded",
-					              g_RewardWeights.velPlayerToBall * towards / CommonValues::CAR_MAX_SPEED);
-				}
 			}
 
 			// --- What the policy actually DID --------------------------------
@@ -341,24 +299,16 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			}
 
 			// --- Is it just standing there? ----------------------------------
-			// `Grounded` is the only unconditional, non-negative term in the
-			// stack: every other term is either zero for a motionless car or
-			// SIGNED (VelPlayerToBall goes negative moving away, VelBallToGoal
-			// is zero-sum, Goal is -100 conceded). So standing still is a
-			// risk-free annuity and everything else carries downside, which is
-			// a local optimum a risk-averse policy will find and hold.
-			//
-			// Reported as a ratio and as realized pay so the annuity can be
-			// compared directly against what playing earns, rather than against
-			// RewardShare -- which is mean |r*w| and so cannot tell a term that
-			// nets zero from one that pays every step.
+			// The old stack had a flat `Grounded` bonus that made standing
+			// still a risk-free annuity; that term is gone (deleted with
+			// GroundedBonusReward), but the ratio is still worth watching --
+			// SpeedSquaredReward pays zero for a motionless car, so a nonzero
+			// stationary share now means the *rest* of the stack isn't moving
+			// the policy off it either.
 			if (player.isOnGround) {
 				const float sp = player.vel.Length();
 				report.AddAvg("Player/Grounded Speed", sp);
 				report.AddAvg("Player/Grounded Stationary Ratio", sp < 200.f ? 1.f : 0.f);
-				report.AddAvg("Pay/Grounded Per Step", g_RewardWeights.grounded);
-				if (sp < 200.f)
-					report.AddAvg("Pay/Per Step While Stationary", g_RewardWeights.grounded);
 			}
 
 			// --- Is it actually driving? -------------------------------------
@@ -544,7 +494,6 @@ void RunTraining(const TrainConfig& cfg) {
 
 	g_MaxSteps = cfg.maxSteps;
 	g_MaxPlayersPerTeam = cfg.maxPlayersPerTeam;
-	g_RewardWeights = cfg.rewards;
 
 	g_RewardLabels.clear();
 	for (auto& s : GeneralRewardSpecs(cfg))

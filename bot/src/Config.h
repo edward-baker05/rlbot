@@ -13,8 +13,8 @@ namespace Hive {
 // (Ryzen 3600, 6 cores; RTX 2060, 6 GB VRAM).
 
 // Relative weights for how often each scenario spawns. They control what the
-// policy practises, not which model runs -- there is one model. Matched to
-// RewardPhase::Foundations; re-derive them from telemetry at each phase gate.
+// policy practises, not which model runs -- there is one model. Re-derive
+// them from telemetry at each phase gate.
 struct CurriculumWeights {
   float neutralPlay = 35.f; // Ordinary play. Keep this dominant.
 
@@ -48,44 +48,75 @@ struct CurriculumWeights {
   float demo = 0.f;
 };
 
-enum class RewardPhase {
-  Foundations,
-  Possession,
-  Aerial,
-  Teamplay,
-};
+// --- Reward budgets --------------------------------------------------------
+//
+// Every reward weight in this project is declared as a BUDGET in goal-units and
+// converted to a per-step weight in exactly one place (Hive::GeneralRewardSpecs).
+// A goal is 1.0 by definition; nothing else may be written as a bare per-step
+// float.
+//
+// This exists because p1air's `grounded = 0.05` integrated to 9.0 goal-units
+// per episode -- nine goals per episode for holding still on the wheels -- and
+// nobody noticed, because nobody wrote down the integral. Declaring the
+// integral makes that class of mistake unrepresentable.
 
-// Weights are derived from measured RewardShare telemetry, not guessed --
-// see runs/RUNLOG.md for the derivation runs.
-struct RewardWeights {
-  float velPlayerToBall = 0.5f;
+// tickSkip 8 at RocketSim's 120 Hz.
+inline constexpr float STEPS_PER_SECOND = 15.f;
 
-  float touch = 5.f;
-  float strongTouch = 75.f;
+// Working figure for one episode. noTouchTimeout caps a never-touching bot at
+// 180 steps and goals end episodes early, so 10 s is a reasonable middle. The
+// Episode/Mean Steps metric exists so this is re-derived from telemetry rather
+// than staying a guess.
+inline constexpr float REFERENCE_EPISODE_SECONDS = 10.f;
+inline constexpr float REFERENCE_EPISODE_STEPS =
+    STEPS_PER_SECOND * REFERENCE_EPISODE_SECONDS;
 
-  // Kept small: it pays on ball velocity the bot mostly did not cause
-  // (kickoff momentum, bounces), and as zero-sum noise it dilutes the
-  // advantage signal.
-  float velBallToGoal = 1.f;
+// Goal-units earned by holding a behaviour perfectly for one reference episode,
+// converted to the per-step weight that earns it.
+inline constexpr float RateWeight(float budgetPerEpisode) {
+  return budgetPerEpisode / REFERENCE_EPISODE_STEPS;
+}
 
-  float goal = 100.f;
-  float pickupBoost = 5.f;
-  float faceBall = 0.075f;
+// Goal-units of cost for one second of a condition, converted to per-step.
+inline constexpr float PerSecondWeight(float budgetPerSecond) {
+  return budgetPerSecond / STEPS_PER_SECOND;
+}
 
-  // Exponent on the aim multiplier for StrongTouch. 1 = the plain
-  // 0.5*(1+cos) curve; higher narrows the cone toward the goal (D6).
-  float aimSharpness = 1.f;
+// All values are goal-units. See docs/superpowers/specs/2026-08-18-reward-redesign-design.md
+// for the derivation of each; none of them is a guess.
+struct RewardBudget {
+  // --- Rate: earned by holding the behaviour for one reference episode ---
 
-  // Note: airborne-upright currently outpays grounded-idle (0.04 vs 0.02),
-  // an intentional inversion -- the aerial phase wants the ground bias gone
-  // anyway, so it is left rather than rebalanced.
-  float airRecovery = 0.04f;
-  float grounded = 0.05f;
+  // Squared, so 0.375 of this is the free coasting floor at 1410 uu/s. The
+  // whole-episode maximum equals exactly two ball touches, which is the cap
+  // on how much a speed farm can ever be worth.
+  float speed = 0.30f;
 
-  // Aerial phase only. Pays TouchHeightReward (height/1500 at contact, zero
-  // for a ground touch) as a tiebreaker between floor and air contact, small
-  // enough not to outbid actually striking the ball well.
-  float touchHeight = 15.f;
+  float faceBall = 0.20f;
+
+  // Exactly faceBall/3, which is the 2:1 asymmetry (w- = w+/2) expressed
+  // through the decomposition. Changing one without the other changes the
+  // asymmetry silently.
+  float faceBallAxis = 0.20f / 3.f;
+
+  // --- Event: earned per occurrence ---
+  float touch = 0.15f;
+  float cleanLanding = 0.10f;
+
+  // Cost of a full-speed crash.
+  float harshSpeedLoss = 0.10f;
+
+  // --- Per second ---
+  // Three seconds on your roof costs 0.30, which is 3x what the best possible
+  // landing pays. Recovery is worth more as an avoided loss than as a bonus,
+  // which is what stops the landing bonus becoming the objective.
+  float wrongSurface = 0.10f;
+
+  // The unit. Not adjustable, and scaling it could not help anyway: rewards
+  // are standardized at GAE.cpp:52, and for a rare terminal payoff the
+  // signal-to-noise sqrt(p/(1-p)) is independent of magnitude. The only lever
+  // on the goal signal is how often goals happen.
+  static constexpr float GOAL = 1.f;
 };
 
 struct SelfPlayConfig {
@@ -125,9 +156,8 @@ struct TrainConfig {
   int maxPlayersPerTeam = 1;
 
   CurriculumWeights curriculum = {};
-  RewardPhase rewardPhase = RewardPhase::Foundations;
 
-  RewardWeights rewards = {};
+  RewardBudget rewards = {};
   ModelShape modelShape = {};
   SelfPlayConfig selfPlay = {};
 

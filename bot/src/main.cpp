@@ -43,7 +43,6 @@ void PrintUsage(const char* argv0) {
 		"  --max-steps N        Stop after N timesteps (default: run until Q)\n"
 		"  --label NAME         Suffix run and checkpoint names, to keep runs apart\n"
 		"  --entropy X          Entropy bonus scale (default 0.002)\n"
-		"  --reward-phase P     foundations (default) or aerial\n"
 		"\n"
 		"Self-play options:\n"
 		"  --self-play          Train against saved old versions, and track skill\n"
@@ -116,20 +115,6 @@ int RunTrain(int argc, char* argv[]) {
 			cfg.runLabel = argv[++i];
 		} else if (arg == "--entropy" && i + 1 < argc) {
 			cfg.entropyScale = static_cast<float>(std::atof(argv[++i]));
-		} else if (arg == "--reward-phase" && i + 1 < argc) {
-			// Flags rather than recompiles: a probe sequence that differs only
-			// in these two values should be one build and N commands, and the
-			// values then land in the run's recorded config instead of in a
-			// working-tree edit nobody can reconstruct afterwards.
-			const std::string phase = argv[++i];
-			if (phase == "foundations") {
-				cfg.rewardPhase = Hive::RewardPhase::Foundations;
-			} else if (phase == "aerial") {
-				cfg.rewardPhase = Hive::RewardPhase::Aerial;
-			} else {
-				std::fprintf(stderr, "--reward-phase must be foundations or aerial\n");
-				return EXIT_FAILURE;
-			}
 		} else if (arg == "--self-play") {
 			cfg.selfPlay.trainAgainstOldVersions = true;
 			// Skill tracking is what makes the result readable, so turn it on
