@@ -15,9 +15,24 @@ or an MoE design without a new decision. Situation labels (`PlayPhase`)
 survive only as metrics; curriculum scenarios (`CurriculumState`) only as
 spawn distributions.
 
-Two more standing decisions from that spec worth knowing before touching
+Three standing decisions from that spec worth knowing before touching
 rewards: no dribble/possession reward terms, ever (D4 — the flick-bot local
-optimum); and no magic numbers without measurement behind them (D6).
+optimum); no magic numbers without measurement behind them (D6); and, from
+`docs/superpowers/specs/2026-08-18-reward-redesign-design.md`, **every reward
+weight is a budget in goal-units, converted in exactly one place**. Do not add
+a per-step float.
+
+**That spec's D3 banned ball-directed dense shaping. It is REVERSED — see D20
+in the same file's addendum.** Run A (`p6budget`) shipped the ban's replacement,
+an additive `SpeedSquared + FaceBall` factoring, and measured the result: over
+100M steps the bot's nose-to-ball cosine rose 0.338 → 0.741 while its
+velocity-to-ball cosine stayed flat at 0.300, with the facing terms taking 62%
+of net earnings. Given two separable factors and 90% of life airborne, the
+policy bought the cheap one (rotation is free in the air) and never the
+expensive one. The stack now uses `SpeedToBallReward` = `max(0, v·dirToBall)/V`
+as its dominant dense term. It is farmable around chase-hit-chase and that is
+accepted; `Touch` at 0.30 goal-units is the counterweight. Do not re-ban it
+without a new measurement.
 
 ## Layout
 
@@ -58,8 +73,15 @@ easy to trip over:
 GCC 16 no longer pulls it in transitively and `CHAR_BIT` fails to resolve. If
 you re-clone cpp-interface, reapply it.
 
-## Verified working (2026-08-17)
+## Verified working (2026-08-18)
 
+- The reward stack was rebuilt around goal-referenced budgets and car control
+  (`docs/superpowers/specs/2026-08-18-reward-redesign-design.md`): eight terms
+  replace the old phase-gated stack, `HiveTests` passes (49 cases), and a
+  smoke train run confirms the new `RewardShare/*`, `Surface/*`, `Landing/*`,
+  `Speed/*`, `FaceBall/*` and `Touch/Edge Rate` metrics all reach the CSV. Not
+  yet run at scale — see `runs/RUNLOG.md` for the first full run once it
+  lands.
 - Training runs on GPU end to end at 1v1; observation size 89 at
   `maxPlayersPerTeam = 1`.
 - Throughput at 128 games (the measured optimum; see `runs/RUNLOG.md`),

@@ -51,9 +51,9 @@ struct CurriculumWeights {
 // --- Reward budgets --------------------------------------------------------
 //
 // Every reward weight in this project is declared as a BUDGET in goal-units and
-// converted to a per-step weight in exactly one place (Hive::GeneralRewardSpecs).
-// A goal is 1.0 by definition; nothing else may be written as a bare per-step
-// float.
+// converted to a per-step weight in exactly one place
+// (Hive::GeneralRewardSpecs). A goal is 1.0 by definition; nothing else may be
+// written as a bare per-step float.
 //
 // This exists because p1air's `grounded = 0.05` integrated to 9.0 goal-units
 // per episode -- nine goals per episode for holding still on the wheels -- and
@@ -63,11 +63,12 @@ struct CurriculumWeights {
 // tickSkip 8 at RocketSim's 120 Hz.
 inline constexpr float STEPS_PER_SECOND = 15.f;
 
-// Working figure for one episode. noTouchTimeout caps a never-touching bot at
-// 180 steps and goals end episodes early, so 10 s is a reasonable middle. The
-// Episode/Mean Steps metric exists so this is re-derived from telemetry rather
-// than staying a guess.
-inline constexpr float REFERENCE_EPISODE_SECONDS = 10.f;
+// MEASURED, not assumed. p6budget's `Episode/Mean Steps` read 171.0 over 100M
+// steps (the previous working figure was 150, so every rate budget was
+// over-delivering by 14%). noTouchTimeout caps a never-touching bot at 180
+// steps and goals end episodes early; at a touch ratio near zero almost every
+// episode runs to the timeout, which is why this sits just under it.
+inline constexpr float REFERENCE_EPISODE_SECONDS = 11.4f;
 inline constexpr float REFERENCE_EPISODE_STEPS =
     STEPS_PER_SECOND * REFERENCE_EPISODE_SECONDS;
 
@@ -82,34 +83,43 @@ inline constexpr float PerSecondWeight(float budgetPerSecond) {
   return budgetPerSecond / STEPS_PER_SECOND;
 }
 
-// All values are goal-units. See docs/superpowers/specs/2026-08-18-reward-redesign-design.md
-// for the derivation of each; none of them is a guess.
+// All values are goal-units. See
+// docs/superpowers/specs/2026-08-18-reward-redesign-design.md (decisions D19
+// onward) for the derivation of each.
+//
+// The shape is the early-stage stack from Zealan's RLGym-PPO-Guide -- a large
+// event reward for touching the ball, a dominant dense reward for closing on
+// it, and a small facing tiebreaker -- expressed as budgets rather than as
+// bare weights.
 struct RewardBudget {
   // --- Rate: earned by holding the behaviour for one reference episode ---
 
-  // Squared, so 0.375 of this is the free coasting floor at 1410 uu/s. The
-  // whole-episode maximum equals exactly two ball touches, which is the cap
-  // on how much a speed farm can ever be worth.
-  float speed = 0.30f;
+  // The approach term, and deliberately the largest rate budget in the stack.
+  // p6budget had NO approach term at all: it paid for generic speed and for
+  // nose orientation, and measured the bot learning to point at the ball
+  // (nose cosine 0.338 -> 0.741) while its velocity-to-ball cosine never moved
+  // off 0.30 across 100M steps.
+  float speedToBall = 0.50f;
 
-  float faceBall = 0.20f;
-
-  // Exactly faceBall/3, which is the 2:1 asymmetry (w- = w+/2) expressed
-  // through the decomposition. Changing one without the other changes the
-  // asymmetry silently.
-  float faceBallAxis = 0.20f / 3.f;
+  // A tiebreaker against driving backwards at the ball, at 1/10th of the
+  // approach budget. The guide uses 1/5th; this is half that because p6budget
+  // measured this exact quantity taking 62% of net earnings and 66% of the
+  // whole run's ledger improvement while buying zero approach. Rectified, so
+  // facing away pays nothing and costs nothing.
+  float faceBall = 0.05f;
 
   // --- Event: earned per occurrence ---
-  float touch = 0.15f;
-  float cleanLanding = 0.10f;
 
-  // Cost of a full-speed crash.
-  float harshSpeedLoss = 0.10f;
+  // Twice p6budget's 0.15. At that run's touch rate this is worth 0.06
+  // goal-units per episode -- no windfall for the current policy -- but at two
+  // touches per episode it is 0.60 and dominates the stack, which is the
+  // intended shape for a bot that cannot yet reach the ball. Rising edge, so
+  // carrying the ball is worth exactly one touch (see TouchEdgeReward).
+  float touch = 0.30f;
 
   // --- Per second ---
-  // Three seconds on your roof costs 0.30, which is 3x what the best possible
-  // landing pays. Recovery is worth more as an avoided loss than as a bonus,
-  // which is what stops the landing bonus becoming the objective.
+  // Wheels-up against a surface. NOT an air tax -- p6budget measured it firing
+  // on 2.3% of airborne steps, because free flight makes no chassis contact.
   float wrongSurface = 0.10f;
 
   // The unit. Not adjustable, and scaling it could not help anyway: rewards
@@ -187,7 +197,7 @@ struct TrainConfig {
   // so this scale is not comparable to rlgym-ppo's. Kept low so entropy can
   // actually fall over a run rather than sitting near-uniform; revisit at
   // every phase gate, since too low too early costs exploration.
-  float entropyScale = 0.004f;
+  float entropyScale = 0.01f;
 
   float gaeGamma = 0.99f;
 

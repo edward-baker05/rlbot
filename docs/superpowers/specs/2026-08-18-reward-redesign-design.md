@@ -462,3 +462,198 @@ The run is *informative* regardless of the primary, provided these are readable:
 - Boost is unrewarded (D12). If run A shows the bot running dry, boost
   management returns as its own decision with its own budget.
 - Wall landings score zero on `CleanLanding` (D6).
+
+---
+
+# Addendum: run A result and the run B decision
+
+Date: 2026-08-18
+Status: implemented, awaiting run B
+Run A telemetry: `bot/build/metrics/main-p6budget.csv`, 100.0M steps, 997 iterations.
+RUNLOG row: `runs/RUNLOG.md`, entry `p6budget`.
+External source: Zealan's [RLGym-PPO-Guide](https://github.com/ZealanL/RLGym-PPO-Guide/tree/wip),
+all eight markdown documents, read in full.
+
+## D19. Run A's failure, in one measurement
+
+Over 100M steps the bot's rectified **nose**-to-ball cosine rose 0.338 -> 0.741
+while its rectified **velocity**-to-ball cosine went 0.299 -> 0.300 — flat to
+three significant figures. `FaceBall` + `FaceBallAxis` went from 0.062 to 0.218
+goal-units per episode: 62% of net earnings at 100M and 66% of the entire run's
+ledger improvement. The dominant term in the stack was optimized to convergence
+and produced no approach at all.
+
+Supporting reads: `Player/In Air Ratio` 0.898; ground dwell 2.5 steps = 0.17 s;
+`Flip/Diagonal Share` 0.201 -> 0.0066 with `Flip/Neutral Share` 0.0019, leaving
+**99.1% of jump-presses single-axis**; `Action/Handbrake` 0.934, which at 90%
+air time is air roll. Watching the bot describes this as "orient the nose at
+the ball, then side-flip in circles", and the telemetry is consistent with that
+— though run A could not separate roll-only from pitch-only, so the metric is
+being split (D22).
+
+## D20. D3 is reversed. Ball-directed dense shaping returns, rectified
+
+D3 banned "rate of reduction of distance to the ball" and replaced it with the
+additive factoring `SpeedSquared` + `FaceBall`, on the argument that the product
+form's cross derivative charges a steering input on both speed and alignment at
+once.
+
+**Run A tested that factoring and it failed in the specific way the factoring
+predicts when one factor is cheap.** Rotation is free in the air; velocity is
+not. Given two separable factors and 90% of life spent airborne, the policy
+bought the cheap one and never the expensive one. The cross term is not a
+defect — it is the coupling that makes alignment worth buying, because under
+the product form nose alignment pays nothing unless the car is also moving.
+
+The evidence D3 rested on does not survive re-reading either:
+
+- *"`RewardShare` climbed to 0.451, the approach-farm signature."* This is a
+  share-of-`|r*w|` argument, and the project's own p1probe-h lesson is that
+  `RewardShare` is a farm detector, not a learnability measure. p1air's row
+  further notes the term is signed, so circling produces large +/- values that
+  cancel: high absolute mass, near-zero net. The share was never evidence of
+  what the term taught.
+- *"On p3strike it drove `Action/Steer Nonzero` to 0.0006."* Extinction is real,
+  but the epsilon-floor patch now counters it mechanically and is verified to
+  revive an already-dead policy with no retraining (p4pbrs: steer 0.0006 ->
+  0.62). The pathology's consequence has a direct fix that did not exist when
+  D3 was written.
+
+There is also an association across four runs, which is stated as an
+association and not as proof: the two runs containing a ball-directed velocity
+term are the two best this project has produced (p1air 0.0131 at 245M,
+p5goalpot 0.00283 at 100M) and the two that removed it are the two worst
+(p4pbrs 0.0007, p6budget 0.00127).
+
+**The form is the guide's `SpeedTowardBallReward`: `max(0, v . dirToBall) / V`,
+i.e. upstream's `VelocityPlayerToBallReward` rectified at zero.** Rectification
+does two things — it stops charging for retreat, which plenty of correct play
+requires, and it removes the +/- cancellation that made the signed form's mass
+uninterpretable.
+
+**Farmability is accepted, explicitly.** Chase-hit-chase pays this term
+repeatedly. That is the standing lesson from p4pbrs restated: the no-farm
+guarantee and the teaching signal are the same property from opposite sides,
+and the potential-based version that closed the farm also taught nothing.
+`Touch`'s budget is the counterweight that makes finishing an approach worth
+more than repeating one.
+
+## D21. The run B stack
+
+Five terms, down from eight. The shape is the guide's early-stage stack — a
+large event reward for touching the ball, a dominant dense reward for closing
+on it, a small facing tiebreaker — expressed as budgets. The guide's
+troubleshooting section ("reduce or remove tuning rewards") points the same
+way, and run A was six tuning terms against two task terms.
+
+| Term | Kind | Budget (goal-units) | Per-step weight |
+|---|---|---|---|
+| Goal | terminal | ±1.0 per goal | 1.0 |
+| Touch (rising edge) | event | 0.30 per touch | 0.30 |
+| SpeedToBall | rate | 0.50 | 0.00292 |
+| FaceBall (rectified) | rate | 0.05 | 0.000292 |
+| WrongSurface | rate penalty | −0.10 per **second** | 0.00667 |
+
+`REFERENCE_EPISODE_STEPS` is now **171**, from run A's measured
+`Episode/Mean Steps` of 171.0 (D1 pre-committed to re-deriving it; the old 150
+meant every rate term over-delivered by 14%).
+
+**Ratios against the guide.** The guide uses `SpeedTowardBall`:`FaceBall` = 5:1;
+this uses 10:1, because run A measured that exact facing quantity taking 62% of
+net earnings while buying zero approach. Touch is deliberately more generous
+than the guide's ratio: at run A's touch rate 0.30 is worth 0.06 goal-units per
+episode — no windfall for the current policy — but at two touches per episode
+it is 0.60 and dominates, which is the intended shape for a bot that cannot yet
+reach the ball.
+
+**Deleted:** `SpeedSquaredReward` (generic speed paid 1.44x more per airborne
+step than per grounded step — measured — and helped fund the float),
+`CleanLandingReward` (a per-takeoff annuity at 0.046 gu/ep, run A's #4 term, in
+a run whose problem was too much air rather than too little),
+`FaceBallAxisReward` (folded into the rectified term, see below), and
+`HarshSpeedLossReward` (−0.017 gu/ep, near-inert, on an unvalidated threshold).
+
+### Why the facing term got *simpler*, not deleted
+
+The instruction was "it shouldn't be rewarded for facing away from the ball at
+all". Two things worth stating precisely, because D4's framing invites the
+wrong fix:
+
+1. **Run A did not pay for facing away.** At `w+ = 0.267`, `w- = 0.133`, facing
+   directly away returned −0.133 — punished at half rate. The `|c|` lobe pays
+   for it *in isolation*, but the sum is what the policy sees.
+2. **Deleting `FaceBallAxis` would have made that worse, not better.** By the
+   D4 identity, dropping the `|c|` lobe gives `w+ = w- = 0.20`: full symmetric
+   punishment for facing away. "Stop paying for facing away" maps to `w- = 0`,
+   which means the two lobes carry **equal** weight — raising the `|c|` term,
+   not deleting it.
+
+At `w- = 0` the pair is just `w+ * max(0, c)`, so it ships as one clamped term
+with one budget. The decomposition survives as an executable assertion in
+`test_rewards.cpp`. This also matches the guide, which recommends against
+punishing movement away from the ball.
+
+## D22. Instrumentation
+
+Run A's headline was a *derivation* (`Speed Towards Ball` / `Player/Speed`), and
+this project has retracted two analyses that rested on derivations.
+
+Added: `Player/Velocity Alignment` (the quantity that must move);
+`FaceBall/Rectified`, `FaceBall/Rectified Grounded`, `FaceBall/Rectified
+Airborne` (the nose/velocity gap and its ground-air split, as direct reads);
+`Flip/Pitch Only Share` and `Flip/Roll Only Share` (roll-only is a side flip);
+`Speed/Decel Above 200` / `400` / `800`.
+
+Fixed: `Speed/Max Step Decel` was built with `report.AddAvg`, i.e. a **mean**,
+so the metric that existed to validate D10's 400 uu/s threshold could not
+answer the question. Renamed `Speed/Mean Step Decel` and joined by the three
+threshold shares.
+
+## D23. Pre-committed success criteria for run B
+
+Primary: `Player/Ball Touch Ratio` > **0.00283** (p5goalpot's final) at 100M.
+
+The run is informative regardless, provided:
+
+- `Player/Velocity Alignment` rises above **0.35**. This is run A's flat
+  quantity and the whole point of D20. If it does not move, ball-directed
+  shaping is not the answer either and the problem is upstream of the reward.
+- `Player/In Air Ratio` falls below **0.50** by 50M. Nothing pays for air time
+  now, and closing on the ball needs wheels; if the bot still floats, air time
+  is not reward-driven and the diagnosis in D19 is wrong.
+- `Action/Jump When Grounded Upright` stays above **0.05**. The extinction
+  canary, now the live risk: run A had it at 0.815 and every term that paid for
+  air play is gone. **If it breaks 0.05 before 30M, that is not a mid-run
+  edit** — p1air is unusable as a reward reference precisely because its
+  `grounded` weight was changed by hand mid-run. It becomes run B2, a new
+  labelled run, adding the guide's `AirReward` at a budget of 0.03 goal-units
+  (about 1/17th of the approach budget).
+- `RewardShare/Touch` rises. Touch is the term the whole stack is built to feed.
+
+## D24. Held, with reasons
+
+- **D13 (gamma 0.995 / lambda 0.98) stays deferred, and the guide agrees.**
+  "Low gamma is fine for early/middle stages, but I recommend increasing it once
+  your bot is in the later stages... too-high gamma will make it more difficult
+  for your bot to identify and learn rewards. Higher gamma also makes the
+  critic's job much harder, and tends to slow training in general." By the
+  guide's own definition this bot is in the early stages — it cannot push or
+  shoot the ball into the goal (`Kickoff/EndedInGoal` 0.000 at 100M). Revisit
+  when it can score.
+- **Learning rate stays at 3e-4**, against the guide's 2e-4 for a bot that
+  cannot score. The guide's graphs section notes people tune LR to hold clip
+  fraction near ~0.08; run A's was **0.044**, i.e. below target, which argues
+  for raising LR rather than lowering it. Measurement beats the general
+  recommendation here. Not changed in run B either way — one variable at a time.
+- **`tsPerItr` stays at 100k.** The guide suggests 50k for early learning, but
+  p5goalpot — the best 100M run this project has — ran at 250k. The evidence
+  points both ways and it is not this run's variable. Recording it so the
+  p5goalpot/p6budget attribution caveat is not repeated silently.
+- **Nothing new is zero-summed.** The guide's rule is that a reward should be
+  zero-sum only if it is useful for the *opponent* to prevent it. It lists
+  "having speed" as one that should be — worth revisiting if a generic speed
+  term ever returns, but there is no generic speed term now.
+- **Boost stays unrewarded.** D12's open item did fire (`Player/Boost` 11.7/100
+  in run A), and the guide recommends `sqrt(boost_amount)` as a `SaveBoostReward`
+  — but that is a middle-stage item in the guide's own ordering, and adding it
+  now would be a second variable. Next run after B.

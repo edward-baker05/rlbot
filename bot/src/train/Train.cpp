@@ -254,37 +254,59 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			const float speed = player.vel.Length();
 			report.AddAvg("Speed/Mean", speed);
 
-			// Is the squared term buying boost- and flip-derived speed, or is
-			// the bot parked on the free coasting floor? This is half of the
-			// pre-committed farm trigger: this rising while Touch/Edge Rate
-			// stays flat means the speed term is being farmed.
+			// No reward pays for generic speed any more, so this is pure
+			// diagnostics: it says whether the bot is boosting and flipping or
+			// coasting on the throttle-only floor.
 			report.AddAvg("Speed/Above Throttle Cap Share",
 			              speed > THROTTLE_TOP_SPEED ? 1.f : 0.f);
 
 			if (player.prev) {
 				const float lost = player.prev->vel.Length() - speed;
-				// Validates HARSH_LOSS_THRESHOLD against the real
-				// distribution. The 400 uu/s figure rests on an empirical
-				// ~3500 uu/s^2 braking rate, not a RocketSim constant, so it
-				// has to be checked rather than trusted. Hits are excluded for
-				// the same reason the reward excludes them.
+				// The deceleration TAIL, as threshold shares. p6budget shipped
+				// a single metric called "Speed/Max Step Decel" that was built
+				// with report.AddAvg, i.e. a MEAN -- it read 22.4 uu/s and
+				// could neither confirm nor refute the 400 uu/s collision
+				// threshold it existed to check. Shares at three thresholds
+				// make the tail readable without a histogram. Hits are excluded
+				// because a hard shot SHOULD cost speed.
 				if (!player.ballTouchedStep) {
-					report.AddAvg("Speed/Max Step Decel", RS_MAX(0.f, lost));
-					report.AddAvg("Speed/Harsh Loss Rate",
+					report.AddAvg("Speed/Mean Step Decel", RS_MAX(0.f, lost));
+					report.AddAvg("Speed/Decel Above 200", lost > 200.f ? 1.f : 0.f);
+					report.AddAvg("Speed/Decel Above 400",
 					              lost > HARSH_LOSS_THRESHOLD ? 1.f : 0.f);
+					report.AddAvg("Speed/Decel Above 800", lost > 800.f ? 1.f : 0.f);
 				}
 			}
 
-			// --- Facing -----------------------------------------------------
-			// If the |c| lobe is being farmed, Mean Cos goes negative while
-			// Axis Share stays high: the bot is driving away from the ball and
-			// being paid for it. RewardShare cannot show this, because it
-			// reports mean |r*w| and cannot tell a signed term from a
-			// rectified one.
+			// --- Facing, and the gap that killed p6budget --------------------
+			// p6budget's headline failure was that its NOSE alignment doubled
+			// (0.338 -> 0.741) while its VELOCITY alignment never moved off
+			// 0.300 across 100M steps. That was a DERIVED number -- Speed
+			// Towards Ball divided by Player/Speed -- and this project has
+			// retracted two analyses that rested on derivations. Both halves
+			// are first-class reads now, on the same rectification, so the gap
+			// can be measured directly.
+			//
+			// The ground/air split is the mechanism check: rotation is free in
+			// the air and costs steering on the ground, so if the nose is
+			// aimed only while airborne, the facing term is being bought
+			// without being paid for.
 			if (dist > 1.f) {
-				const float cosToBall = player.rotMat.forward.Dot(toBall / dist);
+				const Vec dirToBall = toBall / dist;
+				const float cosToBall = player.rotMat.forward.Dot(dirToBall);
 				report.AddAvg("FaceBall/Mean Cos", cosToBall);
 				report.AddAvg("FaceBall/Axis Share", std::fabs(cosToBall));
+				// What FaceBallRectifiedReward actually pays.
+				report.AddAvg("FaceBall/Rectified", RS_MAX(0.f, cosToBall));
+				report.AddAvg(player.isOnGround ? "FaceBall/Rectified Grounded"
+				                                : "FaceBall/Rectified Airborne",
+				              RS_MAX(0.f, cosToBall));
+
+				// The quantity that has to move for any of this to be working.
+				const float sp = player.vel.Length();
+				if (sp > 1.f)
+					report.AddAvg("Player/Velocity Alignment",
+					              RS_MAX(0.f, player.vel.Dot(dirToBall)) / sp);
 			}
 
 			// --- Touch edge -------------------------------------------------
@@ -375,7 +397,7 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			// The old stack had a flat `Grounded` bonus that made standing
 			// still a risk-free annuity; that term is gone (deleted with
 			// GroundedBonusReward), but the ratio is still worth watching --
-			// SpeedSquaredReward pays zero for a motionless car, so a nonzero
+			// SpeedToBallReward pays zero for a motionless car, so a nonzero
 			// stationary share now means the *rest* of the stack isn't moving
 			// the policy off it either.
 			if (player.isOnGround) {
@@ -412,6 +434,12 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 				const bool rolling = player.prevAction.roll != 0.f;
 				report.AddAvg("Flip/Diagonal Share", (pitching && rolling) ? 1.f : 0.f);
 				report.AddAvg("Flip/Neutral Share", (!pitching && !rolling) ? 1.f : 0.f);
+				// p6budget left 99.1% of jump-presses in neither bucket, i.e.
+				// single-axis, with no way to tell a front flip from a side
+				// flip. Watching the bot said side flips; the metrics could not
+				// confirm it. Roll-only IS a side flip, so split them.
+				report.AddAvg("Flip/Pitch Only Share", (pitching && !rolling) ? 1.f : 0.f);
+				report.AddAvg("Flip/Roll Only Share", (!pitching && rolling) ? 1.f : 0.f);
 
 				// airTimeSinceJump is the gap between leaving the ground and
 				// now, so on the step a second jump is pressed in the air it IS
