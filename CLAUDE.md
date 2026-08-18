@@ -152,7 +152,14 @@ Verified live: resuming the extinct p3strike policy with the patch moved
 `Action/Steer Nonzero` 0.0005 -> 0.0082 and Policy Entropy 0.155 -> 0.224 with
 no retraining. Applied inside `InferPolicyProbsFromModels` so that collection,
 the update's log-probs and the KL computations all use the identical
-distribution, which PPO's importance ratio requires. Reapply if you re-clone.
+distribution, which PPO's importance ratio requires.
+
+**This one is reapplied automatically.** `scripts/apply_external_patches.py`
+carries the patch body in-tree and `scripts/build.sh` runs it before
+configuring, so a re-clone of `external/` cannot silently drop it. The script is
+idempotent, and `--check` reports status without writing. The other three
+patches above are still manual; they can be moved into the same script by
+adding an entry to its `PATCHES` list.
 
 ## Agent skills
 
