@@ -5,11 +5,31 @@
 #include <RLGymCPP/Gamestates/GameState.h>
 #include <RLGymCPP/ObsBuilders/DefaultObsPadded.h>
 
+#include <atomic>
 #include <stdexcept>
 
 using namespace RLGC;
 
 namespace Hive {
+
+namespace {
+std::atomic<uint64_t> g_ObsChecked{0};
+std::atomic<uint64_t> g_ObsNonFinite{0};
+} // namespace
+
+void NoteObsHealth(uint64_t checked, uint64_t nonFinite) {
+	g_ObsChecked.fetch_add(checked, std::memory_order_relaxed);
+	if (nonFinite)
+		g_ObsNonFinite.fetch_add(nonFinite, std::memory_order_relaxed);
+}
+
+ObsHealth ConsumeObsHealth() {
+	ObsHealth out;
+	out.checked = g_ObsChecked.exchange(0, std::memory_order_relaxed);
+	out.nonFinite = g_ObsNonFinite.exchange(0, std::memory_order_relaxed);
+	return out;
+}
+
 
 std::unique_ptr<ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,
                                            ObsMode mode) {

@@ -3,7 +3,12 @@
 #include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/ObsBuilders/ObsBuilder.h>
 
+#include <cstdint>
+
 namespace Hive {
+
+// Implemented in Obs.cpp; see ObsHealth there.
+void NoteObsHealth(uint64_t checked, uint64_t nonFinite);
 
 // DefaultObsPadded plus car-frame relative geometry for the ball and every
 // other car.

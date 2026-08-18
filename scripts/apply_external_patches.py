@@ -71,6 +71,73 @@ EXPLORATION_FLOOR_BODY = '''	auto result = torch::softmax(logits + ACTION_DISABL
 
 	return result.view({ -1, models["policy"]->config.numOutputs }).clamp(ACTION_MIN_PROB, 1);'''
 
+# ---------------------------------------------------------------------------
+
+SKIP_NONFINITE_ANCHOR = """			if (trainSharedHead)
+				nn::utils::clip_grad_norm_(models["shared_head"]->parameters(), 0.5f);
+
+			models.StepOptims();"""
+
+SKIP_NONFINITE_BODY = """			if (trainSharedHead)
+				nn::utils::clip_grad_norm_(models["shared_head"]->parameters(), 0.5f);
+
+			// --- HIVE LOCAL PATCH: skip non-finite updates ----------------------
+			// Discard the whole update if any gradient is NaN or inf, instead of
+			// stepping the optimizer with it.
+			//
+			// Why: clip_grad_norm_ above does NOT stop this. It computes a total
+			// norm and rescales by max_norm/norm -- and if any gradient is NaN the
+			// norm is NaN, so the scale is NaN, and it multiplies NaN into EVERY
+			// parameter. Clipping converts one bad gradient into a fully destroyed
+			// network.
+			//
+			// Observed on p11boost, which died at 29.8M steps with
+			// `Policy Update Magnitude: nan` followed by a CUDA device-side assert
+			// (`probability tensor contains either inf, nan or element < 0`) when
+			// the poisoned policy was next sampled. Everything upstream was
+			// healthy: entropy 0.538, KL 0.0053, reward 0.0624, `GAE/Returns STD`
+			// 2.113, all finite.
+			//
+			// A skipped update costs one minibatch of experience. The alternative
+			// costs the run, and every run after it that resumes the checkpoint.
+			{
+				bool gradsFinite = true;
+				for (Model* model : models) {
+					for (auto& param : model->seq->parameters()) {
+						if (!param.grad().defined())
+							continue;
+						if (!torch::isfinite(param.grad()).all().item<bool>()) {
+							gradsFinite = false;
+							break;
+						}
+					}
+					if (!gradsFinite)
+						break;
+				}
+
+				if (!gradsFinite) {
+					RG_LOG("WARNING: non-finite gradient detected, skipping this optimizer step");
+					for (Model* model : models)
+						model->optim->zero_grad();
+					continue;
+				}
+			}
+			// --- END HIVE LOCAL PATCH -------------------------------------------
+
+			models.StepOptims();"""
+
+# ---------------------------------------------------------------------------
+
+RETURN_STD_ANCHOR = """		float curReward;
+		if (returnStd != 0) {"""
+
+RETURN_STD_BODY = """		float curReward;
+		// HIVE LOCAL PATCH: finite guard. `returnStd != 0` is TRUE for NaN, so
+		// the original test let a NaN standardizer through and turned every
+		// reward in the batch into NaN. isfinite() excludes NaN and inf both.
+		if (std::isfinite(returnStd) && returnStd != 0) {"""
+
+
 PATCHES = [
 	{
 		"name": "exploration-floor",
@@ -78,6 +145,20 @@ PATCHES = [
 		"marker": "HIVE LOCAL PATCH: exploration floor",
 		"anchor": EXPLORATION_FLOOR_ANCHOR,
 		"body": EXPLORATION_FLOOR_BODY,
+	},
+	{
+		"name": "skip-non-finite-updates",
+		"path": "external/GigaLearnCPP-Leak/GigaLearnCPP/src/private/GigaLearnCPP/PPO/PPOLearner.cpp",
+		"marker": "HIVE LOCAL PATCH: skip non-finite updates",
+		"anchor": SKIP_NONFINITE_ANCHOR,
+		"body": SKIP_NONFINITE_BODY,
+	},
+	{
+		"name": "return-std-finite-guard",
+		"path": "external/GigaLearnCPP-Leak/GigaLearnCPP/src/private/GigaLearnCPP/PPO/GAE.cpp",
+		"marker": "HIVE LOCAL PATCH: finite guard",
+		"anchor": RETURN_STD_ANCHOR,
+		"body": RETURN_STD_BODY,
 	},
 ]
 

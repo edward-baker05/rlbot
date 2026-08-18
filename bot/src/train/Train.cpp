@@ -563,6 +563,18 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 		}
 	}
 
+	// --- Observation health --------------------------------------------------
+	// Zero in every healthy run. Non-zero means a NaN or inf reached the
+	// network's input, which is the one failure that corrupts training without
+	// appearing anywhere else in this report.
+	{
+		const ObsHealth health = ConsumeObsHealth();
+		if (health.checked > 0)
+			report.AddAvg("Obs/Non-Finite Rate",
+			              static_cast<float>(health.nonFinite) /
+			                  static_cast<float>(health.checked));
+	}
+
 	// --- Infinite-boost episodes --------------------------------------------
 	// Published so `Player/Boost` can never be read without knowing what share
 	// of episodes had a tank that could not drain.

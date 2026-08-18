@@ -215,6 +215,35 @@ under its own steam (0.683 → 0.533 in 10M steps). **It does not on its own mak
 the bot better** — it makes the policy converge faster on whatever the reward
 actually rewards, which is a separate problem. Reapply if you re-clone.
 
+### Fifth and sixth local patches: NaN containment
+
+Both carried in `scripts/apply_external_patches.py`, so a re-clone cannot drop
+them.
+
+**`PPOLearner.cpp` skips an optimizer step whose gradients are non-finite.**
+`clip_grad_norm_` does NOT protect against this and actively makes it worse: it
+computes a total norm and rescales by `max_norm/norm`, so one NaN gradient gives
+a NaN norm, a NaN scale, and NaN in **every** parameter. Clipping converts a
+single bad gradient into a fully destroyed network.
+
+**`GAE.cpp` guards `returnStd` with `std::isfinite`.** The original test was
+`returnStd != 0`, which is TRUE for NaN, so a NaN standardizer would silently
+turn every reward in the batch into NaN.
+
+p11boost died at 29.8M steps with `Policy Update Magnitude: nan` and then a CUDA
+device-side assert (`probability tensor contains either inf, nan or element
+< 0`) when the poisoned policy was next sampled. Everything upstream was
+healthy: entropy 0.538, KL 0.0053, reward 0.0624, `GAE/Returns STD` 2.113,
+`Critic/V All` 2.72. The only GAE outputs that went NaN were
+`GAE/Avg Advantage` and `GAE/Avg Val Target` -- exactly the two that depend on
+critic value predictions -- so a non-finite value entered through inference,
+not through the reward function.
+
+`Obs/Non-Finite Rate` was added at the same time and is **zero in every healthy
+run**. If it is ever non-zero, the observation is the source; if this recurs
+while it stays zero, the critic is. Non-finite observation values are replaced
+with zero so the run survives either way.
+
 ### Fourth local patch to external/
 
 `external/GigaLearnCPP-Leak/.../PPO/PPOLearner.cpp` mixes the policy with a

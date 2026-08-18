@@ -4,6 +4,7 @@
 #include <RLGymCPP/Math.h>
 
 #include <algorithm>
+#include <cmath>
 
 using namespace RLGC;
 
@@ -130,6 +131,19 @@ FList RelativeObs::BuildObs(const Player& player, const GameState& state) {
 		result += t;
 	for (const auto& o : opponents)
 		result += o;
+
+	// A single NaN here reaches the critic, and from there the advantage
+	// tensor, and from there every weight in the network -- with nothing in the
+	// telemetry naming the observation as the source. Replacing it with zero
+	// costs one corrupted sample; letting it through cost p11boost 29.8M steps.
+	uint64_t nonFinite = 0;
+	for (float& v : result) {
+		if (!std::isfinite(v)) {
+			v = 0.f;
+			nonFinite++;
+		}
+	}
+	NoteObsHealth(result.size(), nonFinite);
 
 	return result;
 }
