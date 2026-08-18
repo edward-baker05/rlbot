@@ -180,6 +180,14 @@ the check** — run it before every deployment session.
 - `Hive::` namespace for our code; `RLGC::` is RLGymCPP, `GGL::` is GigaLearn.
 - Tabs, matching the surrounding GigaLearn/RLGymCPP style.
 - Every run gets a `--label`; record runs that matter in `runs/RUNLOG.md`.
+- **Reusing a label RESUMES that run.** The learner silently loads the newest
+  checkpoint in the run folder, which defeats every threshold in the RUNLOG
+  (they are all stated as "X at 100M against the previous run's X at 100M").
+  `train` prints a notice when it is about to resume; pass **`--fresh`** to
+  start over, which archives the old checkpoints to
+  `checkpoints/main-<label>-archived` rather than deleting them. A crashed
+  run's last save is often worth keeping -- p11boost's predated the NaN and
+  passed `verify`.
 
 ### Second local patch to external/
 

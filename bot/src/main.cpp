@@ -8,6 +8,7 @@
 #include <rlbot/BotManager.h>
 
 #include <cstdio>
+#include <filesystem>
 #include <cstdlib>
 #include <string>
 
@@ -101,6 +102,7 @@ int RunPlay(int argc, char* argv[]) {
 
 int RunTrain(int argc, char* argv[]) {
 	Hive::TrainConfig cfg = {};
+	bool fresh = false;
 
 	for (int i = 2; i < argc; i++) {
 		const std::string arg = argv[i];
@@ -117,6 +119,8 @@ int RunTrain(int argc, char* argv[]) {
 			cfg.entropyScale = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--infinite-boost" && i + 1 < argc) {
 			cfg.infiniteBoostChance = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--fresh") {
+			fresh = true;
 		} else if (arg == "--self-play") {
 			cfg.selfPlay.trainAgainstOldVersions = true;
 			// Skill tracking is what makes the result readable, so turn it on
@@ -146,6 +150,42 @@ int RunTrain(int argc, char* argv[]) {
 	if (cfg.numGames < 1) {
 		std::fprintf(stderr, "--games must be at least 1\n");
 		return EXIT_FAILURE;
+	}
+
+	// The learner silently loads the newest checkpoint in the run folder, so
+	// reusing a label continues that run instead of starting one. Config.h has
+	// warned about this since the label was introduced and it still cost a run:
+	// every threshold in runs/RUNLOG.md is stated as "X at 100M against the
+	// previous run's X at 100M", and a resumed run has no such baseline.
+	const std::filesystem::path checkpoints = cfg.CheckpointFolder();
+	const bool hasExisting =
+		std::filesystem::exists(checkpoints) && !std::filesystem::is_empty(checkpoints);
+
+	if (hasExisting) {
+		if (fresh) {
+			// Renamed, never deleted. A crashed run's checkpoints are often the
+			// most interesting thing on disk -- p11boost's last save turned out
+			// to predate the NaN and verified clean.
+			std::filesystem::path archived = checkpoints;
+			archived += "-archived";
+			for (int n = 2; std::filesystem::exists(archived); n++)
+				archived = checkpoints.string() + "-archived" + std::to_string(n);
+
+			std::error_code ec;
+			std::filesystem::rename(checkpoints, archived, ec);
+			if (ec) {
+				std::fprintf(stderr, "--fresh: could not move %s aside: %s\n",
+				             checkpoints.string().c_str(), ec.message().c_str());
+				return EXIT_FAILURE;
+			}
+			std::printf("--fresh: moved existing checkpoints to %s\n",
+			            archived.string().c_str());
+		} else {
+			std::printf(
+				"NOTE: resuming from existing checkpoints in %s.\n"
+				"      Pass --fresh to start over (the old ones are archived, not deleted).\n",
+				checkpoints.string().c_str());
+		}
 	}
 
 	try {
