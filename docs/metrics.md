@@ -28,6 +28,35 @@ exactly as computed and changed behaviour not at all, because the policy was
 pinned at near-uniform by `entropyScale`. `RewardShare/*` tells you where
 reward mass goes; it says nothing about whether the policy can act on it.
 
+## Nulls — read this before citing any behavioural metric
+
+**No run conclusion may cite a metric whose chance value is unknown.**
+
+This project spent eight runs reading `Player/Velocity Alignment ~ 0.30` as a
+low but real number. It is the null. Nothing had been learned, and the entire
+p1-p7 sequence of reward verdicts was drawn against a quantity that had never
+moved off random.
+
+| Metric | Null | Where it comes from |
+|---|---|---|
+| `Player/Velocity Alignment` | **0.3183** grounded, **0.25** airborne | `E[max(0,cos)]` for a uniform direction: `1/pi` in a plane, `1/4` in 3D |
+| `FaceBall/Rectified` | same as above | same quantity, nose instead of velocity |
+| `Action/Jump When Grounded *` | **0.4286** masked with boost, **0.50** masked dry, **0.20** unmasked | jump actions / actions the mask leaves available |
+| `Action/Steer Nonzero` | **0.3810** masked, **0.5333** unmasked | steering actions / available, sampled on grounded upright steps only |
+| `Player/In Air Ratio` | **~0.87** masked, **~0.75** unmasked (estimate) | air stint ~15 steps against ground dwell `1/p_jump`; not exact, but p1advnorm measured 0.886 at jump rate 0.43 |
+
+Every figure above except the last is asserted in `bot/tests/test_actionspace.cpp`,
+so an upstream change to the action table breaks a test instead of quietly
+invalidating this page.
+
+The jump prior is a **range**, not a point: `GetActionMask` re-enables the
+boosted jump actions after filtering boost, so a dry car sees 50%. p7approach
+ran at `Player/Boost` 12-15 out of 100, i.e. mostly in the dry regime.
+
+Two rules follow. A metric at its null is **not** a weak signal, it is the
+absence of one. And any new behavioural metric ships with its null in this
+table, computed, in the same commit that adds it.
+
 ## Reward and behaviour
 
 | Metric | Measures | Healthy | Feeds |

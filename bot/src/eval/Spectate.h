@@ -7,9 +7,11 @@ namespace Hive {
 
 // Where episodes are spawned from.
 enum class SpectateSpawns {
-	// The training curriculum: the same scenario mix and weights CreateEnv
-	// uses, so what you watch is what the policy is practising.
-	Curriculum,
+	// Whatever TrainConfig::spawn selects, via the same BuildSpawner() the
+	// learner uses -- so what you watch is what the policy is practising.
+	// Watching a distribution the bot never trains on is how you conclude it
+	// handles situations it has never seen.
+	Training,
 	// Kickoff to goal, like a real match. Easier to judge as play, but not
 	// representative -- kickoffs are only ~8% of training resets.
 	Kickoff,
@@ -37,7 +39,7 @@ struct SpectateConfig {
 	// policy's intent without exploration noise, and is what deployment uses.
 	bool deterministic = false;
 
-	SpectateSpawns spawns = SpectateSpawns::Curriculum;
+	SpectateSpawns spawns = SpectateSpawns::Training;
 
 	// Multiplier on real time. 1.0 is Rocket League speed.
 	float timeScale = 1.f;

@@ -28,7 +28,7 @@ void PrintUsage(const char* argv0) {
 		"  --follow LABEL       Follow a run's newest checkpoint, reloading between\n"
 		"                       episodes -- safe to point at a run in progress\n"
 		"  --model FOLDER       Play one specific checkpoint folder\n"
-		"  --spawns MODE        curriculum (default) or kickoff\n"
+		"  --spawns MODE        training (default) or kickoff\n"
 		"  --deterministic      Take the argmax action instead of sampling\n"
 		"  --time-scale X       Speed multiplier (default 1.0 = real time)\n"
 		"  --episodes N         Stop after N episodes (default: run until Ctrl-C)\n"
@@ -233,12 +233,12 @@ int main(int argc, char* argv[]) {
 				scfg.model = argv[++i];
 			} else if (arg == "--spawns" && i + 1 < argc) {
 				const std::string mode = argv[++i];
-				if (mode == "curriculum") {
-					scfg.spawns = Hive::SpectateSpawns::Curriculum;
+				if (mode == "training" || mode == "curriculum") {
+					scfg.spawns = Hive::SpectateSpawns::Training;
 				} else if (mode == "kickoff") {
 					scfg.spawns = Hive::SpectateSpawns::Kickoff;
 				} else {
-					std::fprintf(stderr, "--spawns must be curriculum or kickoff\n");
+					std::fprintf(stderr, "--spawns must be training or kickoff\n");
 					return EXIT_FAILURE;
 				}
 			} else if (arg == "--time-scale" && i + 1 < argc) {
@@ -259,7 +259,7 @@ int main(int argc, char* argv[]) {
 		if (scfg.model.empty() == scfg.followRun.empty()) {
 			std::fprintf(stderr,
 			             "Usage: %s spectate --follow <label> | --model <ckpt>\n"
-			             "       [--spawns curriculum|kickoff] [--deterministic]\n"
+			             "       [--spawns training|kickoff] [--deterministic]\n"
 			             "       [--time-scale X] [--episodes N] [--gpu]\n",
 			             argv[0]);
 			return EXIT_FAILURE;

@@ -50,83 +50,85 @@ struct CurriculumWeights {
 
 // --- Reward budgets --------------------------------------------------------
 //
-// Every reward weight in this project is declared as a BUDGET in goal-units and
-// converted to a per-step weight in exactly one place
-// (Hive::GeneralRewardSpecs). A goal is 1.0 by definition; nothing else may be
-// written as a bare per-step float.
+// Every reward weight in this project is declared as a BUDGET and converted to
+// a per-step weight in exactly one place (Hive::GeneralRewardSpecs). Nothing
+// may be written as a bare per-step float.
 //
-// This exists because p1air's `grounded = 0.05` integrated to 9.0 goal-units
-// per episode -- nine goals per episode for holding still on the wheels -- and
+// This exists because p1air's `grounded = 0.05` integrated to 9.0 units per
+// episode -- nine goals per episode for holding still on the wheels -- and
 // nobody noticed, because nobody wrote down the integral. Declaring the
 // integral makes that class of mistake unrepresentable.
+//
+// THE UNIT IS ONE BALL TOUCH, not a goal. A goal was the unit until
+// p7approach and it could not be audited: goals arrive 0.116 times per episode
+// and 49% of those are `Scenario/Defend` conceding rather than anyone scoring,
+// so the ledger had to be reconstructed by hand in every post-mortem. A touch
+// occurs 0.16-2 times per episode and is read straight off `Touch/Edge Rate`
+// and `Player/Ball Touch Ratio`.
+//
+// Restating the previous stack in the new unit is what showed the problem.
+// p7approach paid 1.83 touch-units for a whole episode of PERFECT approach;
+// the guide's stack pays 20.5. An 11x difference that neither spec noticed,
+// because the two were denominated in different currencies.
 
 // tickSkip 8 at RocketSim's 120 Hz.
 inline constexpr float STEPS_PER_SECOND = 15.f;
 
 // MEASURED, not assumed. p6budget's `Episode/Mean Steps` read 171.0 over 100M
-// steps (the previous working figure was 150, so every rate budget was
-// over-delivering by 14%). noTouchTimeout caps a never-touching bot at 180
-// steps and goals end episodes early; at a touch ratio near zero almost every
-// episode runs to the timeout, which is why this sits just under it.
+// steps and p7approach's read 166.6. noTouchTimeout caps a never-touching bot
+// at 180 steps and goals end episodes early; at a touch ratio near zero almost
+// every episode runs to the timeout, which is why this sits just under it.
+//
+// Re-derive it once the bot can actually reach the ball: episodes will get
+// LONGER (touches reset the no-touch timer) until goals start ending them,
+// at which point they get much shorter. Both directions silently rescale every
+// rate budget below.
 inline constexpr float REFERENCE_EPISODE_SECONDS = 11.4f;
 inline constexpr float REFERENCE_EPISODE_STEPS =
     STEPS_PER_SECOND * REFERENCE_EPISODE_SECONDS;
 
-// Goal-units earned by holding a behaviour perfectly for one reference episode,
-// converted to the per-step weight that earns it.
+// Touch-units earned by holding a behaviour perfectly for one reference
+// episode, converted to the per-step weight that earns it.
 inline constexpr float RateWeight(float budgetPerEpisode) {
   return budgetPerEpisode / REFERENCE_EPISODE_STEPS;
 }
 
-// Goal-units of cost for one second of a condition, converted to per-step.
+// Touch-units of cost for one second of a condition, converted to per-step.
 inline constexpr float PerSecondWeight(float budgetPerSecond) {
   return budgetPerSecond / STEPS_PER_SECOND;
 }
 
-// All values are goal-units. See
-// docs/superpowers/specs/2026-08-18-reward-redesign-design.md (decisions D19
-// onward) for the derivation of each.
+// All values are touch-units. This is the early-stage stack from Zealan's
+// RLGym-PPO-Guide (making_a_good_bot.md) in the guide's own proportions --
+// touch 50, speed-to-ball 5, face-ball 1, air 0.15 -- divided through by the
+// touch weight so that a touch is 1.0, then expressed as episode integrals.
 //
-// The shape is the early-stage stack from Zealan's RLGym-PPO-Guide -- a large
-// event reward for touching the ball, a dominant dense reward for closing on
-// it, and a small facing tiebreaker -- expressed as budgets rather than as
-// bare weights.
+// Nothing here is this project's invention, deliberately. See
+// docs/superpowers/specs/2026-08-18-known-good-baseline-design.md.
 struct RewardBudget {
-  // --- Rate: earned by holding the behaviour for one reference episode ---
-
-  // The approach term, and deliberately the largest rate budget in the stack.
-  // p6budget had NO approach term at all: it paid for generic speed and for
-  // nose orientation, and measured the bot learning to point at the ball
-  // (nose cosine 0.338 -> 0.741) while its velocity-to-ball cosine never moved
-  // off 0.30 across 100M steps.
-  float speedToBall = 0.50f;
-
-  // A tiebreaker against driving backwards at the ball, at 1/10th of the
-  // approach budget. The guide uses 1/5th; this is half that because p6budget
-  // measured this exact quantity taking 62% of net earnings and 66% of the
-  // whole run's ledger improvement while buying zero approach. Rectified, so
-  // facing away pays nothing and costs nothing.
-  float faceBall = 0.05f;
-
   // --- Event: earned per occurrence ---
 
-  // Twice p6budget's 0.15. At that run's touch rate this is worth 0.06
-  // goal-units per episode -- no windfall for the current policy -- but at two
-  // touches per episode it is 0.60 and dominates the stack, which is the
-  // intended shape for a bot that cannot yet reach the ball. Rising edge, so
-  // carrying the ball is worth exactly one touch (see TouchEdgeReward).
-  float touch = 0.30f;
+  // The unit, by definition. Per step of contact (see GeneralRewardSpecs).
+  float touch = 1.0f;
 
-  // --- Per second ---
-  // Wheels-up against a surface. NOT an air tax -- p6budget measured it firing
-  // on 2.3% of airborne steps, because free flight makes no chassis contact.
-  float wrongSurface = 0.10f;
+  // --- Rate: earned by holding the behaviour for one reference episode ---
 
-  // The unit. Not adjustable, and scaling it could not help anyway: rewards
-  // are standardized at GAE.cpp:52, and for a rare terminal payoff the
-  // signal-to-noise sqrt(p/(1-p)) is independent of magnitude. The only lever
-  // on the goal signal is how often goals happen.
-  static constexpr float GOAL = 1.f;
+  // 5/50 per step over 171 steps. The dominant term in the stack by an order
+  // of magnitude, which is the whole point: a bot that cannot reach the ball
+  // needs approach paid far more heavily than contact, and p7approach's 1.67
+  // here is the single biggest numerical departure from the reference.
+  float speedToBall = 17.1f;
+
+  // 1/50 per step over 171 steps, i.e. exactly speedToBall/5, which is the
+  // guide's ratio. SIGNED, so driving backwards at the ball is punished rather
+  // than merely unpaid -- see the pairing note in Rewards.h.
+  float faceBall = 3.42f;
+
+  // 0.15/50 per step over 171 steps. 2.5% of the dense budget. The guide adds
+  // this so bots do not forget how to jump; ours has the opposite problem, and
+  // it is ported anyway so that surviving air time indicts the action mask
+  // rather than the reward. See Actions.h.
+  float air = 0.513f;
 };
 
 struct SelfPlayConfig {
@@ -165,7 +167,29 @@ struct TrainConfig {
   // checkpoint -- treat it as permanent once a run you care about starts.
   int maxPlayersPerTeam = 1;
 
+  // Where episodes start from. `Random` is RLGymCPP's RandomState with
+  // (randBallSpeed, randCarSpeed, carsOnGround) = (true, true, false), which
+  // is what Zealan's guide specifies and what every reference bot starts on:
+  // fully random positions and velocities, cars airborne on half of spawns.
+  //
+  // `Curriculum` is this project's 10-entry scenario mix. It has never been
+  // validated against anything, and it is the leading suspect for the
+  // Early/Late collapse that has stood since p1age -- Early(0-1s) touch rate
+  // 0.0081 against Late(4s+) 0.00025, a 32x gap, with the bot ending FARTHER
+  // from the ball than it started. A spawn distribution that hands the bot a
+  // favourable first second teaches the first second.
+  //
+  // The curriculum code stays in the tree; phase B measures it against
+  // Random rather than assuming it.
+  enum class SpawnMode { Random, Curriculum };
+  SpawnMode spawn = SpawnMode::Random;
+
   CurriculumWeights curriculum = {};
+
+  // Whether the action parser masks actions by situation. See Actions.h: the
+  // mask more than doubles the grounded jump prior (42.9% vs 20%) relative to
+  // every reference implementation. Must match at deployment.
+  bool maskActions = false;
 
   RewardBudget rewards = {};
   ModelShape modelShape = {};
@@ -185,25 +209,44 @@ struct TrainConfig {
   int actionDelay = 7;
 
   // --- PPO ---------------------------------------------------------------
-  int tsPerItr = 100'000;
+  // Guide, learner_settings.md: "values of 50_000 are good for early learning,
+  // but once the bot is actually hitting the ball, it should be increased to
+  // 100_000". Halving it from 100k also doubles the number of policy updates
+  // per unit of experience, which is what an under-updating run needs.
+  int tsPerItr = 50'000;
 
   // Minibatch is the main VRAM knob (6 GB available).
   int miniBatchSize = 25'000;
 
-  // Upstream default.
+  // Upstream default; guide recommends 2 or 3.
   int epochs = 2;
 
-  // GigaLearn's entropy is NORMALIZED to [0,1] (divided by log(numActions)),
-  // so this scale is not comparable to rlgym-ppo's. Kept low so entropy can
-  // actually fall over a run rather than sitting near-uniform; revisit at
-  // every phase gate, since too low too early costs exploration.
-  float entropyScale = 0.01f;
+  // NOT the guide's 0.01. GigaLearn's entropy is NORMALIZED to [0,1] (divided
+  // by log(numActions)), so this scale is not comparable to rlgym-ppo's, and
+  // porting the number verbatim ports a value this project has measured
+  // breaking three times.
+  //
+  // Evidence: 0.035 and 0.018 pinned entropy near-uniform (p1probe-d, -g);
+  // 0.01 pinned it again in p7approach (`Policy Entropy` 0.709 -> 0.689 flat
+  // over 100M steps, `SB3 Clip Fraction` 0.0038 against a healthy 0.05-0.2,
+  // `Policy Relative Entropy Loss` 268 against a documented healthy <=0.1);
+  // 0.002 produced this project's only breakthrough (p1probe-f) and the RUNLOG
+  // says "Keep 0.002".
+  //
+  // Exploration does not depend on this alone: the fourth external patch
+  // floors every VALID action at 0.02/N probability, which is the only thing
+  // that has ever reversed an action extinction.
+  float entropyScale = 0.002f;
 
+  // 0.99 at 15 steps/s is a 4.6 s half-life for the VALUE horizon (1/(1-gamma)
+  // = 100 steps = 6.7 s). The guide calls this fine for early and middle
+  // stages and recommends raising it to a ~15 s half-life later; that is a
+  // phase-A change, not this one.
   float gaeGamma = 0.99f;
 
-  // Upstream default.
-  float policyLR = 3e-4f;
-  float criticLR = 3e-4f;
+  // Guide, learner_settings.md: "Bot that can't score yet: 2e-4".
+  float policyLR = 2e-4f;
+  float criticLR = 2e-4f;
 
   int64_t maxSteps = 0;
 

@@ -52,6 +52,8 @@ add_subdirectory("${HIVE_EXTERNAL}/cpp-interface" rlbot-cpp)
 # Everything except main.cpp lives in a static library so the bot binary and
 # the test binary share one compilation of the project sources.
 add_library(HiveCore STATIC
+	src/env/Actions.cpp
+	src/env/Actions.h
 	src/env/Curriculum.cpp
 	src/env/Curriculum.h
 	src/env/Env.cpp

@@ -40,6 +40,10 @@ export HIVE_MAX_PLAYERS_PER_TEAM="${HIVE_MAX_PLAYERS_PER_TEAM:-1}"
 export HIVE_TICK_SKIP="${HIVE_TICK_SKIP:-8}"
 export HIVE_ACTION_DELAY="${HIVE_ACTION_DELAY:-7}"
 
+# Action masking. MUST match the value training used (TrainConfig::maskActions).
+# `./HivemindBot verify <checkpoint>` checks this against the compiled default.
+export HIVE_MASK_ACTIONS="${HIVE_MASK_ACTIONS:-0}"
+
 # Deterministic play is meaningfully stronger than sampling in a real match.
 export HIVE_DETERMINISTIC="${HIVE_DETERMINISTIC:-1}"
 

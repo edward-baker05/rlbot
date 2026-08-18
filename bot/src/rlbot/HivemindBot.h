@@ -27,6 +27,12 @@ struct BotSettings {
 	int tickSkip = 8;
 	int actionDelay = 7;
 
+	// Whether the action parser masks by situation. MUST match training: an
+	// unmasked policy deployed against a masked parser (or the reverse) picks
+	// from a different action set than it learned on, and nothing about that
+	// looks like a failure -- the bot loads, plays, and is quietly worse.
+	bool maskActions = false;  // HIVE_MASK_ACTIONS
+
 	ModelShape modelShape = {};
 
 	// Deterministic play picks the highest-probability action every step. It is

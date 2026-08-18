@@ -1,10 +1,10 @@
 #include "Verify.h"
 
 #include "Config.h"
+#include "env/Actions.h"
 #include "env/Obs.h"
 #include "policy/Policy.h"
 
-#include <RLGymCPP/ActionParsers/DefaultAction.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -27,11 +27,11 @@ int RunVerify(const std::filesystem::path& folder) {
 	std::printf("Obs size: %d (maxPlayersPerTeam=%d)\n", obsSize, cfg.maxPlayersPerTeam);
 
 	auto obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam);
-	DefaultAction parser;
+	auto parser = MakeActionParser(cfg.maskActions);
 
 	// 1. The checkpoint loads under the compiled-in ModelShape. A shape
 	//    mismatch throws here instead of silently misplaying in a match.
-	Policy policy(obsBuilder.get(), obsSize, &parser, cfg.modelShape, /*useGPU=*/false);
+	Policy policy(obsBuilder.get(), obsSize, parser.get(), cfg.modelShape, /*useGPU=*/false);
 	try {
 		policy.Load(folder);
 		std::printf("PASS  checkpoint loads with compiled ModelShape\n");
@@ -83,6 +83,7 @@ int RunVerify(const std::filesystem::path& folder) {
 		{"HIVE_TICK_SKIP", cfg.tickSkip},
 		{"HIVE_ACTION_DELAY", cfg.actionDelay},
 		{"HIVE_MAX_PLAYERS_PER_TEAM", cfg.maxPlayersPerTeam},
+		{"HIVE_MASK_ACTIONS", cfg.maskActions ? 1 : 0},
 	};
 	for (auto& c : checks) {
 		const char* v = std::getenv(c.env);

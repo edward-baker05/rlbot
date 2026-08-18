@@ -1,8 +1,8 @@
 #include "HivemindBot.h"
 
+#include "../env/Actions.h"
 #include "../env/Obs.h"
 
-#include <RLGymCPP/ActionParsers/DefaultAction.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -47,6 +47,7 @@ BotSettings BotSettings::FromEnvironment() {
 	s.collisionMeshes = EnvOr("HIVE_COLLISION_MESHES", "collision_meshes");
 	s.maxPlayersPerTeam = EnvIntOr("HIVE_MAX_PLAYERS_PER_TEAM", 1);
 	s.tickSkip = EnvIntOr("HIVE_TICK_SKIP", 8);
+	s.maskActions = EnvIntOr("HIVE_MASK_ACTIONS", 0) != 0;
 	s.actionDelay = EnvIntOr("HIVE_ACTION_DELAY", 7);
 	s.deterministic = EnvIntOr("HIVE_DETERMINISTIC", 1) != 0;
 	s.useGPU = EnvIntOr("HIVE_USE_GPU", 1) != 0;
@@ -70,7 +71,7 @@ void SharedContext::Initialize(const BotSettings& s) {
 
 	obsSize = ProbeObsSize(settings.maxPlayersPerTeam);
 	obsBuilder = MakeObsBuilder(settings.maxPlayersPerTeam);
-	actionParser = std::make_unique<DefaultAction>();
+	actionParser = MakeActionParser(settings.maskActions);
 
 	policy = std::make_unique<Policy>(
 		obsBuilder.get(), obsSize, actionParser.get(), settings.modelShape, settings.useGPU);

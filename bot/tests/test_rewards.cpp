@@ -1,5 +1,4 @@
 #include "doctest/doctest.h"
-#include "TestCommon.h"
 
 #include <Config.h>
 #include <env/Rewards.h>
@@ -18,7 +17,6 @@ TEST_CASE("specs and built rewards agree in count and weight") {
 	auto built = BuildGeneralRewards(cfg);
 
 	REQUIRE(specs.size() == built.size());
-	REQUIRE(specs.size() >= 4);
 	for (size_t i = 0; i < specs.size(); i++) {
 		CHECK(specs[i].weight == built[i].weight);
 		CHECK(!specs[i].name.empty());
@@ -38,64 +36,6 @@ TEST_CASE("spec names are unique") {
 // `Player p = {}` value-initializes through CarState's constructor, which sets
 // isOnGround = true. Every test below sets it explicitly rather than relying on
 // that, because the default is the opposite of what most of these cases want.
-TEST_CASE("WrongSurfaceReward charges only non-wheel contact") {
-	WrongSurfaceReward r;
-	RLGC::Player p = {};
-	RLGC::GameState s = {};
-
-	// Driving normally: wheels down, chassis clear.
-	p.isOnGround = true;
-	p.worldContact.hasContact = false;
-	CHECK(r.GetReward(p, s, false) == 0.f);
-
-	// Airborne with nothing touching: free. Leaving the ground is not the
-	// offence; landing wrong is.
-	p.isOnGround = false;
-	p.worldContact.hasContact = false;
-	CHECK(r.GetReward(p, s, false) == 0.f);
-
-	// THE GATE. Chassis scraping while the wheels are still doing their job --
-	// a wall-curve transition, a bottomed-out suspension -- is not a loss of
-	// control and must not be charged.
-	p.isOnGround = true;
-	p.worldContact.hasContact = true;
-	CHECK(r.GetReward(p, s, false) == 0.f);
-
-	// On the roof, the side, the nose: all the same, all fully charged.
-	p.isOnGround = false;
-	p.worldContact.hasContact = true;
-	CHECK(r.GetReward(p, s, false) == -1.f);
-}
-
-TEST_CASE("TouchEdgeReward pays once per contact, not once per step") {
-	TouchEdgeReward r;
-	RLGC::GameState s = {};
-	RLGC::Player p = {}, prev = {};
-	p.prev = &prev;
-
-	// Not touching.
-	p.ballTouchedStep = false;
-	prev.ballTouchedStep = false;
-	CHECK(r.GetReward(p, s, false) == 0.f);
-
-	// First contact of a sequence: paid.
-	p.ballTouchedStep = true;
-	prev.ballTouchedStep = false;
-	CHECK(r.GetReward(p, s, false) == 1.f);
-
-	// THE DRIBBLE GUARD. Still touching from last step pays nothing. A
-	// per-step touch reward IS a dribble reward -- carrying the ball on the
-	// nose would collect it ~180x an episode, which is the flick-bot local
-	// optimum arriving through the back door.
-	p.ballTouchedStep = true;
-	prev.ballTouchedStep = true;
-	CHECK(r.GetReward(p, s, false) == 0.f);
-
-	// A touch on the first step after a reset is a genuine new contact.
-	RLGC::Player fresh = {};
-	fresh.ballTouchedStep = true;
-	CHECK(r.GetReward(fresh, s, false) == 1.f);
-}
 
 TEST_CASE("SpeedToBallReward pays for closing, and nothing for retreating") {
 	SpeedToBallReward r;
@@ -112,9 +52,7 @@ TEST_CASE("SpeedToBallReward pays for closing, and nothing for retreating") {
 	CHECK(r.GetReward(p, s, false) == doctest::Approx(1.f).epsilon(1e-4));
 
 	// Half speed at the ball: exactly half. The term is LINEAR in closing
-	// speed, unlike the SpeedSquared term it replaces -- there is no free
-	// coasting floor to discount here, because standing still and driving away
-	// both pay zero already.
+	// speed.
 	p.vel = {0, V / 2.f, 0};
 	CHECK(r.GetReward(p, s, false) == doctest::Approx(0.5f).epsilon(1e-4));
 
@@ -123,10 +61,10 @@ TEST_CASE("SpeedToBallReward pays for closing, and nothing for retreating") {
 	CHECK(r.GetReward(p, s, false) == doctest::Approx(0.f).epsilon(1e-4));
 
 	// THE RECTIFICATION. Driving away pays nothing -- it is not punished.
-	// Upstream's VelocityPlayerToBallReward would return -1 here. Plenty of
-	// correct play moves away from the ball, and the signed form also lets a
-	// circling bot generate large +/- values that cancel to nothing, which is
-	// what p1air's RewardShare 0.482 at ~zero net was.
+	// Upstream's VelocityPlayerToBallReward returns -1 here. The guide is
+	// explicit that moving away should not be punished, and the signed form
+	// also lets a circling bot generate large +/- values that cancel to
+	// nothing, which is what p1air's RewardShare 0.482 at ~zero net was.
 	p.vel = {0, -V, 0};
 	CHECK(r.GetReward(p, s, false) == 0.f);
 
@@ -140,142 +78,162 @@ TEST_CASE("SpeedToBallReward pays for closing, and nothing for retreating") {
 	CHECK(r.GetReward(p, s, false) == 0.f);
 }
 
-TEST_CASE("FaceBallRectifiedReward pays for pointing at the ball only") {
-	FaceBallRectifiedReward r;
+// THE REGRESSION TEST FOR p7approach.
+//
+// Rectifying this term is what left the p7approach stack with no state that
+// could ever be penalised, and the argmax of such a stack is "carry speed in a
+// straight line and never turn" -- turning is the only action that costs
+// speed. Measured: `Action/Steer Nonzero` 0.160 -> 0.087 over 100M steps while
+// `Jump When Grounded Upright` went 0.755 -> 0.878.
+//
+// If this test ever needs `RS_MAX(0.f, ...)` to pass, the stack has silently
+// lost its only cost and something else must supply one first.
+TEST_CASE("FaceBall is SIGNED: pointing away is punished, not merely unpaid") {
+	RLGC::FaceBallReward r;
 	RLGC::GameState s = {};
 	s.ball.pos = {0, 1000, 93};
 	RLGC::Player p = {};
 	p.pos = {0, 0, 93};
 
-	// Nose at the ball.
+	// Nose on the ball.
 	p.rotMat.forward = {0, 1, 0};
 	CHECK(r.GetReward(p, s, false) == doctest::Approx(1.f).epsilon(1e-4));
 
-	// Perpendicular pays nothing.
+	// Side on: no opinion.
 	p.rotMat.forward = {1, 0, 0};
 	CHECK(r.GetReward(p, s, false) == doctest::Approx(0.f).epsilon(1e-4));
 
-	// Nose directly AWAY pays nothing AND costs nothing. Both halves matter:
-	// the p6budget stack did not pay for facing away, it punished it at half
-	// rate, and shadow defence and retreating for a bounce both need the nose
-	// off the ball.
+	// Nose away. This must be NEGATIVE.
 	p.rotMat.forward = {0, -1, 0};
-	CHECK(r.GetReward(p, s, false) == 0.f);
+	CHECK(r.GetReward(p, s, false) == doctest::Approx(-1.f).epsilon(1e-4));
+	CHECK(r.GetReward(p, s, false) < 0.f);
 
-	// Sitting on the ball: no direction to face, and no divide by zero.
-	p.pos = s.ball.pos;
-	p.rotMat.forward = {0, 1, 0};
-	CHECK(r.GetReward(p, s, false) == 0.f);
+	// 60 degrees off, the sign is what matters.
+	p.rotMat.forward = {0.866f, -0.5f, 0};
+	CHECK(r.GetReward(p, s, false) < 0.f);
 }
 
-TEST_CASE("the rectified term is the asymmetric form at w- = 0") {
-	// The decomposition the p6budget design was built on, kept as an
-	// executable assertion because it is what justifies collapsing two specs
-	// into one:
-	//
-	//   w+ * max(0,c) + w- * min(0,c) == ws * c + wa * |c|
-	//   with ws = (w+ + w-)/2 and wa = (w+ - w-)/2
-	//
-	// At w- = 0 that gives ws == wa == w+/2: the signed lobe and the |c| lobe
-	// carry EQUAL weight. Which is the point worth remembering -- "stop paying
-	// for facing away" means RAISING the |c| lobe to match the signed one, not
-	// deleting it. Shipping one clamped term is the same reward with one
-	// budget instead of two.
-	RLGC::FaceBallReward signedTerm;
-	FaceBallRectifiedReward rectified;
-
-	const float wPlus = 0.05f;       // the FaceBall budget
-	const float ws = wPlus / 2.f;    // signed lobe
-	const float wa = wPlus / 2.f;    // |c| lobe
-
+TEST_CASE("Touch pays per step of contact, matching the guide's EventReward") {
+	RLGC::TouchBallReward r;
 	RLGC::GameState s = {};
-	s.ball.pos = {0, 1000, 93};
 	RLGC::Player p = {};
-	p.pos = {0, 0, 93};
 
-	// Three orientations, spanning both lobes' behaviour.
-	const Vec dirs[] = {{0, 1, 0}, {1, 0, 0}, {0, -1, 0}};
-	for (const Vec& dir : dirs) {
-		p.rotMat.forward = dir;
-		const float c = signedTerm.GetReward(p, s, false);
-		const float decomposed = ws * c + wa * std::fabs(c);
-		CHECK(decomposed
-		      == doctest::Approx(wPlus * rectified.GetReward(p, s, false)).epsilon(1e-4));
-	}
+	p.ballTouchedStep = false;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	p.ballTouchedStep = true;
+	CHECK(r.GetReward(p, s, false) == 1.f);
+
+	// A second consecutive step of contact pays again. This is the reference
+	// behaviour and it is deliberately farmable by carrying the ball; the gap
+	// between `Player/Ball Touch Ratio` and `Touch/Edge Rate` is instrumented
+	// so that farm is visible if it appears. A rising-edge form is the fix if
+	// it does, and that belongs in phase B, not in the reproduction.
+	RLGC::Player prev = p;
+	p.prev = &prev;
+	CHECK(r.GetReward(p, s, false) == 1.f);
+}
+
+TEST_CASE("Air pays for being airborne") {
+	RLGC::AirReward r;
+	RLGC::GameState s = {};
+	RLGC::Player p = {};
+
+	p.isOnGround = true;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	p.isOnGround = false;
+	CHECK(r.GetReward(p, s, false) == 1.f);
 }
 
 TEST_CASE("budget conversion is the only route to a per-step weight") {
-	// A rate budget is what holding the behaviour perfectly for one reference
-	// episode earns. 171 steps = 11.4 s at 15 Hz, which is p6budget's MEASURED
-	// Episode/Mean Steps -- the previous 150 was a working figure and every
-	// rate term was over-delivering by 14%.
-	CHECK(REFERENCE_EPISODE_STEPS == doctest::Approx(171.f));
-	CHECK(RateWeight(0.50f) == doctest::Approx(0.50f / 171.f));
-	CHECK(RateWeight(0.50f) * REFERENCE_EPISODE_STEPS == doctest::Approx(0.50f));
+	TrainConfig cfg = {};
+	auto specs = GeneralRewardSpecs(cfg);
 
-	// A per-second budget is the cost of one second of the condition.
-	CHECK(PerSecondWeight(0.10f) == doctest::Approx(0.10f / 15.f));
-	CHECK(PerSecondWeight(0.10f) * STEPS_PER_SECOND == doctest::Approx(0.10f));
+	auto weightOf = [&](const std::string& name) {
+		for (auto& s : specs)
+			if (s.name == name)
+				return s.weight;
+		FAIL("no spec named " << name);
+		return 0.f;
+	};
+
+	// Rate budgets are episode integrals, so the per-step weight must be the
+	// budget divided by the reference episode -- never written directly.
+	CHECK(weightOf("SpeedToBall") ==
+	      doctest::Approx(cfg.rewards.speedToBall / REFERENCE_EPISODE_STEPS));
+	CHECK(weightOf("FaceBall") ==
+	      doctest::Approx(cfg.rewards.faceBall / REFERENCE_EPISODE_STEPS));
+	CHECK(weightOf("Air") ==
+	      doctest::Approx(cfg.rewards.air / REFERENCE_EPISODE_STEPS));
+
+	// The event budget is per occurrence, so it is the weight unchanged.
+	CHECK(weightOf("Touch") == doctest::Approx(cfg.rewards.touch));
 }
 
-TEST_CASE("no shaping term can outearn a goal by accident") {
-	// The p1air failure, as a regression test. `grounded = 0.05` integrated to
-	// 9.0 goal-units per episode -- nine goals per episode for holding still on
-	// the wheels -- and nobody noticed because nobody wrote down the integral.
-	//
-	// Every RATE term's whole-episode earnings must stay well under one goal.
+// The unit is one ball touch, and it is 1.0 by definition. Anything else would
+// mean the ledger no longer reads in touches, which is the whole reason the
+// denominator moved off goals: a goal arrives 0.116 times per episode and
+// cannot be checked against telemetry.
+TEST_CASE("a touch is the unit") {
+	CHECK(TrainConfig{}.rewards.touch == doctest::Approx(1.f));
+}
+
+// The single biggest numerical departure p7approach made from the reference,
+// and it went unnoticed because the two stacks were denominated in different
+// currencies. Restated in touch-units, p7approach paid 1.83 for a whole
+// episode of PERFECT approach where the guide pays 20.5.
+TEST_CASE("dense approach dominates a single touch by an order of magnitude") {
 	const RewardBudget b = {};
-	CHECK(b.speedToBall < RewardBudget::GOAL);
-	CHECK(b.faceBall < RewardBudget::GOAL);
+	const float dense = b.speedToBall + b.faceBall;
 
-	// And all of them together must not outweigh a goal either.
-	CHECK(b.speedToBall + b.faceBall < RewardBudget::GOAL);
+	CHECK(dense > 10.f * b.touch);
+	CHECK(dense == doctest::Approx(20.52f).epsilon(1e-3));
 }
 
-TEST_CASE("approach dominates facing by an order of magnitude") {
-	// p6budget measured its facing terms taking 62% of net earnings and 66% of
-	// the entire run's ledger improvement while its velocity-to-ball alignment
-	// never moved. Facing is a tiebreaker against driving backwards at the
-	// ball; if these budgets ever drift back together, that is the failure
-	// returning.
+// The guide's proportions: touch 50, speed 5, face 1, air 0.15. Divided
+// through by touch and expressed as episode integrals, the ratios between the
+// dense terms must survive.
+TEST_CASE("budgets keep the guide's proportions") {
 	const RewardBudget b = {};
-	CHECK(b.speedToBall >= 10.f * b.faceBall);
 
-	// And a touch has to be worth more than a long stretch of approaching.
-	// One touch against a full reference episode of PERFECT closing speed --
-	// which no bot achieves -- keeps finishing an approach worth more than
-	// repeating one, which is the counterweight to SpeedToBall being farmable
-	// around a chase-hit-chase cycle.
-	CHECK(b.touch > 0.5f * b.speedToBall);
+	// speed:face is 5:1.
+	CHECK(b.speedToBall / b.faceBall == doctest::Approx(5.f).epsilon(1e-3));
+
+	// face:air is 1:0.15.
+	CHECK(b.faceBall / b.air == doctest::Approx(1.f / 0.15f).epsilon(1e-3));
+
+	// Air is a nudge, not a policy: under 3% of the dense budget. Ours is
+	// already 93% airborne, so if this ever grows it stops being a port.
+	CHECK(b.air < 0.03f * (b.speedToBall + b.faceBall));
 }
 
-TEST_CASE("the spec list is the five designed terms, with positive weights") {
+TEST_CASE("the spec list is the four ported terms, with positive weights") {
 	auto specs = GeneralRewardSpecs(TrainConfig{});
 
 	std::vector<std::string> names;
-	for (auto& s : specs)
+	for (auto& s : specs) {
 		names.push_back(s.name);
-
-	const std::vector<std::string> expected = {
-		"Goal", "Touch", "SpeedToBall", "FaceBall", "WrongSurface",
-	};
-	CHECK(names == expected);
-
-	// THE SIGN CONVENTION. Penalty classes return negative values, so every
-	// weight must be positive -- a negative weight on a negative class value
-	// double-negates a penalty into a reward, and nothing else in the stack
-	// would reveal it.
-	for (auto& s : specs)
 		CHECK(s.weight > 0.f);
+	}
 
-	// Goal is the unit.
-	CHECK(specs[0].weight == doctest::Approx(1.f));
+	const std::vector<std::string> expected = {"Touch", "SpeedToBall", "FaceBall", "Air"};
+	CHECK(names == expected);
 }
 
-TEST_CASE("no zero-weight placeholder specs remain") {
-	// The old stack kept zero-weight specs so RewardShare indices stayed
-	// aligned across reward phases. There are no phases now, so a zero-weight
-	// spec would just be a term that silently does nothing.
-	for (auto& s : GeneralRewardSpecs(TrainConfig{}))
-		CHECK(s.weight != 0.f);
+// Every one of these was in the stack at some point and each is a decision to
+// leave out, not an oversight. Goal is noise at a touch ratio of 0.001;
+// WrongSurface held 30% of p7approach's reward mass as a tuning penalty; the
+// rest are tuning rewards the guide's troubleshooting section says to remove.
+TEST_CASE("no goal, boost, ball-to-goal or tuning terms are in the stack") {
+	auto specs = GeneralRewardSpecs(TrainConfig{});
+	for (auto& s : specs) {
+		CHECK(s.name != "Goal");
+		CHECK(s.name != "WrongSurface");
+		CHECK(s.name != "CleanLanding");
+		CHECK(s.name != "HarshSpeedLoss");
+		CHECK(s.name != "VelBallToGoal");
+		CHECK(s.name != "PickupBoost");
+		CHECK(s.name != "SaveBoost");
+	}
 }

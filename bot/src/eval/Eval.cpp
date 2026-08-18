@@ -1,10 +1,10 @@
 #include "Eval.h"
 
 #include "../Config.h"
+#include "../env/Actions.h"
 #include "../env/Obs.h"
 #include "../policy/Policy.h"
 
-#include <RLGymCPP/ActionParsers/DefaultAction.h>
 
 #include <cassert>
 #include <cstdio>
@@ -24,10 +24,10 @@ EvalResult RunEval(const EvalConfig& ecfg) {
 	TrainConfig cfg = {};
 	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam);
 	auto obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam);
-	DefaultAction parser;
+	auto parser = MakeActionParser(cfg.maskActions);
 
-	Policy blue(obsBuilder.get(), obsSize, &parser, cfg.modelShape, ecfg.useGPU);
-	Policy orange(obsBuilder.get(), obsSize, &parser, cfg.modelShape, ecfg.useGPU);
+	Policy blue(obsBuilder.get(), obsSize, parser.get(), cfg.modelShape, ecfg.useGPU);
+	Policy orange(obsBuilder.get(), obsSize, parser.get(), cfg.modelShape, ecfg.useGPU);
 	blue.Load(ecfg.blueModel);
 	orange.Load(ecfg.orangeModel);
 

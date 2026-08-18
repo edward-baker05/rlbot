@@ -2,13 +2,13 @@
 
 #include "../Config.h"
 #include "../env/Env.h"
+#include "../env/Actions.h"
 #include "../env/Obs.h"
 #include "../policy/Policy.h"
 #include "Checkpoints.h"
 
 #include <GigaLearnCPP/Util/RenderSender.h>
 
-#include <RLGymCPP/ActionParsers/DefaultAction.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
 #include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
 
@@ -70,7 +70,7 @@ void RunSpectate(const SpectateConfig& cfg) {
 	TrainConfig tcfg = {};
 	const int obsSize = ProbeObsSize(tcfg.maxPlayersPerTeam);
 	auto obsBuilder = MakeObsBuilder(tcfg.maxPlayersPerTeam);
-	DefaultAction parser;
+	auto parser = MakeActionParser(tcfg.maskActions);
 
 	// Learner's constructor is what normally starts the interpreter; there is
 	// no Learner here, and RenderSender needs it to import the receiver module.
@@ -78,8 +78,8 @@ void RunSpectate(const SpectateConfig& cfg) {
 	GGL::RenderSender sender(cfg.timeScale);
 
 	std::unique_ptr<StateSetter> setter;
-	if (cfg.spawns == SpectateSpawns::Curriculum)
-		setter.reset(BuildGeneralCurriculum(tcfg.curriculum));
+	if (cfg.spawns == SpectateSpawns::Training)
+		setter.reset(BuildSpawner(tcfg));
 
 	NoTouchCondition noTouch(tcfg.noTouchTimeoutSeconds);
 	GoalScoreCondition goalScored;
@@ -88,13 +88,13 @@ void RunSpectate(const SpectateConfig& cfg) {
 	arena->AddCar(Team::BLUE);
 	arena->AddCar(Team::ORANGE);
 
-	auto policy = std::make_unique<Policy>(obsBuilder.get(), obsSize, &parser,
+	auto policy = std::make_unique<Policy>(obsBuilder.get(), obsSize, parser.get(),
 	                                       tcfg.modelShape, cfg.useGPU);
 	policy->Load(checkpoint);
 	std::printf("Spectating %s (%s, %s spawns) -> RocketSimVis on UDP 9273\n",
 	            checkpoint.string().c_str(),
 	            cfg.deterministic ? "deterministic" : "stochastic",
-	            cfg.spawns == SpectateSpawns::Curriculum ? "curriculum" : "kickoff");
+	            cfg.spawns == SpectateSpawns::Training ? "training" : "kickoff");
 
 	for (int episode = 0; cfg.episodes == 0 || episode < cfg.episodes; episode++) {
 		// Between episodes, not mid-episode: swapping the policy under a car
@@ -104,7 +104,7 @@ void RunSpectate(const SpectateConfig& cfg) {
 			fs::path latest = FindLatestCheckpoint(cfg.followRun);
 			if (!latest.empty() && latest != checkpoint) {
 				checkpoint = latest;
-				policy = std::make_unique<Policy>(obsBuilder.get(), obsSize, &parser,
+				policy = std::make_unique<Policy>(obsBuilder.get(), obsSize, parser.get(),
 				                                  tcfg.modelShape, cfg.useGPU);
 				policy->Load(checkpoint);
 				std::printf("-> now playing %s\n", checkpoint.filename().string().c_str());

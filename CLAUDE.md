@@ -9,30 +9,74 @@ RLBot v5. Target is a bot that beats a GC1 human in 1v1.
 
 **One policy.** The old kickoff/general two-policy split was removed
 deliberately on 2026-08-17 (see
-`docs/superpowers/specs/2026-08-17-hivemind-roadmap-design.md`, decision D1);
-kickoffs are learned via a curriculum entry. Do not reintroduce a policy split
-or an MoE design without a new decision. Situation labels (`PlayPhase`)
-survive only as metrics; curriculum scenarios (`CurriculumState`) only as
-spawn distributions.
+`docs/superpowers/specs/2026-08-17-hivemind-roadmap-design.md`, decision D1).
+Do not reintroduce a policy split or an MoE design without a new decision.
+Situation labels (`PlayPhase`) survive only as metrics; curriculum scenarios
+(`CurriculumState`) only as an optional spawn distribution.
 
-Three standing decisions from that spec worth knowing before touching
-rewards: no dribble/possession reward terms, ever (D4 — the flick-bot local
-optimum); no magic numbers without measurement behind them (D6); and, from
-`docs/superpowers/specs/2026-08-18-reward-redesign-design.md`, **every reward
-weight is a budget in goal-units, converted in exactly one place**. Do not add
-a per-step float.
+## Where the project actually is (2026-08-18)
 
-**That spec's D3 banned ball-directed dense shaping. It is REVERSED — see D20
-in the same file's addendum.** Run A (`p6budget`) shipped the ban's replacement,
-an additive `SpeedSquared + FaceBall` factoring, and measured the result: over
-100M steps the bot's nose-to-ball cosine rose 0.338 → 0.741 while its
-velocity-to-ball cosine stayed flat at 0.300, with the facing terms taking 62%
-of net earnings. Given two separable factors and 90% of life airborne, the
-policy bought the cheap one (rotation is free in the air) and never the
-expensive one. The stack now uses `SpeedToBallReward` = `max(0, v·dirToBall)/V`
-as its dominant dense term. It is farmable around chase-hit-chase and that is
-accepted; `Touch` at 0.30 goal-units is the counterweight. Do not re-ban it
-without a new measurement.
+**Read `docs/superpowers/specs/2026-08-18-known-good-baseline-design.md` before
+changing rewards, spawns, the action space or PPO settings.** It supersedes the
+reward direction in the 2026-08-17 roadmap and the whole of
+`2026-08-18-reward-redesign-design.md`.
+
+Two measurements set the current direction:
+
+1. **`Player/Velocity Alignment` has never left its null.** It reads 0.3135 in
+   p7approach against a chance value of `1/pi = 0.3183` for a uniform direction
+   in the ground plane. The bot has never driven at the ball in any run, in
+   ~25 experiments, while 40-45% of reward mass paid for exactly that. The null
+   was never computed, so 0.30 was read as low-but-real.
+2. **The reference reaches frequent ball contact in "a few dozen million
+   steps"** (Zealan's `making_a_good_bot.md`). We were at 0.16 touches per
+   episode at 100M. The gap is not patience.
+
+So the project is in **phase C: reproduce a known-good configuration before
+building anything of its own.** The current stack is Zealan's early-stage
+config ported as literally as the C++ allows -- four rewards, no goal term,
+signed FaceBall, `RandomState` spawns, unmasked actions, LR 2e-4, 50k rollouts.
+None of it is this project's invention, deliberately.
+
+Phase B (bisect our ideas back in, one variable per run) and phase A (relative
+observation, bigger network, higher gamma, external-opponent Elo) come after,
+and only after, the reproduction gate passes.
+
+### Three rules that outlast the phase
+
+**Every behavioural metric ships with its null.** No run conclusion may cite a
+metric whose chance value is unknown. The table lives in `docs/metrics.md` and
+the action-space figures are asserted in `bot/tests/test_actionspace.cpp`. A
+metric at its null is not a weak signal; it is the absence of one.
+
+**One variable per run, with the prediction written down first.** Almost every
+row in `runs/RUNLOG.md` changed two or more things at once (p6budget: 8-term
+rewrite + `tsPerItr`; p7approach: 5-term rewrite + `entropyScale`), which is
+why the log keeps retracting itself. Predictions go in the RUNLOG *before* the
+run, along with the step count at which the run gets killed.
+
+**Every reward weight is a budget, converted in exactly one place**
+(`Hive::GeneralRewardSpecs`). Never write a bare per-step float. **The unit is
+one ball touch**, not a goal -- a goal arrives 0.116 times per episode and
+cannot be audited against telemetry, which is why every post-mortem had to
+reconstruct the ledger by hand.
+
+### Two traps that cost this project runs
+
+**`entropyScale` is not comparable to rlgym-ppo's.** GigaLearn normalizes
+entropy by `log(numActions)`. 0.035, 0.018 and 0.01 have each pinned the policy
+near-uniform (p1probe-d, p1probe-g, p7approach); 0.002 produced the only
+breakthrough. Check `Policy Entropy` is falling within the first 10M steps of
+any run, and stop if it is not -- no reward conclusion is available from a
+policy that cannot move.
+
+**`DefaultAction::GetActionMask` doubles the grounded jump prior.** It offers a
+grounded car 42 of 90 actions, 18 of which press jump (42.9%, rising to 50% on
+an empty tank because the jump mask is OR-ed back in after the boost filter).
+Python RLGym's `LookupAction` applies no mask: 18/90 = 20%. Eight runs were
+spent fighting air time whose prior our own mask doubles. `TrainConfig::maskActions`
+selects it, `Hive::MakeActionParser` is the only construction site, and it is a
+**parity trap** -- it must match at deployment via `HIVE_MASK_ACTIONS`.
 
 ## Layout
 
@@ -75,13 +119,12 @@ you re-clone cpp-interface, reapply it.
 
 ## Verified working (2026-08-18)
 
-- The reward stack was rebuilt around goal-referenced budgets and car control
-  (`docs/superpowers/specs/2026-08-18-reward-redesign-design.md`): eight terms
-  replace the old phase-gated stack, `HiveTests` passes (49 cases), and a
-  smoke train run confirms the new `RewardShare/*`, `Surface/*`, `Landing/*`,
-  `Speed/*`, `FaceBall/*` and `Touch/Edge Rate` metrics all reach the CSV. Not
-  yet run at scale — see `runs/RUNLOG.md` for the first full run once it
-  lands.
+- The reproduction stack is wired and smoke-tested (`HiveTests` 49 cases pass,
+  run from `bot/build`). A 250k-step run confirms four `RewardShare/*` terms
+  reach the CSV, `Scenario/*` correctly disappears under `RandomState`, and
+  `Action/Jump When Grounded Upright` reads **0.216** — the unmasked null of
+  0.20, i.e. the unmask took effect. Not yet run at scale; see `runs/RUNLOG.md`
+  for `p8ref` and its pre-registered gates.
 - Training runs on GPU end to end at 1v1; observation size 89 at
   `maxPlayersPerTeam = 1`.
 - Throughput at 128 games (the measured optimum; see `runs/RUNLOG.md`),
@@ -106,10 +149,14 @@ which drives `rlbot.managers.MatchManager` plus the RLBotServer binary in
 ## Parity traps
 
 Training and deployment must agree on `maxPlayersPerTeam`, `tickSkip`,
-`actionDelay`, and `ModelShape` (defined in `bot/src/policy/Policy.h`,
-default-constructed by both sides). A mismatch does not crash — the bot loads,
-plays, and is quietly worse. Training values live in `bot/src/Config.h`;
-deployment reads `HIVE_*` environment variables set by
+`actionDelay`, `maskActions` and `ModelShape` (the last defined in
+`bot/src/policy/Policy.h`, default-constructed by both sides). Action parsers
+are built only by `Hive::MakeActionParser` (`bot/src/env/Actions.h`) so the
+mask setting cannot drift between the five places that need one.
+
+A mismatch does not crash — the bot loads, plays, and is quietly worse.
+Training values live in `bot/src/Config.h`; deployment reads `HIVE_*`
+environment variables set by
 `bot/rlbot-config/run.sh`. **`./HivemindBot verify <checkpoint>` mechanizes
 the check** — run it before every deployment session.
 
