@@ -127,18 +127,44 @@ struct RewardBudget {
   // PROVISIONAL. Per roadmap D6 (no magic numbers without measurement), this
   // stands until `Touch/Hit Force` says what a realized touch is actually
   // worth; the first run that reports it is what sets the final value.
-  // RE-DERIVED FROM MEASUREMENT, not guessed. p10touch shipped this at a
-  // provisional 1.0 and added `Touch/Strong Value` to find out what a realized
-  // touch is worth: the answer was **0.104**, against the 0.3-0.4 predicted
-  // from p1pay's old hit-force figures. So the term earned 0.104 per touch
-  // against TouchEdge's 0.25 -- arriving paid 2.4x more than connecting, the
-  // inverse of the intent -- and `RewardShare/StrongTouch` sat at 0.037,
-  // effectively inert.
+  // THE UNIT: one maximal goal-directed strike, 1.0 by definition, saturating
+  // at the same 130 kph (3611 uu/s) StrongTouch used -- so the currency is
+  // unchanged and every earlier budget still reads the same.
   //
-  // 3.0 puts a realized touch at ~0.31, just above TouchEdge. Per p10touch's
-  // pre-registration the lever is the BUDGET, not the curve: one thing moves,
-  // and the same metric measures it again.
-  float strongTouch = 3.0f;
+  // Replaces `strongTouch`, which paid for force in ANY direction. p11 measured
+  // that failing: `Touch/Hit Force` 878 -> 551 while `RewardShare/TouchEdge`
+  // doubled. StrongTouch's floor is 555.6, so the average touch ended the run
+  // earning zero from it and the poke farm was paid entirely by the flat
+  // per-contact term. Direction is what separates a useful touch from any
+  // touch. See TouchGoalAccelReward.
+  //
+  // 3.0 carries over StrongTouch's re-derived budget unchanged, so the only
+  // thing that moves is what the term MEASURES.
+  float touchGoalAccel = 3.0f;
+
+  // --- The scoreboard ------------------------------------------------------
+
+  // A goal, +1 scored and -1 conceded (already zero-sum).
+  //
+  // DELIBERATELY NOT HUGE, and this is the one place the obvious intuition is
+  // wrong. Zealan: "Don't give massive goal rewards! This *feels* like it makes
+  // sense because goals are the most important thing in the game. However...
+  // adding massive goal rewards early on in training simply slows down learning
+  // and decreases exploration. A giant goal reward will drown out every other
+  // reward you have." He reports training a bot to a high level with no goal
+  // reward at all.
+  //
+  // The mechanism here: in self-play a goal is +1 for one car and -1 for the
+  // other, so its MEAN is zero and its entire contribution is variance the
+  // critic cannot predict. Scaling it up scales the noise, not the signal. What
+  // teaches direction is the dense `touchGoalAccel` term; this one exists to
+  // break ties between behaviours the shaping rates equally, and to end
+  // episodes.
+  //
+  // 10.0 puts a goal at ~8% of the realized per-episode ledger (~123
+  // touch-units at p11's rates) if goals arrive about once per episode, which
+  // matches the guide's own goal-to-shaping ratio of roughly 1:10.
+  float goal = 10.0f;
 
   // Arriving at the ball, worth a quarter of a full-power hit. Rising edge, so
   // carrying pays this exactly once (see TouchEdgeReward). Kept small and
@@ -183,6 +209,19 @@ struct RewardBudget {
   // derivative of a sqrt, it pays disproportionately for topping up when low,
   // which is most of what the guide wants from small-pad behaviour.
   float pickupBoost = 0.5f;
+
+  // --- Air play ------------------------------------------------------------
+
+  // Per air touch: min(airTimeFrac, heightFrac). A maximal one -- 1.75 s
+  // airborne, ball at the ceiling -- is worth 2.0, i.e. two thirds of a maximal
+  // goal-directed strike. A realistic air dribble touch at z~1000 after 1.2 s
+  // aloft scores min(0.686, 0.489) = 0.489, so ~0.98 touch-units: clearly worth
+  // more than the 0.25 for merely arriving, without dwarfing a good strike.
+  //
+  // A wall shot scores exactly ZERO: a car on a wall is `isOnGround`, so its
+  // airTime is 0 and the min collapses. That is the guide's anti-farm device
+  // and this bot is the exact case it was written for.
+  float airTouch = 2.0f;
 
   // 0.15/50 per step over 171 steps: 2.5% of the dense budget. Measured to be
   // ~50x too small to pay for the traction and contact a jump costs (p8ref

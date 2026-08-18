@@ -21,7 +21,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 	// `Touch/Edge Rate` and `Player/Ball Touch Ratio`, so the ledger can be
 	// checked against telemetry instead of reconstructed by hand.
 	//
-	// Seven terms. The early-stage stack from Zealan's RLGym-PPO-Guide
+	// Eight terms. The early-stage stack from Zealan's RLGym-PPO-Guide
 	// (making_a_good_bot.md) with its touch term taken to the guide's
 	// MIDDLE-stage form, because p9rel hit the transition the guide describes:
 	// "The default touch part of EventReward is not very good once your bot can
@@ -44,11 +44,17 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 	//     is no adversarial structure in the stack at all, which is correct for
 	//     a bot that cannot yet reach the ball.
 	return {
-		// THE UNIT: hit force. Scales with |delta ball velocity| and pays
-		// exactly zero below 555.6 uu/s (RLGymCPP's 20 kph floor), which is an
-		// order of magnitude above what a dribble carry imparts. The guide's
-		// middle-stage prescription verbatim.
-		{"StrongTouch", b.strongTouch, [] { return new StrongTouchReward(); }},
+		// THE UNIT: a maximal goal-directed strike. Signed, so putting the ball
+		// toward your own net costs. Touch-gated, so it measures only the ball
+		// motion this car caused -- the continuous VelocityBallToGoal form is
+		// known-bad here (p1probe-b: 67% of reward mass as passive ball noise).
+		{"TouchGoalAccel", b.touchGoalAccel,
+		 [] { return new TouchGoalAccelReward(); }},
+
+		// The scoreboard. Already zero-sum: +1 scored, -1 conceded. Moderate on
+		// purpose -- see the budget comment; a huge goal reward scales variance,
+		// not signal, and this is also the only thing that ends an episode.
+		{"Goal", b.goal, [] { return new GoalReward(); }},
 
 		// Arriving at the ball, on the RISING EDGE so carrying pays once.
 		{"TouchEdge", b.touchEdge, [] { return new TouchEdgeReward(); }},
@@ -72,6 +78,13 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 		// Per pickup, on the boost INCREMENT: encourages collecting it.
 		{"PickupBoost", b.pickupBoost, [] { return new PickupBoostReward(); }},
 
+		// Pays for touching the ball high AFTER real air time. The min() makes a
+		// wall shot worth exactly zero, which is the farm this bot already runs.
+		{"AirTouch", b.airTouch, [] { return new AirTouchReward(); }},
+
+		// Pays for being airborne at all. Measured ~50x too small to cover what
+		// a jump costs, and left that way on purpose: AirTouch is the term that
+		// pays for air now, and it pays for PRODUCTIVE air.
 		{"Air", RateWeight(b.air), [] { return new AirReward(); }},
 	};
 }

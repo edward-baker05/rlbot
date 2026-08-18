@@ -156,48 +156,88 @@ TEST_CASE("carrying the ball pays once, not once per step") {
 	CHECK(carried == doctest::Approx(1.f));
 }
 
-// The other half of the fix, and the guide's actual middle-stage prescription:
-// "a slight push that barely changes the velocity of the ball will give almost
-// no reward, but a strong shot will give lots of reward."
-TEST_CASE("StrongTouch pays for hit force and pays a dribble nothing") {
-	RLGC::StrongTouchReward r;
+// Direction is the whole point. p11 showed a force-only term cannot stop the
+// poke farm: Touch/Hit Force fell 878 -> 551, below StrongTouch's own 555.6
+// floor, so the average touch earned nothing from it while TouchEdge doubled.
+TEST_CASE("TouchGoalAccel pays for moving the ball toward the right net") {
+	TouchGoalAccelReward r;
 
 	RLGC::GameState prev = {};
 	RLGC::GameState s = {};
 	s.prev = &prev;
+	// Ball at the centre circle, so "toward orange" is +y and "toward blue" -y.
+	prev.ball.pos = s.ball.pos = {0, 0, 93};
 
+	RLGC::Player blue = {};
+	blue.team = Team::BLUE;
+	blue.ballTouchedStep = true;
+
+	auto rewardFor = [&](Vec before, Vec after) {
+		prev.ball.vel = before;
+		s.ball.vel = after;
+		return r.GetReward(blue, s, false);
+	};
+
+	const float FULL = RLGC::Math::KPHToVel(130);
+
+	// Blue attacks the orange net at +y. Speeding the ball that way pays.
+	CHECK(rewardFor({0, 0, 0}, {0, FULL, 0}) == doctest::Approx(1.f).epsilon(0.02));
+	CHECK(rewardFor({0, 0, 0}, {0, FULL / 2, 0}) == doctest::Approx(0.5f).epsilon(0.02));
+
+	// THE SIGN. Putting it toward your own net is NEGATIVE -- no term in this
+	// project has ever expressed that.
+	CHECK(rewardFor({0, 0, 0}, {0, -FULL, 0}) == doctest::Approx(-1.f).epsilon(0.02));
+
+	// A poke sideways moves the ball but not toward either net: ~zero. This is
+	// the farm p11 converged on.
+	CHECK(rewardFor({0, 0, 0}, {FULL, 0, 0}) == doctest::Approx(0.f).epsilon(0.02));
+
+	// Orange gets the mirror image for the identical ball motion.
+	RLGC::Player orange = blue;
+	orange.team = Team::ORANGE;
+	prev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, FULL, 0};
+	CHECK(r.GetReward(orange, s, false) == doctest::Approx(-1.f).epsilon(0.02));
+
+	// No touch, no reward, however the ball is moving.
+	blue.ballTouchedStep = false;
+	CHECK(rewardFor({0, 0, 0}, {0, FULL, 0}) == 0.f);
+}
+
+// The min() is the anti-farm device and the reason this term is safe to add to
+// a bot that already reaches high balls by driving up the wall.
+TEST_CASE("AirTouch pays nothing for a wall shot, however high") {
+	AirTouchReward r;
+	RLGC::GameState s = {};
 	RLGC::Player p = {};
 	p.ballTouchedStep = true;
 
-	auto rewardFor = [&](float deltaVel) {
-		prev.ball.vel = {0, 0, 0};
-		s.ball.vel = {deltaVel, 0, 0};
+	auto rewardFor = [&](float airTime, float ballZ) {
+		p.airTime = airTime;
+		s.ball.pos = {0, 0, ballZ};
 		return r.GetReward(p, s, false);
 	};
 
-	// The 20 kph floor is 555.6 uu/s -- 1 kph is 27.78 uu/s, not 9.17.
-	CHECK(RLGC::Math::KPHToVel(20) == doctest::Approx(555.6f).epsilon(0.01));
-	CHECK(RLGC::Math::KPHToVel(130) == doctest::Approx(3611.f).epsilon(0.01));
+	// A car on a wall is isOnGround, so airTime is 0. Ball at the ceiling and
+	// it still pays EXACTLY zero -- this is the "plat wall-shot" the guide
+	// names, and the behaviour this bot already runs.
+	CHECK(rewardFor(0.f, RLGC::CommonValues::CEILING_Z) == 0.f);
 
-	// A dribble carry nudges the ball by tens of uu/s and is nowhere near the
-	// floor. It must pay EXACTLY zero, or the farm survives the rising edge.
-	CHECK(rewardFor(5.f) == 0.f);
-	CHECK(rewardFor(50.f) == 0.f);
-	CHECK(rewardFor(200.f) == 0.f);
-	CHECK(rewardFor(555.f) == 0.f);
+	// Floating forever at ground level also pays nothing.
+	CHECK(rewardFor(5.f, 93.f) == doctest::Approx(93.f / RLGC::CommonValues::CEILING_Z));
+	CHECK(rewardFor(5.f, 0.f) == 0.f);
 
-	// A real strike scales linearly and saturates at 3611 uu/s of delta-v.
-	// p1pay measured typical hit force around 1400 uu/s, which lands at ~0.39
-	// -- so realized values are well under 1.0 and `Touch/Strong Value` is what
-	// turns the provisional budget into a measured one.
-	CHECK(rewardFor(600.f) > 0.f);
-	CHECK(rewardFor(1400.f) == doctest::Approx(1400.f / 3611.f).epsilon(0.02));
-	CHECK(rewardFor(3611.f) == doctest::Approx(1.f).epsilon(0.02));
-	CHECK(rewardFor(6000.f) == doctest::Approx(1.f)); // clamped
+	// A genuine aerial: 1.2 s aloft, ball at 1000. min(0.686, 0.489) = 0.489.
+	CHECK(rewardFor(1.2f, 1000.f) == doctest::Approx(0.489f).epsilon(0.02));
 
-	// No touch, no reward, however fast the ball is moving.
+	// Saturates at the guide's 1.75 s: more air time is not worth more, so
+	// floating is not the strategy.
+	CHECK(rewardFor(1.75f, RLGC::CommonValues::CEILING_Z) == doctest::Approx(1.f));
+	CHECK(rewardFor(10.f, RLGC::CommonValues::CEILING_Z) == doctest::Approx(1.f));
+
+	// No touch, no reward.
 	p.ballTouchedStep = false;
-	CHECK(rewardFor(3611.f) == 0.f);
+	CHECK(rewardFor(1.75f, 1500.f) == 0.f);
 }
 
 TEST_CASE("Air pays for being airborne") {
@@ -236,9 +276,11 @@ TEST_CASE("budget conversion is the only route to a per-step weight") {
 	      doctest::Approx(cfg.rewards.saveBoost / REFERENCE_EPISODE_STEPS));
 
 	// Event budgets are per occurrence, so they are the weight unchanged.
-	CHECK(weightOf("StrongTouch") == doctest::Approx(cfg.rewards.strongTouch));
 	CHECK(weightOf("TouchEdge") == doctest::Approx(cfg.rewards.touchEdge));
 	CHECK(weightOf("PickupBoost") == doctest::Approx(cfg.rewards.pickupBoost));
+	CHECK(weightOf("TouchGoalAccel") == doctest::Approx(cfg.rewards.touchGoalAccel));
+	CHECK(weightOf("Goal") == doctest::Approx(cfg.rewards.goal));
+	CHECK(weightOf("AirTouch") == doctest::Approx(cfg.rewards.airTouch));
 }
 
 // The currency is one ball touch. `strongTouch = 3.0` means a MAXIMAL strike
@@ -247,12 +289,24 @@ TEST_CASE("budget conversion is the only route to a per-step weight") {
 // beats merely arriving.
 TEST_CASE("connecting outranks arriving") {
 	const RewardBudget b = {};
-	CHECK(b.touchEdge < b.strongTouch);
+	CHECK(b.touchEdge < b.touchGoalAccel);
+	CHECK(b.touchEdge < b.airTouch);
+}
 
-	// And at the REALIZED value p10touch measured, not just the raw budget.
-	// This is the assertion the recalibration exists to satisfy.
-	constexpr float MEASURED_STRONG_VALUE = 0.104f;
-	CHECK(b.strongTouch * MEASURED_STRONG_VALUE > b.touchEdge);
+// The intuition that a goal should dominate is the one the guide argues
+// against hardest: "A giant goal reward will drown out every other reward you
+// have." In self-play a goal is +1 for one car and -1 for the other, so its
+// mean is zero and scaling it scales variance the critic cannot predict.
+TEST_CASE("the goal reward is decisive but not dominant") {
+	const RewardBudget b = {};
+
+	// Worth clearly more than any single touch.
+	CHECK(b.goal > 3.f * b.touchGoalAccel);
+
+	// But small against a whole episode of shaping. At p11 rates the realized
+	// ledger is ~123 touch-units per episode, so one goal is under a tenth.
+	constexpr float REALIZED_LEDGER_PER_EPISODE = 123.f;
+	CHECK(b.goal < 0.15f * REALIZED_LEDGER_PER_EPISODE);
 }
 
 // Budgets are stated per REFERENCE episode (171 steps) but episodes now run
@@ -275,7 +329,7 @@ TEST_CASE("dense approach still dominates contact in realized terms") {
 	const float densePerEp =
 		(b.speedToBall + b.faceBall) / REFERENCE_EPISODE_STEPS * ALIGNMENT * EPISODE_STEPS;
 	const float touches = EDGE_RATE * EPISODE_STEPS;
-	const float touchPerEp = touches * (b.touchEdge + b.strongTouch * STRONG_VALUE);
+	const float touchPerEp = touches * (b.touchEdge + b.touchGoalAccel * STRONG_VALUE);
 
 	CHECK(densePerEp > touchPerEp);
 
@@ -302,7 +356,7 @@ TEST_CASE("budgets keep the guide's proportions") {
 	CHECK(b.air < 0.03f * (b.speedToBall + b.faceBall));
 }
 
-TEST_CASE("the spec list is the seven designed terms, with positive weights") {
+TEST_CASE("the spec list is the nine designed terms, with positive weights") {
 	auto specs = GeneralRewardSpecs(TrainConfig{});
 
 	std::vector<std::string> names;
@@ -311,8 +365,9 @@ TEST_CASE("the spec list is the seven designed terms, with positive weights") {
 		CHECK(s.weight > 0.f);
 	}
 
-	const std::vector<std::string> expected = {"StrongTouch", "TouchEdge", "SpeedToBall",
-	                                           "FaceBall", "SaveBoost", "PickupBoost", "Air"};
+	const std::vector<std::string> expected = {"TouchGoalAccel", "Goal", "TouchEdge",
+	                                           "SpeedToBall", "FaceBall", "SaveBoost",
+	                                           "PickupBoost", "AirTouch", "Air"};
 	CHECK(names == expected);
 }
 
@@ -324,10 +379,9 @@ TEST_CASE("the spec list is the seven designed terms, with positive weights") {
 // Boost is NOT on this list any more: p10touch measured `Player/Boost` at 7.3
 // out of 100 while the bot was trying to air dribble, and the guide prescribes
 // a boost economy at exactly this stage.
-TEST_CASE("no goal, ball-to-goal or tuning terms are in the stack") {
+TEST_CASE("no continuous ball-to-goal or tuning terms are in the stack") {
 	auto specs = GeneralRewardSpecs(TrainConfig{});
 	for (auto& s : specs) {
-		CHECK(s.name != "Goal");
 		CHECK(s.name != "WrongSurface");
 		CHECK(s.name != "CleanLanding");
 		CHECK(s.name != "HarshSpeedLoss");

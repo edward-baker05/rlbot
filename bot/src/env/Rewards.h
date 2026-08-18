@@ -86,6 +86,81 @@ public:
 	}
 };
 
+// Change in the ball's GOAL-DIRECTED speed caused by this touch, signed.
+//
+// Replaces StrongTouchReward, which paid for hit force in any direction. p11
+// measured why that fails: `Touch/Hit Force` fell 878 -> 551 over the run while
+// `RewardShare/TouchEdge` doubled, i.e. the bot converged on many brief, weak
+// contacts. StrongTouch's floor is 555.6 uu/s, so by the end the AVERAGE touch
+// earned exactly zero from it and the only touch term still paying was the flat
+// per-contact one. The rising edge stopped the carry farm; it did not stop the
+// poke farm, because nothing distinguished a useful touch from any touch.
+//
+// Direction is what distinguishes them. A poke that does not move the ball
+// toward the opponent's net scores ~0; a strike toward it scores highly; and
+// putting the ball toward your OWN net is negative, which no previous term in
+// this project has ever expressed.
+//
+// Touch-gated deliberately. `VelocityBallToGoalReward` is the continuous form
+// and it is known-bad here: p1probe-b measured it absorbing 67% of reward mass
+// as "mostly passive ball motion = zero-sum noise", and p1probe-h found
+// removing it changed nothing. Gating on contact attributes only the ball
+// motion this car actually caused. Same construction as Lucy-SKG's
+// "Touch Ball-to-Goal Acceleration" and rlgym-tools' AdvancedTouchReward.
+//
+// Normalized by the same 130 kph (3611 uu/s) that saturates StrongTouch, so the
+// unit is unchanged: 1.0 is a maximal goal-directed strike.
+class TouchGoalAccelReward : public RLGC::Reward {
+public:
+	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override {
+		if (!player.ballTouchedStep || !state.prev)
+			return 0.f;
+
+		const Vec target = (player.team == Team::BLUE)
+			? RLGC::CommonValues::ORANGE_GOAL_CENTER
+			: RLGC::CommonValues::BLUE_GOAL_CENTER;
+
+		// One direction for both samples: we want the change in speed toward
+		// the net, not a change that includes the ball having moved.
+		const Vec toGoal = (target - state.ball.pos).Normalized();
+
+		const float now = state.ball.vel.Dot(toGoal);
+		const float before = state.prev->ball.vel.Dot(toGoal);
+
+		return RS_CLAMP((now - before) / RLGC::Math::KPHToVel(130), -1.f, 1.f);
+	}
+};
+
+// Pays for touching the ball high AFTER genuinely being in the air.
+//
+// `min(airTimeFrac, heightFrac)` is the guide's form, and the min is the whole
+// design. Paying for height alone produces what the guide names the "lame plat
+// wall-shot" -- and this bot already does exactly that, reaching high balls by
+// driving up the wall. A car on a wall is `isOnGround`, so its `airTime` is 0
+// and the min makes that worth nothing. To score here it has to leave a surface
+// and stay off it.
+//
+// Only reachable behaviour is being paid for: `Touch/Above 450` is already
+// 0.081, so this is not asking the policy to discover something new. It is
+// paying for something it does occasionally and then argues itself out of --
+// air play emerged and decayed twice (p10touch, and p11 at 42-56M).
+class AirTouchReward : public RLGC::Reward {
+public:
+	// A rough ceiling on a reasonable aerial, from the guide. Longer air times
+	// are not worth more: this pays for reaching the ball, not for floating.
+	static constexpr float MAX_AIR_TIME = 1.75f;
+
+	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override {
+		if (!player.ballTouchedStep)
+			return 0.f;
+
+		const float airTimeFrac = RS_MIN(player.airTime, MAX_AIR_TIME) / MAX_AIR_TIME;
+		const float heightFrac = state.ball.pos.z / RLGC::CommonValues::CEILING_Z;
+
+		return RS_MIN(airTimeFrac, RS_MAX(0.f, heightFrac));
+	}
+};
+
 // ============================================================================
 // Diagnostic constants
 // ============================================================================
