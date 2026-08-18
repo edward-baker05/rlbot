@@ -62,8 +62,14 @@ you re-clone cpp-interface, reapply it.
 
 - Training runs on GPU end to end at 1v1; observation size 89 at
   `maxPlayersPerTeam = 1`.
-- ~81k steps/sec at 128 games (the measured optimum; see `runs/RUNLOG.md`),
-  512-wide network, default skill tracking.
+- Throughput at 128 games (the measured optimum; see `runs/RUNLOG.md`),
+  512-wide network. **Two different numbers, and the difference matters when
+  you budget a run:** the `throughput-*` sweep measured ~81k steps/sec with no
+  skill tracking, but a real labelled run with `--track-skill` gets ~52k
+  (`main-p5goalpot.csv`: 100.2M steps, final `Overall Steps/Second` 53,990,
+  mean 51,949). Skill tracking's 8 evaluation arenas compete with training for
+  CPU on a 6-core machine. **Plan runs with ~52k**, or a 100M-step run looks
+  like 21 minutes when it is 31.
 - `HiveTests` passes; `verify` and `eval` subcommands work against smoke
   checkpoints.
 
