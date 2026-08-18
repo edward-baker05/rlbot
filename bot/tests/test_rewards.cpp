@@ -212,3 +212,111 @@ TEST_CASE("BallGoalProgressReward rewards striking the ball goalward") {
 	s.ball.pos = {0, 2000, 93};
 	CHECK(r.GetReward(blue, s, false) > 0.f);
 }
+
+// `Player p = {}` value-initializes through CarState's constructor, which sets
+// isOnGround = true. Every test below sets it explicitly rather than relying on
+// that, because the default is the opposite of what most of these cases want.
+TEST_CASE("WrongSurfaceReward charges only non-wheel contact") {
+	WrongSurfaceReward r;
+	RLGC::Player p = {};
+	RLGC::GameState s = {};
+
+	// Driving normally: wheels down, chassis clear.
+	p.isOnGround = true;
+	p.worldContact.hasContact = false;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	// Airborne with nothing touching: free. Leaving the ground is not the
+	// offence; landing wrong is.
+	p.isOnGround = false;
+	p.worldContact.hasContact = false;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	// THE GATE. Chassis scraping while the wheels are still doing their job --
+	// a wall-curve transition, a bottomed-out suspension -- is not a loss of
+	// control and must not be charged.
+	p.isOnGround = true;
+	p.worldContact.hasContact = true;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	// On the roof, the side, the nose: all the same, all fully charged.
+	p.isOnGround = false;
+	p.worldContact.hasContact = true;
+	CHECK(r.GetReward(p, s, false) == -1.f);
+}
+
+TEST_CASE("CleanLandingReward pays the squared impact it absorbed") {
+	CleanLandingReward r(LANDING_REF_IMPACT);
+	RLGC::GameState s = {};
+	RLGC::Player p = {}, prev = {};
+	p.prev = &prev;
+
+	// No prev: the episode just reset and the velocity discontinuity is a
+	// state-setter teleport, not a landing.
+	RLGC::Player orphan = {};
+	orphan.isOnGround = true;
+	CHECK(r.GetReward(orphan, s, false) == 0.f);
+
+	// Still airborne: no edge.
+	p.isOnGround = false;
+	prev.isOnGround = false;
+	prev.vel = {0, 0, -1200};
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	// Already grounded last step: no edge either.
+	p.isOnGround = true;
+	prev.isOnGround = true;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	// A real landing edge, but the chassis is touching -- this is a crash, and
+	// WrongSurface is already charging for it. Paying here too would let the
+	// bot buy its way out of that penalty by crashing fast.
+	p.isOnGround = true;
+	prev.isOnGround = false;
+	p.worldContact.hasContact = true;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	// Clean landing from a held single jump (~453 uu/s). The SQUARE is the
+	// anti-farm mechanism: linear would make bunny-hopping competitive with a
+	// real aerial on a per-second basis.
+	p.worldContact.hasContact = false;
+	prev.vel = {0, 0, -450};
+	CHECK(r.GetReward(p, s, false)
+	      == doctest::Approx((450.f / 1100.f) * (450.f / 1100.f)).epsilon(1e-4));
+
+	// Saturates: falling faster than the reference pays 1, not more.
+	prev.vel = {0, 0, -1100};
+	CHECK(r.GetReward(p, s, false) == doctest::Approx(1.f));
+	prev.vel = {0, 0, -2300};
+	CHECK(r.GetReward(p, s, false) == doctest::Approx(1.f));
+
+	// Rising into a landing is not a fall. Only downward speed counts, so a
+	// wall landing scores zero -- a known and accepted limitation.
+	prev.vel = {0, 0, 900};
+	CHECK(r.GetReward(p, s, false) == 0.f);
+	prev.vel = {2300, 0, 0};
+	CHECK(r.GetReward(p, s, false) == 0.f);
+}
+
+TEST_CASE("a bunny hop is worth far less per second than an aerial") {
+	// The farm argument from the design doc, as an executable check. Hop:
+	// ~450 uu/s off a held jump, ~1.4 s round trip. Aerial from ~1000 uu:
+	// sqrt(2*650*1000) = 1140 uu/s, ~3.5 s round trip.
+	CleanLandingReward r(LANDING_REF_IMPACT);
+	RLGC::GameState s = {};
+	RLGC::Player p = {}, prev = {};
+	p.prev = &prev;
+	p.isOnGround = true;
+	p.worldContact.hasContact = false;
+	prev.isOnGround = false;
+
+	prev.vel = {0, 0, -450};
+	const float hopRate = r.GetReward(p, s, false) / 1.4f;
+
+	prev.vel = {0, 0, -1140};
+	const float aerialRate = r.GetReward(p, s, false) / 3.5f;
+
+	// Under LINEAR scaling these are 0.24/s vs 0.27/s and hopping is a viable
+	// farm. Squared, the aerial must dominate by a wide margin.
+	CHECK(aerialRate > hopRate * 2.f);
+}

@@ -228,6 +228,87 @@ public:
 	}
 };
 
+// Penalty for any part of the car that is not its wheels being against a
+// surface.
+//
+// `worldContact.hasContact` is set only by
+// Arena::_BtCallback_OnCarWorldCollision -- the chassis hitbox producing a
+// Bullet manifold against world geometry. Wheels are raycast suspension and
+// never generate a manifold, so this is exactly "something that is not a wheel
+// is touching a surface", and it is correct on walls, the corner curve and the
+// ceiling with no plane assumption anywhere.
+//
+// Gated on !isOnGround, which is defined as 3+ wheels in contact and is
+// therefore the in-control discriminator: if the wheels were doing their job
+// you would never be inside this penalty. That gate is why there is no
+// orientation grading -- being on your side is as useless as being on your
+// roof, so grading would only distinguish 45-degrees-wrong from
+// 90-degrees-wrong.
+//
+// The recovery gradient grading would have bought is unnecessary:
+// Car::_UpdateAutoFlip makes escaping your roof a single discrete input (jump,
+// while chassis-contacting), and the epsilon-floor patch keeps that input
+// sampled.
+//
+// Returns a NEGATIVE value and carries a POSITIVE weight (see the sign
+// convention in GeneralRewardSpecs).
+class WrongSurfaceReward : public RLGC::Reward {
+public:
+	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override {
+		return (player.worldContact.hasContact && !player.isOnGround) ? -1.f : 0.f;
+	}
+};
+
+// Reference impact speed for a clean landing: a ~1000 uu aerial returns at
+// sqrt(2 * 650 * 1000) = 1140 uu/s. A held single jump leaves the ground at
+// ~453 uu/s (JUMP_IMMEDIATE_FORCE 875/3, plus JUMP_ACCEL 4375/3 held for
+// JUMP_MAX_TIME 0.2 s, less GRAVITY_Z over the hold) and returns at the same.
+inline constexpr float LANDING_REF_IMPACT = 1100.f;
+
+// Pays for arriving back on the wheels, scaled by the fall that was absorbed.
+//
+// This is what makes going airborne net-POSITIVE rather than merely permitted.
+// Without it the only term touching air play is a penalty, in a project that
+// has extinguished the jump action three times.
+//
+// SQUARED, and that is the entire anti-farm argument. Under linear scaling a
+// bunny hop pays 0.41 every ~1.6 s (0.24/s) against a real aerial's 1.0 every
+// ~3.7 s (0.27/s) -- hopping is competitive, so it is a farm. Squared, the hop
+// drops to 0.098/s and the aerial dominates 2.8x. The only way to raise this
+// term is to go higher, which costs time and boost that could have gone at the
+// ball.
+//
+// Measured as downward speed rather than |vel|: using speed would pay for
+// horizontal pace, double-counting SpeedSquaredReward and biasing toward the
+// wall. The accepted cost is that a wall landing has no vertical component and
+// scores zero.
+class CleanLandingReward : public RLGC::Reward {
+public:
+	float refImpact;
+
+	explicit CleanLandingReward(float refImpact = LANDING_REF_IMPACT)
+		: refImpact(refImpact) {}
+
+	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override {
+		// EnvSet::ResetArena empties prevGameStates, so a null prev means the
+		// episode just reset and any velocity change is a state-setter
+		// teleport, not a landing.
+		if (!player.prev)
+			return 0.f;
+
+		// The landing edge, and only a clean one. Chassis contact on the same
+		// step means this was a crash, which WrongSurfaceReward is already
+		// charging -- paying here too would let the bot buy its way out of that
+		// penalty by crashing faster.
+		if (!player.isOnGround || player.prev->isOnGround || player.worldContact.hasContact)
+			return 0.f;
+
+		const float impact = RS_MAX(0.f, -player.prev->vel.z);
+		const float f = RS_MIN(1.f, impact / refImpact);
+		return f * f;
+	}
+};
+
 // Returns heap-allocated rewards; GigaLearn's EnvSet takes ownership, so the
 // caller does not free them. Several entries are wrapped in ZeroSumReward,
 // converting "reward for this event" into "how much better did I do than the
