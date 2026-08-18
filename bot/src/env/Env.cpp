@@ -51,7 +51,7 @@ EnvCreateResult CreateEnv(int index, const TrainConfig& cfg) {
 	EnvCreateResult result = {};
 	result.arena = arena;
 	result.actionParser = MakeActionParser(cfg.maskActions).release();
-	result.obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam).release();
+	result.obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam, cfg.obs).release();
 	result.stateSetter = BuildSpawner(cfg);
 	result.rewards = BuildGeneralRewards(cfg);
 	result.terminalConditions = {

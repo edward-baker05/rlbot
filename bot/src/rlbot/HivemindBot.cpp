@@ -48,6 +48,8 @@ BotSettings BotSettings::FromEnvironment() {
 	s.maxPlayersPerTeam = EnvIntOr("HIVE_MAX_PLAYERS_PER_TEAM", 1);
 	s.tickSkip = EnvIntOr("HIVE_TICK_SKIP", 8);
 	s.maskActions = EnvIntOr("HIVE_MASK_ACTIONS", 0) != 0;
+	s.obs = EnvIntOr("HIVE_OBS_DEFAULT", 0) != 0 ? ObsMode::Default
+	                                             : ObsMode::Relative;
 	s.actionDelay = EnvIntOr("HIVE_ACTION_DELAY", 7);
 	s.deterministic = EnvIntOr("HIVE_DETERMINISTIC", 1) != 0;
 	s.useGPU = EnvIntOr("HIVE_USE_GPU", 1) != 0;
@@ -69,8 +71,8 @@ void SharedContext::Initialize(const BotSettings& s) {
 
 	RocketSim::Init(settings.collisionMeshes);
 
-	obsSize = ProbeObsSize(settings.maxPlayersPerTeam);
-	obsBuilder = MakeObsBuilder(settings.maxPlayersPerTeam);
+	obsSize = ProbeObsSize(settings.maxPlayersPerTeam, settings.obs);
+	obsBuilder = MakeObsBuilder(settings.maxPlayersPerTeam, settings.obs);
 	actionParser = MakeActionParser(settings.maskActions);
 
 	policy = std::make_unique<Policy>(

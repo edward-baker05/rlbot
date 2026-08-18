@@ -22,8 +22,8 @@ EvalResult RunEval(const EvalConfig& ecfg) {
 		srand(static_cast<unsigned>(ecfg.seed));
 
 	TrainConfig cfg = {};
-	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam);
-	auto obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam);
+	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam, cfg.obs);
+	auto obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam, cfg.obs);
 	auto parser = MakeActionParser(cfg.maskActions);
 
 	Policy blue(obsBuilder.get(), obsSize, parser.get(), cfg.modelShape, ecfg.useGPU);

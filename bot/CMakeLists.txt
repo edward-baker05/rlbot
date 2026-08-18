@@ -62,6 +62,8 @@ add_library(HiveCore STATIC
 	src/env/Obs.h
 	src/env/PlayPhase.cpp
 	src/env/PlayPhase.h
+	src/env/RelativeObs.cpp
+	src/env/RelativeObs.h
 	src/env/Rewards.cpp
 	src/env/Rewards.h
 	src/env/StateSetters.cpp
@@ -137,6 +139,7 @@ add_executable(HiveTests
 	tests/test_metrics.cpp
 	tests/test_packetconvert.cpp
 	tests/test_actionspace.cpp
+	tests/test_relativeobs.cpp
 	tests/test_checkpoints.cpp
 )
 target_link_libraries(HiveTests PRIVATE HiveCore)

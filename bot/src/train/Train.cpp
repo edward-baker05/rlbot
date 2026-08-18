@@ -51,6 +51,7 @@ static std::vector<std::pair<std::string, float>> g_RewardLabels;
 // Needed to rebuild observations inside the metrics callback; EnvSetConfig does
 // not carry it. Set once in RunTraining() before the learner starts.
 static int g_MaxPlayersPerTeam = 1;
+static ObsMode g_ObsMode = ObsMode::Relative;
 
 // Decision steps since each arena last reset, for the Episode/* buckets.
 static std::vector<int> g_EpisodeAge;
@@ -65,7 +66,7 @@ static void CriticValueMetrics(Learner* learner, const std::vector<GameState>& s
 	if ((callCount++ % 8) != 0)
 		return;
 
-	auto obsBuilder = MakeObsBuilder(g_MaxPlayersPerTeam);
+	auto obsBuilder = MakeObsBuilder(g_MaxPlayersPerTeam, g_ObsMode);
 
 	// Flat [N, obsSize] buffer plus, per row, what it is so the values can be
 	// bucketed after one batched forward pass.
@@ -577,7 +578,7 @@ void RunTraining(const TrainConfig& cfg) {
 	RocketSim::Init(meshPath);
 
 	// Probe the observation width rather than deriving it. See env/Obs.h.
-	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam);
+	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam, cfg.obs);
 	std::cout << "Observation size: " << obsSize
 	          << " (maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
 	std::cout << "Run:              " << cfg.RunName() << "\n";
@@ -595,6 +596,7 @@ void RunTraining(const TrainConfig& cfg) {
 
 	g_MaxSteps = cfg.maxSteps;
 	g_MaxPlayersPerTeam = cfg.maxPlayersPerTeam;
+	g_ObsMode = cfg.obs;
 
 	g_RewardLabels.clear();
 	for (auto& s : GeneralRewardSpecs(cfg))

@@ -44,6 +44,11 @@ export HIVE_ACTION_DELAY="${HIVE_ACTION_DELAY:-7}"
 # `./HivemindBot verify <checkpoint>` checks this against the compiled default.
 export HIVE_MASK_ACTIONS="${HIVE_MASK_ACTIONS:-0}"
 
+# Observation layout: 0 = relative (default), 1 = the old absolute DefaultObs.
+# MUST match TrainConfig::obs. A mismatched WIDTH throws at load; a mismatched
+# LAYOUT at the same width would not.
+export HIVE_OBS_DEFAULT="${HIVE_OBS_DEFAULT:-0}"
+
 # Deterministic play is meaningfully stronger than sampling in a real match.
 export HIVE_DETERMINISTIC="${HIVE_DETERMINISTIC:-1}"
 

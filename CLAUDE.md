@@ -70,6 +70,13 @@ breakthrough. Check `Policy Entropy` is falling within the first 10M steps of
 any run, and stop if it is not -- no reward conclusion is available from a
 policy that cannot move.
 
+**`ObsBuilder::Reset` is called in training and NOWHERE on the deployment
+path.** `EnvSet` calls it on every episode reset; `HivemindBot` never does. Any
+stateful observation (action stacking, frame stacking, running normalizers)
+would therefore train and deploy differently with no symptom. `RelativeObs` is
+stateless for exactly this reason. If you add state to an obs builder, plumb a
+reset into `HivemindBot::Initialize`/kickoff first.
+
 **`DefaultAction::GetActionMask` doubles the grounded jump prior.** It offers a
 grounded car 42 of 90 actions, 18 of which press jump (42.9%, rising to 50% on
 an empty tank because the jump mask is OR-ed back in after the boost filter).
@@ -123,8 +130,14 @@ you re-clone cpp-interface, reapply it.
   run from `bot/build`). A 250k-step run confirms four `RewardShare/*` terms
   reach the CSV, `Scenario/*` correctly disappears under `RandomState`, and
   `Action/Jump When Grounded Upright` reads **0.216** — the unmasked null of
-  0.20, i.e. the unmask took effect. Not yet run at scale; see `runs/RUNLOG.md`
-  for `p8ref` and its pre-registered gates.
+  0.20, i.e. the unmask took effect. `p8ref` then passed all four gates: see
+  `runs/RUNLOG.md`.
+- The observation is `Hive::RelativeObs` (109 floats at 1v1, up from 89): the
+  old absolute layout plus a car-frame relative block per body — `dirToBall` as
+  a unit vector, distance, offset, and closing velocity. `TrainConfig::obs`
+  selects it, `ObsMode::Default` restores the p8ref layout, and it is a parity
+  item (`HIVE_OBS_DEFAULT`). Team-invariance and padding are asserted in
+  `bot/tests/test_relativeobs.cpp`.
 - Training runs on GPU end to end at 1v1; observation size 89 at
   `maxPlayersPerTeam = 1`.
 - Throughput at 128 games (the measured optimum; see `runs/RUNLOG.md`),
@@ -149,7 +162,7 @@ which drives `rlbot.managers.MatchManager` plus the RLBotServer binary in
 ## Parity traps
 
 Training and deployment must agree on `maxPlayersPerTeam`, `tickSkip`,
-`actionDelay`, `maskActions` and `ModelShape` (the last defined in
+`actionDelay`, `maskActions`, `obs` and `ModelShape` (the last defined in
 `bot/src/policy/Policy.h`, default-constructed by both sides). Action parsers
 are built only by `Hive::MakeActionParser` (`bot/src/env/Actions.h`) so the
 mask setting cannot drift between the five places that need one.

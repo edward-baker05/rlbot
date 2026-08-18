@@ -68,8 +68,8 @@ void RunSpectate(const SpectateConfig& cfg) {
 	// the bot look worse than it is, which is the whole class of bug the
 	// `verify` subcommand exists to catch.
 	TrainConfig tcfg = {};
-	const int obsSize = ProbeObsSize(tcfg.maxPlayersPerTeam);
-	auto obsBuilder = MakeObsBuilder(tcfg.maxPlayersPerTeam);
+	const int obsSize = ProbeObsSize(tcfg.maxPlayersPerTeam, tcfg.obs);
+	auto obsBuilder = MakeObsBuilder(tcfg.maxPlayersPerTeam, tcfg.obs);
 	auto parser = MakeActionParser(tcfg.maskActions);
 
 	// Learner's constructor is what normally starts the interpreter; there is

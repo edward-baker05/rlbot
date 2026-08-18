@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../env/Obs.h"
 #include "../policy/Policy.h"
 #include "PacketConvert.h"
 
@@ -32,6 +33,11 @@ struct BotSettings {
 	// from a different action set than it learned on, and nothing about that
 	// looks like a failure -- the bot loads, plays, and is quietly worse.
 	bool maskActions = false;  // HIVE_MASK_ACTIONS
+
+	// Which observation layout to build. MUST match training. A width mismatch
+	// throws at load; a same-width layout mismatch would not, which is why
+	// `verify` checks this explicitly rather than relying on the load.
+	ObsMode obs = ObsMode::Relative;  // HIVE_OBS_DEFAULT
 
 	ModelShape modelShape = {};
 

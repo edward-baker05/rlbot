@@ -1,5 +1,6 @@
 #pragma once
 
+#include "env/Obs.h"
 #include "policy/Policy.h"
 
 #include <GigaLearnCPP/LearnerConfig.h>
@@ -190,6 +191,16 @@ struct TrainConfig {
   // mask more than doubles the grounded jump prior (42.9% vs 20%) relative to
   // every reference implementation. Must match at deployment.
   bool maskActions = false;
+
+  // Which observation the policy sees. `Relative` is `Default` plus car-frame
+  // relative geometry for the ball and every other car (see RelativeObs.h);
+  // `Default` is RLGymCPP's DefaultObsPadded, which p8ref ran on.
+  //
+  // Changing this changes the observation WIDTH, so it invalidates every
+  // existing checkpoint. Must match at deployment -- a width mismatch throws
+  // at load, but a same-width layout mismatch would not, so `verify` checks it
+  // explicitly.
+  ObsMode obs = ObsMode::Relative;
 
   RewardBudget rewards = {};
   ModelShape modelShape = {};

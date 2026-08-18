@@ -23,10 +23,10 @@ int RunVerify(const std::filesystem::path& folder) {
 	RocketSim::Init(meshEnv ? meshEnv : "collision_meshes");
 
 	TrainConfig cfg = {};
-	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam);
+	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam, cfg.obs);
 	std::printf("Obs size: %d (maxPlayersPerTeam=%d)\n", obsSize, cfg.maxPlayersPerTeam);
 
-	auto obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam);
+	auto obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam, cfg.obs);
 	auto parser = MakeActionParser(cfg.maskActions);
 
 	// 1. The checkpoint loads under the compiled-in ModelShape. A shape
@@ -84,6 +84,7 @@ int RunVerify(const std::filesystem::path& folder) {
 		{"HIVE_ACTION_DELAY", cfg.actionDelay},
 		{"HIVE_MAX_PLAYERS_PER_TEAM", cfg.maxPlayersPerTeam},
 		{"HIVE_MASK_ACTIONS", cfg.maskActions ? 1 : 0},
+		{"HIVE_OBS_DEFAULT", cfg.obs == ObsMode::Default ? 1 : 0},
 	};
 	for (auto& c : checks) {
 		const char* v = std::getenv(c.env);
