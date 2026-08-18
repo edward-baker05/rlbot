@@ -180,6 +180,34 @@ int RunTrain(int argc, char* argv[]) {
 			}
 			std::printf("--fresh: moved existing checkpoints to %s\n",
 			            archived.string().c_str());
+
+			// The metrics receiver RELOADS an existing CSV and appends to it,
+			// deliberately, so that a resumed run keeps one continuous file and
+			// late-arriving columns (Rating/*) are not lost. That is right for a
+			// resume and wrong here: leaving it would concatenate two runs into
+			// one file with no marker, and a trend read off it shows a policy
+			// that mysteriously resets partway through. It did exactly that once
+			// already.
+			const char* metricsEnv = std::getenv("HIVE_METRICS_DIR");
+			const std::filesystem::path metricsCsv =
+				std::filesystem::path(metricsEnv ? metricsEnv : "metrics") /
+				(cfg.RunName() + ".csv");
+			if (std::filesystem::exists(metricsCsv)) {
+				std::filesystem::path archivedCsv =
+					metricsCsv.parent_path() / (cfg.RunName() + "-archived.csv");
+				for (int n = 2; std::filesystem::exists(archivedCsv); n++)
+					archivedCsv = metricsCsv.parent_path() /
+					              (cfg.RunName() + "-archived" + std::to_string(n) + ".csv");
+
+				std::error_code csvEc;
+				std::filesystem::rename(metricsCsv, archivedCsv, csvEc);
+				if (csvEc)
+					std::fprintf(stderr, "--fresh: WARNING could not move %s aside: %s\n",
+					             metricsCsv.string().c_str(), csvEc.message().c_str());
+				else
+					std::printf("--fresh: moved existing metrics to %s\n",
+					            archivedCsv.string().c_str());
+			}
 		} else {
 			std::printf(
 				"NOTE: resuming from existing checkpoints in %s.\n"
