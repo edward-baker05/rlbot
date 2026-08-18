@@ -22,6 +22,36 @@ namespace Hive {
 // project adds anything of its own. See
 // docs/superpowers/specs/2026-08-18-known-good-baseline-design.md.
 
+// One payment per contact SEQUENCE, not per step of contact.
+//
+// RESTORED after p9rel. This class existed before the phase-C port, the port
+// dropped it for fidelity to the reference's flat `EventReward(touch=1)`, and
+// p9rel produced exactly the failure it was written to prevent: once the
+// relative observation made the bot competent enough to CARRY the ball, a
+// per-step touch reward paid for carrying. Steps per contact sequence went
+// 1.16 -> 1.98, contact occurred on 13% of all steps, and `RewardShare/Touch`
+// reached 0.741 -- three quarters of the budget spent on a dribble.
+//
+// The guide predicts this transition rather than contradicting it: "The default
+// touch part of EventReward is not very good once your bot can touch the ball.
+// This is because ball touches can easily be farmed by constantly pushing the
+// ball." It is also roadmap decision D4 ("no dribble/possession reward terms,
+// ever -- the flick-bot local optimum") arriving through the back door.
+//
+// A rising edge makes carrying the ball worth exactly one touch, so the term
+// pays for ARRIVING at the ball and nothing else.
+class TouchEdgeReward : public RLGC::Reward {
+public:
+	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override {
+		if (!player.ballTouchedStep)
+			return 0.f;
+
+		// A null prev means the episode just reset, so a touch on this step is
+		// a genuine new contact rather than the continuation of one.
+		return (player.prev && player.prev->ballTouchedStep) ? 0.f : 1.f;
+	}
+};
+
 // max(0, v . dirToBall) / CAR_MAX_SPEED -- how fast we are closing on the ball.
 //
 // This is Zealan's SpeedTowardBallReward (RLGym-PPO-Guide, rewards.md), and it

@@ -113,25 +113,91 @@ TEST_CASE("FaceBall is SIGNED: pointing away is punished, not merely unpaid") {
 	CHECK(r.GetReward(p, s, false) < 0.f);
 }
 
-TEST_CASE("Touch pays per step of contact, matching the guide's EventReward") {
-	RLGC::TouchBallReward r;
+// THE REGRESSION TEST FOR p9rel.
+//
+// A flat per-step touch reward IS a dribble reward. Once the relative
+// observation made the bot competent enough to carry the ball, it did: steps
+// per contact sequence went 1.16 -> 1.98, contact occurred on 13% of ALL steps,
+// and `RewardShare/Touch` reached 0.741. Roadmap D4 bans possession rewards;
+// this is how one arrives by accident.
+TEST_CASE("carrying the ball pays once, not once per step") {
+	TouchEdgeReward r;
 	RLGC::GameState s = {};
 	RLGC::Player p = {};
 
+	// Not touching.
 	p.ballTouchedStep = false;
 	CHECK(r.GetReward(p, s, false) == 0.f);
 
+	// First step of contact, no history: a genuine new touch.
 	p.ballTouchedStep = true;
 	CHECK(r.GetReward(p, s, false) == 1.f);
 
-	// A second consecutive step of contact pays again. This is the reference
-	// behaviour and it is deliberately farmable by carrying the ball; the gap
-	// between `Player/Ball Touch Ratio` and `Touch/Edge Rate` is instrumented
-	// so that farm is visible if it appears. A rising-edge form is the fix if
-	// it does, and that belongs in phase B, not in the reproduction.
+	// Second consecutive step of contact pays NOTHING. This is the whole
+	// difference from the p8ref/p9rel term.
 	RLGC::Player prev = p;
+	prev.ballTouchedStep = true;
 	p.prev = &prev;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	// Re-arriving after losing contact pays again.
+	prev.ballTouchedStep = false;
 	CHECK(r.GetReward(p, s, false) == 1.f);
+
+	// A 180-step carry is worth exactly one touch, not 180.
+	float carried = 0.f;
+	RLGC::Player cur = {}, last = {};
+	cur.ballTouchedStep = true;
+	for (int i = 0; i < 180; i++) {
+		cur.prev = i ? &last : nullptr;
+		carried += r.GetReward(cur, s, false);
+		last = cur;
+	}
+	CHECK(carried == doctest::Approx(1.f));
+}
+
+// The other half of the fix, and the guide's actual middle-stage prescription:
+// "a slight push that barely changes the velocity of the ball will give almost
+// no reward, but a strong shot will give lots of reward."
+TEST_CASE("StrongTouch pays for hit force and pays a dribble nothing") {
+	RLGC::StrongTouchReward r;
+
+	RLGC::GameState prev = {};
+	RLGC::GameState s = {};
+	s.prev = &prev;
+
+	RLGC::Player p = {};
+	p.ballTouchedStep = true;
+
+	auto rewardFor = [&](float deltaVel) {
+		prev.ball.vel = {0, 0, 0};
+		s.ball.vel = {deltaVel, 0, 0};
+		return r.GetReward(p, s, false);
+	};
+
+	// The 20 kph floor is 555.6 uu/s -- 1 kph is 27.78 uu/s, not 9.17.
+	CHECK(RLGC::Math::KPHToVel(20) == doctest::Approx(555.6f).epsilon(0.01));
+	CHECK(RLGC::Math::KPHToVel(130) == doctest::Approx(3611.f).epsilon(0.01));
+
+	// A dribble carry nudges the ball by tens of uu/s and is nowhere near the
+	// floor. It must pay EXACTLY zero, or the farm survives the rising edge.
+	CHECK(rewardFor(5.f) == 0.f);
+	CHECK(rewardFor(50.f) == 0.f);
+	CHECK(rewardFor(200.f) == 0.f);
+	CHECK(rewardFor(555.f) == 0.f);
+
+	// A real strike scales linearly and saturates at 3611 uu/s of delta-v.
+	// p1pay measured typical hit force around 1400 uu/s, which lands at ~0.39
+	// -- so realized values are well under 1.0 and `Touch/Strong Value` is what
+	// turns the provisional budget into a measured one.
+	CHECK(rewardFor(600.f) > 0.f);
+	CHECK(rewardFor(1400.f) == doctest::Approx(1400.f / 3611.f).epsilon(0.02));
+	CHECK(rewardFor(3611.f) == doctest::Approx(1.f).epsilon(0.02));
+	CHECK(rewardFor(6000.f) == doctest::Approx(1.f)); // clamped
+
+	// No touch, no reward, however fast the ball is moving.
+	p.ballTouchedStep = false;
+	CHECK(rewardFor(3611.f) == 0.f);
 }
 
 TEST_CASE("Air pays for being airborne") {
@@ -167,16 +233,20 @@ TEST_CASE("budget conversion is the only route to a per-step weight") {
 	CHECK(weightOf("Air") ==
 	      doctest::Approx(cfg.rewards.air / REFERENCE_EPISODE_STEPS));
 
-	// The event budget is per occurrence, so it is the weight unchanged.
-	CHECK(weightOf("Touch") == doctest::Approx(cfg.rewards.touch));
+	// Event budgets are per occurrence, so they are the weight unchanged.
+	CHECK(weightOf("StrongTouch") == doctest::Approx(cfg.rewards.strongTouch));
+	CHECK(weightOf("TouchEdge") == doctest::Approx(cfg.rewards.touchEdge));
 }
 
-// The unit is one ball touch, and it is 1.0 by definition. Anything else would
-// mean the ledger no longer reads in touches, which is the whole reason the
+// The unit is one FULL-POWER ball touch, 1.0 by definition. Anything else and
+// the ledger stops reading in touches, which is the whole reason the
 // denominator moved off goals: a goal arrives 0.116 times per episode and
 // cannot be checked against telemetry.
-TEST_CASE("a touch is the unit") {
-	CHECK(TrainConfig{}.rewards.touch == doctest::Approx(1.f));
+TEST_CASE("a full-power touch is the unit") {
+	CHECK(TrainConfig{}.rewards.strongTouch == doctest::Approx(1.f));
+
+	// Arriving is worth strictly less than connecting.
+	CHECK(TrainConfig{}.rewards.touchEdge < TrainConfig{}.rewards.strongTouch);
 }
 
 // The single biggest numerical departure p7approach made from the reference,
@@ -187,7 +257,7 @@ TEST_CASE("dense approach dominates a single touch by an order of magnitude") {
 	const RewardBudget b = {};
 	const float dense = b.speedToBall + b.faceBall;
 
-	CHECK(dense > 10.f * b.touch);
+	CHECK(dense > 10.f * b.strongTouch);
 	CHECK(dense == doctest::Approx(20.52f).epsilon(1e-3));
 }
 
@@ -208,7 +278,7 @@ TEST_CASE("budgets keep the guide's proportions") {
 	CHECK(b.air < 0.03f * (b.speedToBall + b.faceBall));
 }
 
-TEST_CASE("the spec list is the four ported terms, with positive weights") {
+TEST_CASE("the spec list is the five designed terms, with positive weights") {
 	auto specs = GeneralRewardSpecs(TrainConfig{});
 
 	std::vector<std::string> names;
@@ -217,7 +287,8 @@ TEST_CASE("the spec list is the four ported terms, with positive weights") {
 		CHECK(s.weight > 0.f);
 	}
 
-	const std::vector<std::string> expected = {"Touch", "SpeedToBall", "FaceBall", "Air"};
+	const std::vector<std::string> expected = {"StrongTouch", "TouchEdge", "SpeedToBall",
+	                                           "FaceBall", "Air"};
 	CHECK(names == expected);
 }
 

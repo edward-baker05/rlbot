@@ -84,6 +84,56 @@ The epsilon-floor is orthogonal to all of this and should be kept regardless of
 which reward direction wins: it is the only thing that has ever reversed an
 extinction, and it is verified to do so on an already-dead policy.
 
+## PRE-REGISTERED: p10touch (not yet run)
+
+**Single variable vs p9rel:** the touch term. Flat per-step `TouchBallReward`
+(budget 1.0) becomes `StrongTouchReward` (1.0, scales with |delta ball
+velocity|, pays zero below 555.6 uu/s) plus `TouchEdgeReward` (0.25, rising
+edge). Frozen: `RelativeObs`, all three dense budgets,
+`REFERENCE_EPISODE_STEPS = 171`, RandomState, unmasked actions, LR 2e-4,
+entropyScale 0.002, tsPerItr 50k.
+
+This is the guide's middle-stage prescription -- "scale the reward with the
+strength of the touch" -- and a restoration of `TouchEdgeReward`, which this
+project already had and the phase-C port removed for fidelity.
+
+**Baseline, p9rel at 98M:** steps per contact sequence **1.98**, touch ratio
+0.129, edge rate 0.0653, `RewardShare/Touch` 0.741, alignment 0.528,
+`Episode/Mean Steps` 2956, jump rate 0.00387, `Touch/Above 450` 0.00137.
+
+**Predictions:**
+
+1. **The farm collapses: steps per contact sequence back under 1.3** (p8ref
+   1.16, p9rel 1.98). The direct test, and the one this change exists for.
+2. **`Episode/Mean Steps` falls under 1500** (p9rel 2956). Carrying stops
+   paying, so the no-touch timer starts firing again. **If it does not fall,
+   episode length is not downstream of the farm** and needs a hard cap of its
+   own -- which matters because at 2956 steps the RandomState resets the whole
+   reproduction depends on happen 17x less often than designed.
+3. **Alignment recovers above 0.60** (p9rel 0.528, p8ref 0.593, p9rel's own
+   peak 0.649 at 18M). Closing speed matters again once the ball is not glued
+   to the car, and the relative obs should then show the advantage it had at
+   18M before the farm buried it.
+4. **Jumping still dies:** jump rate stays under 0.008. Nothing here pays for
+   air. If it recovers, my model of the extinction is wrong.
+5. **`Touch/Strong Value` is the measurement**, not a prediction. It converts
+   `strongTouch = 1.0` from provisional to derived (roadmap D6). Expect ~0.3-0.4
+   from p1pay's measured ~1400 uu/s typical hit force; if it comes in far below
+   that, raise the BUDGET rather than retune the curve -- one lever, measured.
+
+**Kill criteria:**
+
+- **10M:** `Policy Entropy` falling, `SB3 Clip Fraction` in [0.02, 0.25].
+- **25M:** steps per contact sequence < 1.5. If the farm survives both a rising
+  edge and a 555 uu/s force floor, this fix failed and the problem is not the
+  touch term's shape.
+- **50M:** `Touch/Edge Rate` >= 0.010 (p8ref reached 0.0106 by 55M). Below that,
+  contact has become too sparse to teach anything and the budget is wrong.
+
+**Deliberately NOT in this run:** the air-touch reward (next, and now the only
+untried lever for air after p9rel falsified the representation hypothesis);
+goal and ball-to-goal terms; any change to `REFERENCE_EPISODE_STEPS`.
+
 ## Standing lesson from p7approach: write down the null
 
 `Player/Velocity Alignment`, `FaceBall/*`, `Action/Jump When Grounded` and every

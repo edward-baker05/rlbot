@@ -352,6 +352,28 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 					// ball? This is the target skill, stated as a metric.
 					report.AddAvg("Touch/Had Jumped", player.hasJumped ? 1.f : 0.f);
 					report.AddAvg("Touch/Had Flipped", player.hasFlipped ? 1.f : 0.f);
+
+					// What a realized touch is actually WORTH under
+					// StrongTouchReward, which is the only thing that can turn
+					// its provisional 1.0 budget into a measured one (roadmap
+					// D6). Hit force is |delta ball velocity| at contact; the
+					// reward is 0 below 20 kph (~183 uu/s) and 1.0 at 130 kph
+					// (~1192 uu/s).
+					//
+					// The gap between `Hit Force` and `Strong Value` is the
+					// point: a dribble carry produces a large touch RATE at
+					// near-zero force, so if Strong Value stays flat while
+					// `Player/Ball Touch Ratio` climbs, the bot is farming
+					// contact again and the rising-edge term is not enough.
+					if (state.prev) {
+						const float hitForce =
+							(state.ball.vel - state.prev->ball.vel).Length();
+						report.AddAvg("Touch/Hit Force", hitForce);
+						report.AddAvg("Touch/Strong Value",
+						              hitForce < RLGC::Math::KPHToVel(20)
+						                  ? 0.f
+						                  : RS_MIN(1.f, hitForce / RLGC::Math::KPHToVel(130)));
+					}
 				}
 				report.AddAvg(air ? "Touch/Rate Airborne" : "Touch/Rate Grounded",
 				              player.ballTouchedStep ? 1.f : 0.f);

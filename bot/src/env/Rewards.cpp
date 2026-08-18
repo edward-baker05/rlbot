@@ -21,10 +21,13 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 	// `Touch/Edge Rate` and `Player/Ball Touch Ratio`, so the ledger can be
 	// checked against telemetry instead of reconstructed by hand.
 	//
-	// Four terms, exactly the early-stage stack from Zealan's RLGym-PPO-Guide
-	// (making_a_good_bot.md), in the guide's own proportions. Nothing here is
-	// this project's invention, deliberately -- see
-	// docs/superpowers/specs/2026-08-18-known-good-baseline-design.md D1.
+	// Five terms. The early-stage stack from Zealan's RLGym-PPO-Guide
+	// (making_a_good_bot.md) with its touch term taken to the guide's
+	// MIDDLE-stage form, because p9rel hit the transition the guide describes:
+	// "The default touch part of EventReward is not very good once your bot can
+	// touch the ball. This is because ball touches can easily be farmed by
+	// constantly pushing the ball." It was -- 13% of all steps in contact and
+	// 74% of reward mass on a dribble.
 	//
 	// NOT PRESENT, and each absence is a decision:
 	//
@@ -41,29 +44,28 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 	//     is no adversarial structure in the stack at all, which is correct for
 	//     a bot that cannot yet reach the ball.
 	return {
-		// The unit. Per STEP of contact, not per rising edge -- the guide's
-		// EventReward(touch=1) fires every step `ball_touched` is set, and this
-		// is a reproduction. `Touch/Edge Rate` stays instrumented alongside
-		// `Player/Ball Touch Ratio` so the carrying gap remains visible; if it
-		// opens up, a rising-edge form is the fix and phase B is where it goes.
-		{"Touch", b.touch, [] { return new TouchBallReward(); }},
+		// THE UNIT: hit force. Scales with |delta ball velocity| and pays
+		// exactly zero below 555.6 uu/s (RLGymCPP's 20 kph floor), which is an
+		// order of magnitude above what a dribble carry imparts. The guide's
+		// middle-stage prescription verbatim.
+		{"StrongTouch", b.strongTouch, [] { return new StrongTouchReward(); }},
+
+		// Arriving at the ball, on the RISING EDGE so carrying pays once.
+		{"TouchEdge", b.touchEdge, [] { return new TouchEdgeReward(); }},
 
 		{"SpeedToBall", RateWeight(b.speedToBall),
 		 [] { return new SpeedToBallReward(); }},
 
 		// SIGNED. Facing away from the ball returns a negative value and is
-		// punished. This is RLGymCPP's FaceBallReward unmodified, matching
-		// rlgym, and it is the only term in the stack that charges for
-		// anything. See the pairing note on SpeedToBallReward.
+		// punished. RLGymCPP's FaceBallReward unmodified, matching rlgym, and
+		// the only term in the stack that charges for anything. See the pairing
+		// note on SpeedToBallReward.
 		{"FaceBall", RateWeight(b.faceBall),
 		 [] { return new FaceBallReward(); }},
 
-		// Pays for being airborne. Deliberately ported despite this project's
-		// bot already spending 93% of its life in the air, because at 3% of the
-		// dense budget it cannot plausibly cause that -- and if air time
-		// survives a reward that actively pays for air, the cause is the action
-		// mask (Actions.h) rather than the reward function. Isolating that is
-		// what the reproduction is for.
+		// Pays for being airborne. Measured ~50x too small to cover what a jump
+		// costs in traction and contact, and deliberately left that way: see
+		// the note on RewardBudget::air.
 		{"Air", RateWeight(b.air), [] { return new AirReward(); }},
 	};
 }

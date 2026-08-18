@@ -109,29 +109,53 @@ inline constexpr float PerSecondWeight(float budgetPerSecond) {
 struct RewardBudget {
   // --- Event: earned per occurrence ---
 
-  // The unit, by definition. Per step of contact (see GeneralRewardSpecs).
-  float touch = 1.0f;
+  // THE UNIT: one full-power ball touch, 1.0 by definition. Scales with hit
+  // force (|delta ball velocity|) and pays exactly ZERO below RLGymCPP's
+  // 20 kph floor, which is 555.6 uu/s -- an order of magnitude above the tens
+  // of uu/s a dribble carry imparts. Saturates at 130 kph = 3611 uu/s.
+  //
+  // Realized values will be well under 1.0: p1pay measured typical hit force
+  // around 1400 uu/s, which scores 0.39. That is fine and expected -- the
+  // budget is what scales it, and `Touch/Strong Value` is what measures it.
+  //
+  // This replaces p9rel's flat per-step touch, which the bot farmed by
+  // carrying the ball for 13% of all steps. It is the guide's middle-stage
+  // prescription verbatim: "scale the reward with the strength of the touch...
+  // a slight push that barely changes the velocity of the ball will give
+  // almost no reward, but a strong shot will give lots of reward."
+  //
+  // PROVISIONAL. Per roadmap D6 (no magic numbers without measurement), this
+  // stands until `Touch/Hit Force` says what a realized touch is actually
+  // worth; the first run that reports it is what sets the final value.
+  float strongTouch = 1.0f;
+
+  // Arriving at the ball, worth a quarter of a full-power hit. Rising edge, so
+  // carrying pays this exactly once (see TouchEdgeReward). Kept small and
+  // non-zero because the bot still needs a signal for REACHING the ball --
+  // deleting it entirely would leave nothing paying for contact at all until
+  // the bot can already hit hard.
+  float touchEdge = 0.25f;
 
   // --- Rate: earned by holding the behaviour for one reference episode ---
 
-  // 5/50 per step over 171 steps. The dominant term in the stack by an order
-  // of magnitude, which is the whole point: a bot that cannot reach the ball
-  // needs approach paid far more heavily than contact, and p7approach's 1.67
-  // here is the single biggest numerical departure from the reference.
+  // 5/50 per step over 171 steps. The dominant term by an order of magnitude,
+  // which is the point: a bot that cannot reach the ball needs approach paid
+  // far more heavily than contact.
   float speedToBall = 17.1f;
 
-  // 1/50 per step over 171 steps, i.e. exactly speedToBall/5, which is the
-  // guide's ratio. SIGNED, so driving backwards at the ball is punished rather
-  // than merely unpaid -- see the pairing note in Rewards.h.
+  // Exactly speedToBall/5, the guide's ratio. SIGNED, so driving backwards at
+  // the ball is punished rather than merely unpaid -- see the pairing note in
+  // Rewards.h.
   float faceBall = 3.42f;
 
-  // 0.15/50 per step over 171 steps. 2.5% of the dense budget. The guide adds
-  // this so bots do not forget how to jump; ours has the opposite problem, and
-  // it is ported anyway so that surviving air time indicts the action mask
-  // rather than the reward. See Actions.h.
+  // 0.15/50 per step over 171 steps: 2.5% of the dense budget. Measured to be
+  // ~50x too small to pay for the traction and contact a jump costs (p8ref
+  // ledger), so it does NOT keep jumping alive and is not expected to. Raising
+  // it enough to break even would put ~37% of the budget on floating, which is
+  // p1air's do-nothing attractor inverted. Air is a problem for an air-TOUCH
+  // term, not for this one.
   float air = 0.513f;
 };
-
 struct SelfPlayConfig {
   // Play a fraction of games against saved old versions.
   bool trainAgainstOldVersions = true;
