@@ -138,13 +138,13 @@ void HivemindBot::update(const rlbot::flat::GamePacket* packet,
 		int ticksElapsed = 1;
 		if (prevSeconds >= 0.f) {
 			ticksElapsed = static_cast<int>(std::lround((now - prevSeconds) * 120.f));
-
 			ticksElapsed = RS_MAX(0, RS_MIN(ticksElapsed, 32));
 		}
 		prevSeconds = now;
 
 		const GameState gs = converter.Convert(packet);
 		const auto& settings = Context().settings;
+
 		std::vector<unsigned> needInference;
 		std::vector<Player> players;
 		std::vector<GameState> states;

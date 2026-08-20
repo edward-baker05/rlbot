@@ -18,6 +18,7 @@ struct CurriculumWeights {
 	float strike = 15.f;
 	float aerial = 10.f;
 	float kickoff = 8.f;
+
 	float airDribble = 0.f;
 	float flipReset = 0.f;
 	float demo = 0.f;
@@ -41,12 +42,16 @@ struct RewardBudget {
 	float touchAccelExponent = 2.0f;
 	float touchGoalAccelOpponentScale = 0.5f;
 	float touchGoalAccelTeamSpirit = 0.0f;
+
 	float goal = 40.0f;
 	float touchEdge = 0.1394f;
+
 	float speedToBall = 14.51f;
 	float faceBall = 1.585f;
+
 	float saveBoost = 0.785f;
 	float pickupBoost = 0.5067f;
+
 	float airTouch = 40.f;
 	float airTouchHeightExponent = 2.f;
 	float air = 0.8736f;
@@ -58,6 +63,7 @@ struct SelfPlayConfig {
 	float trainAgainstOldChance = 0.2f;
 	int64_t tsPerVersion = 5'000'000;
 	int maxOldVersions = 32;
+
 	bool trackSkill = true;
 	int skillArenas = 8;
 	int skillUpdateInterval = 100;
@@ -71,20 +77,25 @@ struct TrainConfig {
 	enum class SpawnMode { Random, Curriculum };
 	SpawnMode spawn = SpawnMode::Random;
 	CurriculumWeights curriculum = {};
+
 	bool maskActions = false;
 	ObsMode obs = ObsMode::Relative;
 	float infiniteBoostChance = 0.1f;
+
 	RewardBudget rewards = {};
 	float teamSpirit = 0.0f;
 	ModelShape modelShape = {};
 	SelfPlayConfig selfPlay = {};
+
 	float noTouchTimeoutSeconds = 12.f;
 	int numGames = 128;
 	int tickSkip = 8;
 	int actionDelay = 7;
+
 	int tsPerItr = 50'000;
 	int miniBatchSize = 25'000;
 	int epochs = 2;
+
 	float entropyScale = 0.002f;
 	float entropyTarget = 0.40f;
 	float entropyAdjustRate = 0.15f;
@@ -92,14 +103,17 @@ struct TrainConfig {
 	float policyLR = 2e-4f;
 	float criticLR = 2e-4f;
 	int64_t maxSteps = 0;
+
 	std::filesystem::path checkpointRoot = "checkpoints";
 	std::string runLabel = {};
 	int64_t tsPerSave = 1'000'000;
 	int checkpointsToKeep = 8;
 	int64_t randomSeed = -1;
+
 	bool sendMetrics = true;
 	std::string wandbProject = "hivemind-rl";
 	std::string wandbGroup = "dev";
+
 	bool renderMode = false;
 	float renderTimeScale = 1.f;
 	bool useGPU = true;

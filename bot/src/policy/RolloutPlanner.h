@@ -12,6 +12,7 @@ struct PlannerConfig {
 	int horizonTicks = 12;
 	int numCandidates = 32;
 	float temperature = 0.3f;
+
 	float goalWeight = 1000.f;
 	float ownGoalPenalty = -2000.f;
 	float ballVelWeight = 2.5f;

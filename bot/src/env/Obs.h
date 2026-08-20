@@ -9,7 +9,6 @@ namespace Hive {
 
 enum class ObsMode {
 	Relative,
-
 	Default,
 };
 
@@ -20,6 +19,7 @@ struct ObsHealth {
 	uint64_t checked = 0;
 	uint64_t nonFinite = 0;
 };
+
 ObsHealth ConsumeObsHealth();
 
 int ProbeObsSize(int maxPlayersPerTeam, ObsMode mode);
