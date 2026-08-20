@@ -210,6 +210,16 @@ struct RewardBudget {
 	// p=3 and 0.7% for p=4. Move it on the measurement, not on a schedule.
 	float touchAccelExponent = 2.0f;
 
+	// Opponent penalty scale for TouchGoalAccel.
+	// Unlike GoalReward which is 100% zero-sum (+1 scored, -1 conceded),
+	// this penalizes opponent goal-directed touches at 50% (0.5).
+	// This discourages allowing opponent attacks without making conceded
+	// touches overwhelmingly punitive.
+	float touchGoalAccelOpponentScale = 0.5f;
+
+	// Fraction of TouchGoalAccel reward shared with teammates in multi-car modes.
+	float touchGoalAccelTeamSpirit = 0.0f;
+
 	// --- The scoreboard ------------------------------------------------------
 
 	// A goal, +1 scored and -1 conceded (already zero-sum).

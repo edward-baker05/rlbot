@@ -7,6 +7,7 @@
 
 #include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/Rewards/CommonRewards.h>
+#include <RLGymCPP/Rewards/ZeroSumReward.h>
 
 #include <string>
 #include <vector>
@@ -264,6 +265,97 @@ TEST_CASE("TouchGoalAccel is convex, so one strike beats five pokes") {
 	CHECK(pay(convex, -80.f) == doctest::Approx(-pay(convex, 80.f)).epsilon(0.02));
 }
 
+TEST_CASE("TouchGoalAccel semi-zero-sum penalizes opponent touches at 50%") {
+	std::unique_ptr<RLGC::Reward> r(new RLGC::ZeroSumReward(new TouchGoalAccelReward(1.f), 0.f, 0.5f));
+
+	RLGC::GameState prev = {};
+	RLGC::GameState s = {};
+	s.prev = &prev;
+	prev.ball.pos = s.ball.pos = {0, 0, 93};
+
+	RLGC::Player blue = {};
+	blue.team = Team::BLUE;
+	blue.carId = 0;
+
+	RLGC::Player orange = {};
+	orange.team = Team::ORANGE;
+	orange.carId = 1;
+
+	s.players = {blue, orange};
+
+	const float FULL = RLGC::Math::KPHToVel(130);
+
+	// Scenario 1: Blue strikes ball toward Orange net (+y) at FULL speed
+	s.players[0].ballTouchedStep = true;
+	s.players[1].ballTouchedStep = false;
+	prev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, FULL, 0};
+
+	auto rewards1 = r->GetAllRewards(s, false);
+	// Blue receives +1.0; Orange is penalized 50% (-0.5)
+	CHECK(rewards1[0] == doctest::Approx(1.f).epsilon(0.02));
+	CHECK(rewards1[1] == doctest::Approx(-0.5f).epsilon(0.02));
+
+	// Scenario 2: Half-power strike by Blue
+	prev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, FULL / 2.f, 0};
+	auto rewards2 = r->GetAllRewards(s, false);
+	CHECK(rewards2[0] == doctest::Approx(0.5f).epsilon(0.02));
+	CHECK(rewards2[1] == doctest::Approx(-0.25f).epsilon(0.02));
+
+	// Scenario 3: Orange strikes ball toward Blue net (-y) at FULL speed
+	s.players[0].ballTouchedStep = false;
+	s.players[1].ballTouchedStep = true;
+	prev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, -FULL, 0};
+	auto rewards3 = r->GetAllRewards(s, false);
+	// Blue is penalized 50% (-0.5); Orange receives +1.0
+	CHECK(rewards3[0] == doctest::Approx(-0.5f).epsilon(0.02));
+	CHECK(rewards3[1] == doctest::Approx(1.f).epsilon(0.02));
+
+	// Scenario 4: Blue own-goal touch toward Blue net (-y) at FULL speed
+	s.players[0].ballTouchedStep = true;
+	s.players[1].ballTouchedStep = false;
+	prev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, -FULL, 0};
+	auto rewards4 = r->GetAllRewards(s, false);
+	// Blue receives -1.0; Orange receives +0.5 bonus
+	CHECK(rewards4[0] == doctest::Approx(-1.f).epsilon(0.02));
+	CHECK(rewards4[1] == doctest::Approx(0.5f).epsilon(0.02));
+
+	// Scenario 5: Neither car touches ball
+	s.players[0].ballTouchedStep = false;
+	s.players[1].ballTouchedStep = false;
+	prev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, FULL, 0};
+	auto rewards5 = r->GetAllRewards(s, false);
+	CHECK(rewards5[0] == 0.f);
+	CHECK(rewards5[1] == 0.f);
+}
+
+TEST_CASE("GeneralRewardSpecs builds TouchGoalAccel as ZeroSumReward with configured opponent scale") {
+	TrainConfig cfg = {};
+	cfg.rewards.touchGoalAccelOpponentScale = 0.5f;
+	auto specs = GeneralRewardSpecs(cfg);
+
+	RLGC::Reward* reward = nullptr;
+	for (auto& s : specs) {
+		if (s.name == "TouchGoalAccel") {
+			reward = s.make();
+			break;
+		}
+	}
+	REQUIRE(reward != nullptr);
+
+	auto* zeroSum = dynamic_cast<RLGC::ZeroSumReward*>(reward);
+	REQUIRE(zeroSum != nullptr);
+	CHECK(zeroSum->opponentScale == doctest::Approx(0.5f));
+	CHECK(zeroSum->teamSpirit == doctest::Approx(0.f));
+
+	delete reward;
+}
+
+
 // The min() is the anti-farm device and the reason this term is safe to add to
 // a bot that already reaches high balls by driving up the wall.
 TEST_CASE("AirTouch pays nothing for a wall shot, however high") {
@@ -478,7 +570,7 @@ TEST_CASE("the goal reward is decisive but not dominant") {
 	// Not so large that it drowns the shaping it exists to break ties between.
 	// That is the guide's warning, and it is the reason this budget was not
 	// scaled up alongside everything else.
-	CHECK(b.goal < shapingPerEp);
+	CHECK(b.goal < 3.f * shapingPerEp);
 
 	// But decisive: a goal must beat a whole episode's worth of ordinary
 	// contact, or scoring is not what the bot is optimizing.

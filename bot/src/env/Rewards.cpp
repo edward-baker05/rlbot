@@ -2,6 +2,7 @@
 
 #include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/Rewards/CommonRewards.h>
+#include <RLGymCPP/Rewards/ZeroSumReward.h>
 
 using namespace RLGC;
 
@@ -25,8 +26,12 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 		// toward your own net costs. Touch-gated, so it measures only the ball
 		// motion this car caused -- the continuous VelocityBallToGoal form is
 		// known-bad here (p1probe-b: 67% of reward mass as passive ball noise).
+		// Wrapped in ZeroSumReward with opponentScale (default 0.5) so opponent
+		// goal touches discourage the bot at 50% penalty.
 		{"TouchGoalAccel", b.touchGoalAccel,
-		 [e = b.touchAccelExponent] { return new TouchGoalAccelReward(e); }},
+		 [e = b.touchAccelExponent, s = b.touchGoalAccelOpponentScale, ts = b.touchGoalAccelTeamSpirit] {
+			return new ZeroSumReward(new TouchGoalAccelReward(e), ts, s);
+		 }},
 
 		// The scoreboard. Already zero-sum: +1 scored, -1 conceded. Moderate on
 		// purpose -- see the budget comment; a huge goal reward scales variance,
