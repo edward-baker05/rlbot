@@ -8,9 +8,6 @@
 
 namespace Hive {
 
-// Shape of the policy network. Single source of truth for training and
-// deployment: both sides default-construct this struct. Changing it
-// invalidates every existing checkpoint.
 struct ModelShape {
 	std::vector<int> sharedHeadLayers = {512, 512};
 	std::vector<int> policyLayers = {512, 512, 512};
@@ -20,7 +17,6 @@ struct ModelShape {
 
 class Policy {
 public:
-	// obsBuilder and actionParser are borrowed; the caller keeps them alive.
 	Policy(RLGC::ObsBuilder* obsBuilder,
 	       int obsSize,
 	       RLGC::ActionParser* actionParser,
@@ -30,7 +26,6 @@ public:
 	Policy(const Policy&) = delete;
 	Policy& operator=(const Policy&) = delete;
 
-	// Throws std::runtime_error on a missing/invalid checkpoint folder.
 	void Load(const std::filesystem::path& checkpointFolder);
 	bool Loaded() const { return unit != nullptr; }
 
@@ -48,4 +43,4 @@ private:
 	std::unique_ptr<GGL::InferUnit> unit;
 };
 
-} // namespace Hive
+}  // namespace Hive

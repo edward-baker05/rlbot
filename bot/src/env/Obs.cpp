@@ -15,7 +15,8 @@ namespace Hive {
 namespace {
 std::atomic<uint64_t> g_ObsChecked{0};
 std::atomic<uint64_t> g_ObsNonFinite{0};
-} // namespace
+
+}  // namespace
 
 void NoteObsHealth(uint64_t checked, uint64_t nonFinite) {
 	g_ObsChecked.fetch_add(checked, std::memory_order_relaxed);
@@ -30,7 +31,6 @@ ObsHealth ConsumeObsHealth() {
 	return out;
 }
 
-
 std::unique_ptr<ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,
                                            ObsMode mode) {
 	if (maxPlayersPerTeam < 1)
@@ -43,8 +43,6 @@ std::unique_ptr<ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,
 }
 
 int ProbeObsSize(int maxPlayersPerTeam, ObsMode mode) {
-	// Build a full-size arena so padding is exercised at its maximum, which
-	// also validates maxPlayersPerTeam is large enough for the intended cars.
 	Arena* arena = Arena::Create(GameMode::SOCCAR);
 	for (int i = 0; i < maxPlayersPerTeam; i++) {
 		arena->AddCar(Team::BLUE);
@@ -69,4 +67,4 @@ int ProbeObsSize(int maxPlayersPerTeam, ObsMode mode) {
 	return size;
 }
 
-} // namespace Hive
+}  // namespace Hive

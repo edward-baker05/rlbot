@@ -8,16 +8,11 @@ using RocketSim::Math::RandFloat;
 
 namespace Hive {
 
-// Sign convention: +1 means "this team attacks +Y" (blue), -1 means "attacks
-// -Y" (orange). Multiply any Y coordinate written from blue's perspective by
-// this to mirror it for orange.
 static inline float TeamSign(Team team) {
 	return (team == Team::BLUE) ? 1.f : -1.f;
 }
 
 static inline Vec RandUnitVec() {
-	// Rejection-sample inside the unit sphere so directions are uniform.
-	// Normalising a uniform cube biases towards the corners.
 	for (int i = 0; i < 16; i++) {
 		Vec v = RLGC::Math::RandVec(Vec(-1, -1, -1), Vec(1, 1, 1));
 		const float len = v.Length();
@@ -27,7 +22,6 @@ static inline Vec RandUnitVec() {
 	return Vec(1, 0, 0);
 }
 
-// Point a car at a world-space target, with optional roll/pitch noise.
 static inline RotMat LookAt(const Vec& from, const Vec& to, float noise = 0.f) {
 	const Vec d = to - from;
 	const float yaw = std::atan2(d.y, d.x);
@@ -38,7 +32,6 @@ static inline RotMat LookAt(const Vec& from, const Vec& to, float noise = 0.f) {
 	return a.ToRotMat();
 }
 
-// Place a car flat on the ground at (x, y) facing a target.
 static inline void PutOnGround(CarState& cs, float x, float y, const Vec& lookTarget, float speed) {
 	cs.pos = Vec(x, y, 17.f);
 	Angle a = Angle(std::atan2(lookTarget.y - y, lookTarget.x - x), 0, 0);
@@ -48,14 +41,9 @@ static inline void PutOnGround(CarState& cs, float x, float y, const Vec& lookTa
 	cs.isOnGround = true;
 }
 
-// ----------------------------------------------------------------------------
-
 void StrikeState::ResetArena(Arena* arena) {
 	arena->ResetToRandomKickoff();
 
-	// Ball falling rather than rising: a rising ball climbs out of the strike
-	// band while the car closes, which turns half the spawns into a scenario
-	// that cannot be solved by the skill being taught.
 	BallState bs = {};
 	bs.pos = Vec(RandFloat(-2600, 2600), RandFloat(-3200, 3200),
 	             RandFloat(minBallZ, maxBallZ));
@@ -64,14 +52,11 @@ void StrikeState::ResetArena(Arena* arena) {
 
 	for (Car* car : arena->_cars) {
 		CarState cs = {};
-
 		const float dist = RandFloat(minDist, maxDist);
 		const float ang = RandFloat(-M_PI, M_PI);
 		const float x = std::clamp(bs.pos.x + std::cos(ang) * dist, -3800.f, 3800.f);
 		const float y = std::clamp(bs.pos.y + std::sin(ang) * dist, -4800.f, 4800.f);
 
-		// Aim at the ball's ground position, not the ball: pointing the car up
-		// at an airborne ball would spawn it nose-high off the floor.
 		PutOnGround(cs, x, y, Vec(bs.pos.x, bs.pos.y, 17.f),
 		            RandFloat(minSpeed, maxSpeed));
 
@@ -91,8 +76,6 @@ void AerialState::ResetArena(Arena* arena) {
 
 	for (Car* car : arena->_cars) {
 		CarState cs = {};
-		// Spawn on the ground a workable distance from the ball so the policy
-		// has to actually drive-and-jump rather than start already underneath.
 		const float dist = RandFloat(minCarDist, maxCarDist);
 		const float ang = RandFloat(-M_PI, M_PI);
 		PutOnGround(cs,
@@ -110,28 +93,24 @@ void AirDribbleState::ResetArena(Arena* arena) {
 
 	const float z = RandFloat(minZ, maxZ);
 	const Vec sharedVel = Vec(RandFloat(-700, 700), RandFloat(-300, 1400), RandFloat(200, 700));
-
 	BallState bs = {};
 	bs.pos = Vec(RandFloat(-2500, 2500), RandFloat(-3000, 3000), z);
 	bs.vel = sharedVel;
 	arena->ball->SetState(bs);
 
-	// The first car gets the ball; everyone else is scattered so they do not
-	// spawn inside it.
 	bool first = true;
 	for (Car* car : arena->_cars) {
 		CarState cs = {};
 		if (first) {
 			first = false;
-			// Just under the ball, moving with it -- the state you are in
-			// immediately after a successful pop.
+
 			cs.pos = bs.pos - Vec(0, 0, CommonValues::BALL_RADIUS + 60.f);
 			cs.vel = sharedVel + Vec(RandFloat(-80, 80), RandFloat(-80, 80), RandFloat(-40, 40));
 			cs.rotMat = LookAt(cs.pos, bs.pos + sharedVel, 0.15f);
 			cs.boost = RandFloat(50, 100);
 			cs.isOnGround = false;
 			cs.hasJumped = true;
-			cs.hasDoubleJumped = true; // No second jump: force air-roll control
+			cs.hasDoubleJumped = true;
 		} else {
 			PutOnGround(cs, RandFloat(-3500, 3500), RandFloat(-4500, 4500), bs.pos, RandFloat(0, 1000));
 			cs.boost = RandFloat(20, 100);
@@ -153,8 +132,7 @@ void FlipResetState::ResetArena(Arena* arena) {
 		CarState cs = {};
 		if (first) {
 			first = false;
-			// Below the ball, rising towards it, flip already spent. Reaching
-			// the ball's underside with the wheels is what grants the reset.
+
 			cs.pos = bs.pos - Vec(RandFloat(-150, 150),
 			                      RandFloat(-150, 150),
 			                      carBelowBall + RandFloat(-80, 80));
@@ -164,7 +142,7 @@ void FlipResetState::ResetArena(Arena* arena) {
 			cs.isOnGround = false;
 			cs.hasJumped = true;
 			cs.hasDoubleJumped = true;
-			cs.hasFlipped = true; // Flip is gone until a reset restores it
+			cs.hasFlipped = true;
 		} else {
 			PutOnGround(cs, RandFloat(-3500, 3500), RandFloat(-4500, 4500), bs.pos, RandFloat(0, 1000));
 			cs.boost = RandFloat(20, 100);
@@ -187,7 +165,6 @@ void GroundDribbleState::ResetArena(Arena* arena) {
 			const float y = RandFloat(-3500, 2500);
 			const float sign = TeamSign(car->team);
 
-			// Drive towards the opponent's goal, ball balanced on the roof.
 			PutOnGround(cs, x, y, Vec(x, sign * CommonValues::BACK_WALL_Y, 0), speed);
 			cs.boost = RandFloat(30, 100);
 
@@ -207,29 +184,22 @@ void GroundDribbleState::ResetArena(Arena* arena) {
 void DemoState::ResetArena(Arena* arena) {
 	arena->ResetToRandomKickoff();
 
-	// Ball parked out of the way so the episode is about the cars.
 	BallState bs = {};
 	bs.pos = Vec(RandFloat(-1500, 1500), RandFloat(-1500, 1500), RandFloat(100, 900));
 	bs.vel = RandUnitVec() * RandFloat(0, 800);
 	arena->ball->SetState(bs);
 
-	// Lay the cars out along a shared axis, blue on one side, orange the other,
-	// all pointed at each other and moving fast.
 	const float axisAng = RandFloat(-M_PI, M_PI);
 	const Vec axis = Vec(std::cos(axisAng), std::sin(axisAng), 0);
 	const Vec midpoint = Vec(RandFloat(-1500, 1500), RandFloat(-2500, 2500), 0);
-
 	int blueN = 0, orangeN = 0;
 	for (Car* car : arena->_cars) {
 		const bool isBlue = (car->team == Team::BLUE);
 		const int n = isBlue ? blueN++ : orangeN++;
 		const float side = isBlue ? -1.f : 1.f;
-
-		// Offset each extra car perpendicular to the axis so they do not stack.
 		const Vec perp = Vec(-axis.y, axis.x, 0) * (n * 400.f - 200.f);
 		const Vec pos = midpoint + axis * (side * separation * 0.5f) + perp;
 		const Vec target = midpoint - axis * (side * separation * 0.5f);
-
 		CarState cs = {};
 		PutOnGround(cs,
 		            std::clamp(pos.x, -3900.f, 3900.f),
@@ -244,14 +214,12 @@ void DemoState::ResetArena(Arena* arena) {
 void DefendState::ResetArena(Arena* arena) {
 	arena->ResetToRandomKickoff();
 
-	// Pick a team to be under pressure; mirror everything about that choice.
 	const bool pressureOnBlue = RandFloat() > 0.5f;
-	const float defSign = pressureOnBlue ? -1.f : 1.f; // Defended goal is at defSign * BACK_WALL_Y
+	const float defSign = pressureOnBlue ? -1.f : 1.f;
 	const Vec goal = Vec(0, defSign * CommonValues::BACK_WALL_Y, 300.f);
-
 	BallState bs = {};
 	bs.pos = Vec(RandFloat(-2500, 2500), defSign * RandFloat(500, 3000), RandFloat(100, 1200));
-	// Aim the ball at the defended goal, roughly.
+
 	{
 		Vec dir = (goal + Vec(RandFloat(-900, 900), 0, RandFloat(-200, 400))) - bs.pos;
 		const float len = dir.Length();
@@ -265,7 +233,6 @@ void DefendState::ResetArena(Arena* arena) {
 		const bool defending = (car->team == Team::BLUE) == pressureOnBlue;
 		CarState cs = {};
 		if (defending) {
-			// Goal side of the ball.
 			PutOnGround(cs,
 			            RandFloat(-1600, 1600),
 			            defSign * RandFloat(3800, 5000),
@@ -273,7 +240,6 @@ void DefendState::ResetArena(Arena* arena) {
 			            RandFloat(0, 900));
 			cs.boost = RandFloat(15, 80);
 		} else {
-			// Attacker following the ball in.
 			PutOnGround(cs,
 			            bs.pos.x + RandFloat(-1500, 1500),
 			            bs.pos.y - defSign * RandFloat(500, 2500),
@@ -295,7 +261,7 @@ void RecoverState::ResetArena(Arena* arena) {
 
 	for (Car* car : arena->_cars) {
 		CarState cs = {};
-		// Airborne, tumbling, pointed nowhere useful, and far from the ball.
+
 		float x, y;
 		do {
 			x = RandFloat(-3500, 3500);
@@ -321,10 +287,8 @@ void BallContactState::ResetArena(Arena* arena) {
 	arena->ResetToRandomKickoff();
 
 	const bool moving = RandFloat() < movingBallChance;
-
 	BallState bs = {};
-	// Keep the ball on or near the deck. A high ball here would just recreate
-	// the problem this setter exists to solve.
+
 	bs.pos = Vec(RandFloat(-3000, 3000), RandFloat(-4000, 4000),
 	             CommonValues::BALL_RADIUS + RandFloat(0, 200));
 	if (moving) {
@@ -340,21 +304,15 @@ void BallContactState::ResetArena(Arena* arena) {
 		if (first) {
 			first = false;
 
-			// Place the car on a random bearing around the ball, facing it.
 			const float ang = RandFloat(-M_PI, M_PI);
 			const float dist = RandFloat(minDist, maxDist);
 			const float x = std::clamp(bs.pos.x + std::cos(ang) * dist, -3900.f, 3900.f);
 			const float y = std::clamp(bs.pos.y + std::sin(ang) * dist, -4900.f, 4900.f);
-
-			// Lead a moving ball slightly rather than aiming where it is now,
-			// so the spawn is a playable position and not an instant miss.
 			const Vec aim = bs.pos + bs.vel * 0.25f;
 			PutOnGround(cs, x, y, aim, RandFloat(300, 1300));
 
 			cs.boost = RandFloat(20, 100);
 		} else {
-			// Everyone else starts at a normal distance, so this does not turn
-			// into a scrum around the ball.
 			PutOnGround(cs, RandFloat(-3500, 3500), RandFloat(-4500, 4500),
 			            bs.pos, RandFloat(0, 1200));
 			cs.boost = RandFloat(20, 100);
@@ -376,8 +334,7 @@ void NeutralPlayState::ResetArena(Arena* arena) {
 	for (Car* car : arena->_cars) {
 		CarState cs = {};
 		const float sign = TeamSign(car->team);
-		// Bias each team towards its own half so the layout resembles real play
-		// rather than a scramble.
+
 		PutOnGround(cs,
 		            RandFloat(-3600, 3600),
 		            sign * RandFloat(-4600, 2500),
@@ -388,16 +345,11 @@ void NeutralPlayState::ResetArena(Arena* arena) {
 	}
 }
 
-
 void InfiniteBoostState::ResetArena(Arena* arena) {
 	inner->ResetArena(arena);
 
 	lastWasInfinite = RandFloat() < chance;
 
-	// Written back on EVERY reset, not just the infinite ones. The mutator
-	// config belongs to the arena and outlives the episode, so skipping the
-	// restore would leave an arena permanently infinite after its first
-	// infinite episode -- and nothing downstream would look wrong.
 	MutatorConfig cfg = arena->GetMutatorConfig();
 	cfg.boostUsedPerSecond =
 		lastWasInfinite ? 0.f : RLConst::BOOST_USED_PER_SECOND;
@@ -412,5 +364,4 @@ void InfiniteBoostState::ResetArena(Arena* arena) {
 	}
 }
 
-} // namespace Hive
-
+}  // namespace Hive

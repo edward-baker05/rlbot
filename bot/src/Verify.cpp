@@ -5,7 +5,6 @@
 #include "env/Obs.h"
 #include "policy/Policy.h"
 
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -29,9 +28,7 @@ int RunVerify(const std::filesystem::path& folder) {
 	auto obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam, cfg.obs);
 	auto parser = MakeActionParser(cfg.maskActions);
 
-	// 1. The checkpoint loads under the compiled-in ModelShape. A shape
-	//    mismatch throws here instead of silently misplaying in a match.
-	Policy policy(obsBuilder.get(), obsSize, parser.get(), cfg.modelShape, /*useGPU=*/false);
+	Policy policy(obsBuilder.get(), obsSize, parser.get(), cfg.modelShape, false);
 	try {
 		policy.Load(folder);
 		std::printf("PASS  checkpoint loads with compiled ModelShape\n");
@@ -40,8 +37,6 @@ int RunVerify(const std::filesystem::path& folder) {
 		return 1;
 	}
 
-	// 2. Deterministic inference is actually deterministic, and the policy is
-	//    not degenerate (always the same action regardless of state).
 	Arena* arena = Arena::Create(GameMode::SOCCAR);
 	arena->AddCar(Team::BLUE);
 	arena->AddCar(Team::ORANGE);
@@ -51,7 +46,6 @@ int RunVerify(const std::filesystem::path& folder) {
 	bool deterministic = true;
 	Action prev = {};
 	for (int i = 0; i < 200; i++) {
-		// Random controls step the arena into varied states.
 		for (Car* car : arena->_cars) {
 			CarControls c = {};
 			c.throttle = Math::RandFloat(-1, 1);
@@ -77,7 +71,6 @@ int RunVerify(const std::filesystem::path& folder) {
 	std::printf("%s  policy output varies with state (%d distinct actions over 200 states)\n",
 	            distinct > 5 ? "PASS" : "FAIL", distinct);
 
-	// 3. Deployment env vars, if set, agree with compiled training values.
 	bool parity = true;
 	struct { const char* env; int expected; } checks[] = {
 		{"HIVE_TICK_SKIP", cfg.tickSkip},
@@ -101,4 +94,4 @@ int RunVerify(const std::filesystem::path& folder) {
 	return ok ? 0 : 1;
 }
 
-} // namespace Hive
+}  // namespace Hive

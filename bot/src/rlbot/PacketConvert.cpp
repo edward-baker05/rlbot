@@ -26,29 +26,21 @@ void PacketConverter::Initialize(const rlbot::flat::FieldInfo* fieldInfo) {
 	}
 
 	const auto* pads = fieldInfo->boost_pads();
-
-	// Match each RLGymCPP pad to the nearest RLBot pad by location. Nearest-match
-	// rather than assuming a shared sort order, so a change to either side's
-	// ordering shows up as a loud mismatch instead of scrambled observations.
 	int matched = 0;
 	for (int i = 0; i < CommonValues::BOOST_LOCATIONS_AMOUNT; i++) {
 		const Vec& want = CommonValues::BOOST_LOCATIONS[i];
-
 		int best = -1;
 		float bestDistSq = std::numeric_limits<float>::max();
 		for (unsigned j = 0; j < pads->size(); j++) {
 			const Vec have = ToVec(*pads->Get(j)->location());
 			const Vec d = have - want;
-			const float distSq = d.x * d.x + d.y * d.y; // Ignore z; pads sit at 70 or 73
+			const float distSq = d.x * d.x + d.y * d.y;
 			if (distSq < bestDistSq) {
 				bestDistSq = distSq;
 				best = static_cast<int>(j);
 			}
 		}
 
-		// Pads are hundreds of units apart, so a correct match is within a few
-		// units. 100 uu of slack catches float noise without accepting a
-		// genuinely different pad.
 		if (best >= 0 && bestDistSq < 100.f * 100.f) {
 			rlgymToRLBotPad[i] = best;
 			matched++;
@@ -66,10 +58,6 @@ void PacketConverter::Initialize(const rlbot::flat::FieldInfo* fieldInfo) {
 GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 	GameState gs = {};
 
-	// --- Ball ---------------------------------------------------------------
-	// Standard soccar has exactly one ball. If there is none (between goals,
-	// or in an exotic mode) leave the ball at the origin rather than reading
-	// out of bounds; the policy will produce something harmless for one tick.
 	if (packet->balls() && packet->balls()->size() > 0) {
 		const auto* phys = packet->balls()->Get(0)->physics();
 		gs.ball.pos = ToVec(phys->location());
@@ -77,12 +65,10 @@ GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 		gs.ball.angVel = ToVec(phys->angular_velocity());
 	}
 
-	// --- Boost pads ----------------------------------------------------------
 	const auto* padStates = packet->boost_pads();
 	for (int i = 0; i < CommonValues::BOOST_LOCATIONS_AMOUNT; i++) {
 		bool active = true;
 		float timer = 0.f;
-
 		const int j = (i < static_cast<int>(rlgymToRLBotPad.size())) ? rlgymToRLBotPad[i] : -1;
 		if (padStates && j >= 0 && j < static_cast<int>(padStates->size())) {
 			active = padStates->Get(j)->is_active();
@@ -92,13 +78,11 @@ GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 		gs.boostPads[i] = active;
 		gs.boostPadTimers[i] = timer;
 
-		// The inverted views are what orange-team observations read from.
 		const int inv = CommonValues::BOOST_LOCATIONS_AMOUNT - i - 1;
 		gs.boostPadsInv[inv] = active;
 		gs.boostPadTimersInv[inv] = timer;
 	}
 
-	// --- Players -------------------------------------------------------------
 	const auto* players = packet->players();
 	const float now = packet->match_info() ? packet->match_info()->seconds_elapsed() : 0.f;
 
@@ -108,7 +92,6 @@ GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 		for (unsigned i = 0; i < players->size(); i++) {
 			const auto* info = players->Get(i);
 			Player p = {};
-
 			const auto* phys = info->physics();
 			p.pos = ToVec(phys->location());
 			p.vel = ToVec(phys->velocity());
@@ -128,37 +111,24 @@ GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 			p.isJumping = (airState == rlbot::flat::AirState::Jumping);
 			p.isFlipping = (airState == rlbot::flat::AirState::Dodging);
 
-			// demolished_timeout is -1 when the car is alive.
 			p.isDemoed = info->demolished_timeout() >= 0.f;
 			p.demoRespawnTimer = RS_MAX(0.f, info->demolished_timeout());
 
-			// Flip/jump availability. The observation reads HasFlipOrJump(),
-			// which RocketSim derives as:
-			//     isOnGround || (!hasFlipped && !hasDoubleJumped &&
-			//                    airTimeSinceJump < DOUBLEJUMP_MAX_DELAY)
-			// RLBot tells us the answer directly, so rather than reconstruct
-			// RocketSim's internal timers we set these fields to whichever
-			// values make the derivation produce RLBot's answer.
 			p.hasJumped = info->has_jumped();
 			if (p.isOnGround) {
-				// The isOnGround term already forces true.
 				p.hasDoubleJumped = false;
 				p.hasFlipped = false;
 				p.airTimeSinceJump = 0.f;
 			} else if (info->dodge_timeout() >= 0.f) {
-				// A dodge or double jump is still available: force true.
 				p.hasDoubleJumped = false;
 				p.hasFlipped = false;
 				p.airTimeSinceJump = 0.f;
 			} else {
-				// No dodge left: force false.
 				p.hasDoubleJumped = info->has_double_jumped();
 				p.hasFlipped = true;
 				p.airTimeSinceJump = 999.f;
 			}
 
-			// Previous action, so the observation's prev-action block matches
-			// what the policy saw in training.
 			if (const auto* last = info->last_input()) {
 				p.prevAction = Action(
 					last->throttle(), last->steer(),
@@ -170,8 +140,6 @@ GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 				p.prevAction = Action(0, 0, 0, 0, 0, 0, 0, 0);
 			}
 
-			// Turn "latest touch" into "touched during this step" by watching
-			// for the touch timestamp changing.
 			p.ballTouchedStep = false;
 			if (const auto* touch = info->latest_touch()) {
 				const float t = touch->game_seconds();
@@ -190,7 +158,6 @@ GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 		}
 	}
 
-	// --- Match state ---------------------------------------------------------
 	if (packet->match_info()) {
 		gs.goalScored = (packet->match_info()->match_phase() == rlbot::flat::MatchPhase::GoalScored);
 	}
@@ -198,4 +165,4 @@ GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 	return gs;
 }
 
-} // namespace Hive
+}  // namespace Hive

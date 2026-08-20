@@ -16,7 +16,6 @@ const char* PlayPhaseName(PlayPhase p) {
 	}
 }
 
-// Flip Y so negative always means "towards our own goal", whichever team we are.
 static inline float OwnGoalRelY(float y, Team team) {
 	return (team == Team::BLUE) ? y : -y;
 }
@@ -26,7 +25,6 @@ PlayPhase ClassifyPhase(const Player& player, const GameState& state, const Phas
 	const float ballDist = (ballPos - player.pos).Length();
 	const bool airborne = !player.isOnGround && player.pos.z > t.airborneZ;
 
-	// Ordered most specific first.
 	if (airborne && ballDist < t.ballNearDist && ballPos.z > t.airDribbleBallZ)
 		return PlayPhase::AirDribble;
 
@@ -37,7 +35,6 @@ PlayPhase ClassifyPhase(const Player& player, const GameState& state, const Phas
 	    ballPos.z < t.dribbleBallZMax && ballPos.z > player.pos.z)
 		return PlayPhase::GroundDribble;
 
-	// Checked before Defend so a tumbling car is not counted as shadowing.
 	if (!player.isOnGround && ballDist > t.ballNearDist * 2.f)
 		return PlayPhase::Recover;
 
@@ -47,4 +44,4 @@ PlayPhase ClassifyPhase(const Player& player, const GameState& state, const Phas
 	return PlayPhase::Neutral;
 }
 
-} // namespace Hive
+}  // namespace Hive

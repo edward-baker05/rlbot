@@ -13,7 +13,6 @@
 #include <string>
 
 namespace {
-
 void PrintUsage(const char* argv0) {
 	std::printf(
 		"Usage: %s <command> [options]\n"
@@ -31,6 +30,7 @@ void PrintUsage(const char* argv0) {
 		"  --model FOLDER       Play one specific checkpoint folder\n"
 		"  --spawns MODE        training (default) or kickoff\n"
 		"  --deterministic      Take the argmax action instead of sampling\n"
+		"  --lookahead N        MPPI lookahead depth in ticks (default 0 = off)\n"
 		"  --time-scale X       Speed multiplier (default 1.0 = real time)\n"
 		"  --episodes N         Stop after N episodes (default: run until Ctrl-C)\n"
 		"  --gpu                Use CUDA (default CPU, to leave the GPU to training)\n"
@@ -62,7 +62,6 @@ void PrintUsage(const char* argv0) {
 }
 
 int RunPlay(int argc, char* argv[]) {
-	// RLBot launches us with these set; the defaults let you run by hand.
 	const char* host = std::getenv("RLBOT_SERVER_IP");
 	const char* port = std::getenv("RLBOT_SERVER_PORT");
 	const char* agentId = std::getenv("RLBOT_AGENT_ID");
@@ -79,20 +78,15 @@ int RunPlay(int argc, char* argv[]) {
 	}
 
 	try {
-		// Load models before connecting. RLBot has a connection timeout, and
-		// loading a policy onto the GPU is slow enough to trip it if done
-		// lazily on the first packet.
 		Hive::Context().Initialize(Hive::BotSettings::FromEnvironment());
 	} catch (const std::exception& e) {
 		std::fprintf(stderr, "Failed to initialize: %s\n", e.what());
 		return EXIT_FAILURE;
 	}
 
-	// batchHivemind = true asks RLBot to deliver all our cars in one update()
-	// call, which is what lets us run a single batched inference pass.
 	rlbot::BotManager<Hive::HivemindBot> manager{true};
 
-	if (!manager.connect(host, port, agentId, /*ballPrediction=*/false)) {
+	if (!manager.connect(host, port, agentId, false)) {
 		std::fprintf(stderr, "Failed to connect to RLBotServer at %s:%s\n", host, port);
 		return EXIT_FAILURE;
 	}
@@ -118,9 +112,6 @@ int RunTrain(int argc, char* argv[]) {
 		} else if (arg == "--entropy" && i + 1 < argc) {
 			cfg.entropyScale = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--entropy-target" && i + 1 < argc) {
-			// 0 disables the controller and pins entropyScale to --entropy,
-			// which is what a calibration probe wants: the probe must not
-			// move the policy it is measuring.
 			cfg.entropyTarget = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--infinite-boost" && i + 1 < argc) {
 			cfg.infiniteBoostChance = static_cast<float>(std::atof(argv[++i]));
@@ -128,17 +119,13 @@ int RunTrain(int argc, char* argv[]) {
 			fresh = true;
 		} else if (arg == "--self-play") {
 			cfg.selfPlay.trainAgainstOldVersions = true;
-			// Skill tracking is what makes the result readable, so turn it on
-			// with self-play unless it was already requested.
+
 			cfg.selfPlay.trackSkill = true;
 		} else if (arg == "--track-skill") {
 			cfg.selfPlay.trackSkill = true;
 		} else if (arg == "--ts-per-version" && i + 1 < argc) {
 			cfg.selfPlay.tsPerVersion = std::atoll(argv[++i]);
 		} else if (arg == "--render") {
-			// Rendering runs the sim at wall-clock speed so you can watch it in
-			// RocketSimVis. Useful for sanity-checking state setters and
-			// rewards; useless for actually training.
 			cfg.renderMode = true;
 			cfg.numGames = 1;
 			cfg.sendMetrics = false;
@@ -157,20 +144,12 @@ int RunTrain(int argc, char* argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	// The learner silently loads the newest checkpoint in the run folder, so
-	// reusing a label continues that run instead of starting one. Config.h has
-	// warned about this since the label was introduced and it still cost a run:
-	// every threshold in runs/RUNLOG.md is stated as "X at 100M against the
-	// previous run's X at 100M", and a resumed run has no such baseline.
 	const std::filesystem::path checkpoints = cfg.CheckpointFolder();
 	const bool hasExisting =
 		std::filesystem::exists(checkpoints) && !std::filesystem::is_empty(checkpoints);
 
 	if (hasExisting) {
 		if (fresh) {
-			// Renamed, never deleted. A crashed run's checkpoints are often the
-			// most interesting thing on disk -- p11boost's last save turned out
-			// to predate the NaN and verified clean.
 			std::filesystem::path archived = checkpoints;
 			archived += "-archived";
 			for (int n = 2; std::filesystem::exists(archived); n++)
@@ -186,13 +165,6 @@ int RunTrain(int argc, char* argv[]) {
 			std::printf("--fresh: moved existing checkpoints to %s\n",
 			            archived.string().c_str());
 
-			// The metrics receiver RELOADS an existing CSV and appends to it,
-			// deliberately, so that a resumed run keeps one continuous file and
-			// late-arriving columns (Rating/*) are not lost. That is right for a
-			// resume and wrong here: leaving it would concatenate two runs into
-			// one file with no marker, and a trend read off it shows a policy
-			// that mysteriously resets partway through. It did exactly that once
-			// already.
 			const char* metricsEnv = std::getenv("HIVE_METRICS_DIR");
 			const std::filesystem::path metricsCsv =
 				std::filesystem::path(metricsEnv ? metricsEnv : "metrics") /
@@ -231,10 +203,9 @@ int RunTrain(int argc, char* argv[]) {
 	return EXIT_SUCCESS;
 }
 
-} // namespace
+}  // namespace
 
 int main(int argc, char* argv[]) {
-	// Unbuffered output so logs interleave correctly when RLBot captures them.
 	std::setvbuf(stdout, nullptr, _IONBF, 0);
 	std::setvbuf(stderr, nullptr, _IONBF, 0);
 
@@ -273,6 +244,14 @@ int main(int argc, char* argv[]) {
 				ecfg.maxSeconds = static_cast<float>(std::atof(argv[++i]));
 			} else if (arg == "--seed" && i + 1 < argc) {
 				ecfg.seed = std::atoll(argv[++i]);
+			} else if (arg == "--lookahead-blue" && i + 1 < argc) {
+				ecfg.lookaheadBlue = std::atoi(argv[++i]);
+			} else if (arg == "--lookahead-orange" && i + 1 < argc) {
+				ecfg.lookaheadOrange = std::atoi(argv[++i]);
+			} else if (arg == "--lookahead" && i + 1 < argc) {
+				ecfg.lookaheadBlue = std::atoi(argv[++i]);
+			} else if (arg == "--candidates" && i + 1 < argc) {
+				ecfg.candidates = std::atoi(argv[++i]);
 			} else if (arg == "--cpu") {
 				ecfg.useGPU = false;
 			} else {
@@ -281,7 +260,7 @@ int main(int argc, char* argv[]) {
 			}
 		}
 		if (ecfg.blueModel.empty() || ecfg.orangeModel.empty()) {
-			std::fprintf(stderr, "Usage: %s eval --blue <ckpt> --orange <ckpt> [--games N] [--seconds S] [--cpu]\n", argv[0]);
+			std::fprintf(stderr, "Usage: %s eval --blue <ckpt> --orange <ckpt> [--games N] [--seconds S] [--lookahead-blue N] [--lookahead-orange N] [--candidates N] [--cpu]\n", argv[0]);
 			return EXIT_FAILURE;
 		}
 		try {
@@ -299,9 +278,6 @@ int main(int argc, char* argv[]) {
 		for (int i = 2; i < argc; i++) {
 			const std::string arg = argv[i];
 			if (arg == "--follow" && i + 1 < argc) {
-				// Take a label, not a path: the point of this command is to
-				// watch a run, and the caller should not have to know how
-				// checkpoint folders are named.
 				defaults.runLabel = argv[++i];
 				scfg.followRun = defaults.CheckpointFolder();
 			} else if (arg == "--model" && i + 1 < argc) {
@@ -324,6 +300,10 @@ int main(int argc, char* argv[]) {
 				scfg.seed = std::atoll(argv[++i]);
 			} else if (arg == "--deterministic") {
 				scfg.deterministic = true;
+			} else if (arg == "--lookahead" && i + 1 < argc) {
+				scfg.lookaheadTicks = std::atoi(argv[++i]);
+			} else if (arg == "--candidates" && i + 1 < argc) {
+				scfg.candidates = std::atoi(argv[++i]);
 			} else if (arg == "--gpu") {
 				scfg.useGPU = true;
 			} else {
@@ -334,7 +314,7 @@ int main(int argc, char* argv[]) {
 		if (scfg.model.empty() == scfg.followRun.empty()) {
 			std::fprintf(stderr,
 			             "Usage: %s spectate --follow <label> | --model <ckpt>\n"
-			             "       [--spawns training|kickoff] [--deterministic]\n"
+			             "       [--spawns training|kickoff] [--deterministic] [--lookahead N]\n"
 			             "       [--time-scale X] [--episodes N] [--gpu]\n",
 			             argv[0]);
 			return EXIT_FAILURE;

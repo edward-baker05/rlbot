@@ -7,7 +7,6 @@ namespace fs = std::filesystem;
 namespace Hive {
 
 namespace {
-
 bool IsAllDigits(const std::string& s) {
 	if (s.empty())
 		return false;
@@ -17,10 +16,6 @@ bool IsAllDigits(const std::string& s) {
 	return true;
 }
 
-// What Policy::Load -> GGL::InferUnit actually opens. RUNNING_STATS.json is
-// included because loading without it gives an unnormalized observation: the
-// bot runs, and is quietly wrong, which is the failure mode this project
-// keeps hitting.
 bool IsComplete(const fs::path& dir) {
 	std::error_code ec;
 	for (const char* f : {"POLICY.lt", "SHARED_HEAD.lt", "RUNNING_STATS.json"})
@@ -29,7 +24,7 @@ bool IsComplete(const fs::path& dir) {
 	return true;
 }
 
-} // namespace
+}  // namespace
 
 fs::path FindLatestCheckpoint(const fs::path& runFolder) {
 	std::error_code ec;
@@ -46,7 +41,6 @@ fs::path FindLatestCheckpoint(const fs::path& runFolder) {
 		if (!entry.is_directory(ec))
 			continue;
 
-		// Skips policy_versions (the self-play snapshot pool) for free.
 		const std::string name = entry.path().filename().string();
 		if (!IsAllDigits(name))
 			continue;
@@ -55,7 +49,7 @@ fs::path FindLatestCheckpoint(const fs::path& runFolder) {
 		try {
 			step = std::stoull(name);
 		} catch (const std::exception&) {
-			continue; // Digits but wider than 64 bits; not a real checkpoint.
+			continue;
 		}
 
 		if (found && step <= bestStep)
@@ -71,4 +65,4 @@ fs::path FindLatestCheckpoint(const fs::path& runFolder) {
 	return best;
 }
 
-} // namespace Hive
+}  // namespace Hive

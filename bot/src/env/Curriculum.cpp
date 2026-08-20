@@ -19,7 +19,6 @@ CurriculumState::CurriculumState(std::vector<CurriculumEntry> in) {
 }
 
 void CurriculumState::ResetArena(Arena* arena) {
-	// Child setters are process-lifetime, matching upstream ownership.
 	const float f = RocketSim::Math::RandFloat(0, total);
 	for (size_t i = 0; i < entries.size(); i++) {
 		if (f <= cumulative[i]) {
@@ -32,4 +31,4 @@ void CurriculumState::ResetArena(Arena* arena) {
 	entries.back().setter->ResetArena(arena);
 }
 
-} // namespace Hive
+}  // namespace Hive

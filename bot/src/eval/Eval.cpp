@@ -4,7 +4,7 @@
 #include "../env/Actions.h"
 #include "../env/Obs.h"
 #include "../policy/Policy.h"
-
+#include "../policy/RolloutPlanner.h"
 
 #include <cassert>
 #include <cstdio>
@@ -31,12 +31,21 @@ EvalResult RunEval(const EvalConfig& ecfg) {
 	blue.Load(ecfg.blueModel);
 	orange.Load(ecfg.orangeModel);
 
+	PlannerConfig pcfgBlue = {};
+	pcfgBlue.horizonTicks = ecfg.lookaheadBlue;
+	pcfgBlue.numCandidates = ecfg.candidates;
+	RolloutPlanner plannerBlue(pcfgBlue);
+
+	PlannerConfig pcfgOrange = {};
+	pcfgOrange.horizonTicks = ecfg.lookaheadOrange;
+	pcfgOrange.numCandidates = ecfg.candidates;
+	RolloutPlanner plannerOrange(pcfgOrange);
+
 	EvalResult res = {};
 	for (int game = 0; game < ecfg.games; game++) {
 		Arena* arena = Arena::Create(GameMode::SOCCAR);
 		Car* blueCar = arena->AddCar(Team::BLUE);
 		Car* orangeCar = arena->AddCar(Team::ORANGE);
-
 		int scoreBlue = 0, scoreOrange = 0;
 
 		struct GoalFlag { bool scored = false; Team team = Team::BLUE; } goalFlag;
@@ -61,12 +70,19 @@ EvalResult RunEval(const EvalConfig& ecfg) {
 
 			auto actBlue = blue.InferBatch({gs.players[0]}, {gs}, true);
 			auto actOrange = orange.InferBatch({gs.players[1]}, {gs}, true);
-			held[0].queued = actBlue[0];
-			held[1].queued = actOrange[0];
+			Action chosenBlue = actBlue[0];
+			Action chosenOrange = actOrange[0];
 
-			// actionDelay: hold the old action for the first actionDelay ticks
-			// of this window, then apply the fresh one -- the same cadence the
-			// policy trained with and HivemindBot::update replays.
+			if (ecfg.lookaheadBlue > 0) {
+				chosenBlue = plannerBlue.PlanAction(gs, gs.players[0], chosenBlue);
+			}
+			if (ecfg.lookaheadOrange > 0) {
+				chosenOrange = plannerOrange.PlanAction(gs, gs.players[1], chosenOrange);
+			}
+
+			held[0].queued = chosenBlue;
+			held[1].queued = chosenOrange;
+
 			arena->Step(cfg.actionDelay);
 			held[0].applied = held[0].queued;
 			held[1].applied = held[1].queued;
@@ -97,4 +113,4 @@ EvalResult RunEval(const EvalConfig& ecfg) {
 	return res;
 }
 
-} // namespace Hive
+}  // namespace Hive

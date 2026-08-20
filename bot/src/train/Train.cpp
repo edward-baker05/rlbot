@@ -9,7 +9,7 @@
 #include "Metrics.h"
 
 #include <GigaLearnCPP/Learner.h>
-#include <GigaLearnCPP/PPO/PPOLearner.h> // private GGL header; see bot/CMakeLists.txt
+#include <GigaLearnCPP/PPO/PPOLearner.h>
 #include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/EnvSet/EnvSet.h>
 #include <RLGymCPP/Math.h>
@@ -26,46 +26,18 @@ using namespace RLGC;
 
 namespace Hive {
 
-// ---------------------------------------------------------------------------
-// Metrics
-// ---------------------------------------------------------------------------
-// These track HOW the bot earns reward, not just how much -- reward goes up
-// in every run, but a healthy curve can still hide a collapsing touch height.
-// Sampled on a fraction of steps, since iterating every player of every game
-// every step is a real cost at 128 games.
-
-// Step budget for bounded runs. Set from RunTraining(); 0 disables.
 static int64_t g_MaxSteps = 0;
 
-// Set by HandleSigint, checked in StepCallback. wandb's "Stop run" button
-// sends SIGINT to this process; a plain Ctrl-C does too. Only async-signal-
-// safe work happens in the handler itself -- the actual save/exit runs from
-// StepCallback on the main thread.
 static volatile std::sig_atomic_t g_StopRequested = 0;
 static void HandleSigint(int) { g_StopRequested = 1; }
 
-// (name, weight) per reward term, in spec order -- the same order EnvSet
-// stores per-term rewards in. Set once in RunTraining() before the learner
-// starts; no rewards are allocated for this.
 static std::vector<std::pair<std::string, float>> g_RewardLabels;
 
-// Needed to rebuild observations inside the metrics callback; EnvSetConfig does
-// not carry it. Set once in RunTraining() before the learner starts.
 static int g_MaxPlayersPerTeam = 1;
 static ObsMode g_ObsMode = ObsMode::Relative;
-
-// Mirrors RewardBudget::touchAccelExponent so the metric reports the same
-// curve the reward pays on. A metric that silently disagrees with its
-// reward is worse than no metric.
 static float g_TouchAccelExponent = 2.f;
-
-// Decision steps since each arena last reset, for the Episode/* buckets.
 static std::vector<int> g_EpisodeAge;
 
-// Runs on a fraction of sampled iterations: an extra critic forward pass is not
-// free, and this exists to answer a question, not to run forever. Same thread
-// as collection (Learner.cpp calls the step callback after envSet->Sync()), so
-// touching the models here does not race the workers.
 static void CriticValueMetrics(Learner *learner,
 							   const std::vector<GameState> &states,
 							   Report &report) {
@@ -75,13 +47,11 @@ static void CriticValueMetrics(Learner *learner,
 
 	auto obsBuilder = MakeObsBuilder(g_MaxPlayersPerTeam, g_ObsMode);
 
-	// Flat [N, obsSize] buffer plus, per row, what it is so the values can be
-	// bucketed after one batched forward pass.
 	struct Tag {
-		bool isPrev;   // row is the state the policy chose FROM
-		bool grounded; // plain wheels-down, for the V(ground) vs V(air) split
-		bool decision; // grounded AND upright AND jump legal: the jump choice
-		bool jumped;   // and the policy pressed jump
+		bool isPrev;
+		bool grounded;
+		bool decision;
+		bool jumped;
 	};
 
 	std::vector<float> flat;
@@ -93,8 +63,8 @@ static void CriticValueMetrics(Learner *learner,
 		if (obsSize == 0)
 			obsSize = static_cast<int>(obs.size());
 		if (static_cast<int>(obs.size()) != obsSize)
-			return; // ragged obs would corrupt the batch; skip rather than
-					// guess
+			return;
+
 		flat.insert(flat.end(), obs.begin(), obs.end());
 		tags.push_back(tag);
 	};
@@ -135,13 +105,11 @@ static void CriticValueMetrics(Learner *learner,
 	const float gamma = learner->config.ppo.gaeGamma;
 
 	for (int i = 0; i + 1 < rows; i += 2) {
-		// Rows were pushed in (before, after) pairs, so i is the chosen-from
-		// state and i+1 is where it led.
 		if (!tags[i].isPrev || tags[i + 1].isPrev)
 			continue;
 
 		report.AddAvg("Critic/V All", v[i]);
-		// The plain split answers (a) directly: is being airborne worth more?
+
 		report.AddAvg(
 			tags[i].grounded ? "Critic/V Grounded" : "Critic/V Airborne", v[i]);
 
@@ -157,9 +125,6 @@ static void CriticValueMetrics(Learner *learner,
 	}
 }
 
-// Save first, then _exit rather than return: unwinding out of a callback
-// mid-collection would race the worker threads, and there is nothing left to
-// clean up once the checkpoint is on disk.
 static void SaveAndExit(Learner *learner, const char *reason) {
 	std::cout << "\n" << reason << ". Saving and exiting.\n";
 	std::cout.flush();
@@ -171,10 +136,6 @@ static void SaveAndExit(Learner *learner, const char *reason) {
 
 static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 						 Report &report) {
-	// GigaLearn's training loop runs until the user presses Q; there is no
-	// timestep limit and no documented way to break out of it. The step
-	// callback is the only hook that runs inside the loop with access to the
-	// learner, so the budget and the SIGINT check are both enforced here.
 	if (g_StopRequested) {
 		SaveAndExit(learner, "Interrupted (Ctrl-C or wandb Stop)");
 	}
@@ -186,25 +147,13 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 		SaveAndExit(learner, reason.str().c_str());
 	}
 
-	// --- Episode age --------------------------------------------------------
-	// Tracked OUTSIDE the sampling gate below, because it has to count every
-	// step to stay accurate. Buckets behaviour by time since spawn, so an
-	// approach failure right after spawn is distinguishable from a recovery
-	// failure later in the episode.
 	{
 		auto &es = learner->envSet->state;
 		if (g_EpisodeAge.size() != states.size())
 			g_EpisodeAge.assign(states.size(), 0);
 		for (size_t a = 0; a < states.size(); a++) {
-			// Terminals are flagged for the step that ended the episode; the
-			// reset happens after. Count first, then zero, so the final step of
-			// an episode is still attributed to that episode.
 			g_EpisodeAge[a]++;
 			if (a < es.terminals.size() && es.terminals[a]) {
-				// Re-derives REFERENCE_EPISODE_STEPS, which ships as a working
-				// figure of 150. Recorded at the terminal step so it is a real
-				// episode length rather than a running age, and outside the
-				// sampling gate so no episode is missed.
 				report.AddAvg("Episode/Mean Steps",
 							  static_cast<float>(g_EpisodeAge[a]));
 				g_EpisodeAge[a] = 0;
@@ -212,8 +161,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 		}
 	}
 
-	// Sample roughly a quarter of steps. Averages over an iteration are just
-	// as accurate and cost a quarter as much.
 	const bool sample = (rand() % 4) == 0;
 	if (!sample)
 		return;
@@ -222,22 +169,16 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 
 	for (size_t arenaIdx = 0; arenaIdx < states.size(); arenaIdx++) {
 		const GameState &state = states[arenaIdx];
-		// Buckets are decision steps at 15 Hz: the first second off the spawn,
-		// the next three, then everything after.
+
 		const int age =
 			arenaIdx < g_EpisodeAge.size() ? g_EpisodeAge[arenaIdx] : 0;
 		const char *ageBucket =
 			(age < 15) ? "Early" : (age < 60 ? "Mid" : "Late");
 
 		for (const Player &player : state.players) {
-			// --- Play phase distribution -------------------------------------
-			// Shows what the policy actually spends its time doing. If you
-			// bump the aerial weight in the curriculum and the Aerial share
-			// does not move, the setter is not doing what you think it is.
 			const PlayPhase phase = ClassifyPhase(player, state);
 			phases.Add(phase);
 
-			// --- Core behaviour ----------------------------------------------
 			report.AddAvg("Player/In Air Ratio", !player.isOnGround);
 			report.AddAvg("Player/Ball Touch Ratio", player.ballTouchedStep);
 			report.AddAvg("Player/Demoed Ratio", player.isDemoed);
@@ -250,24 +191,15 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				report.AddAvg("Player/Speed Towards Ball",
 							  RS_MAX(0.f, player.vel.Dot(toBall / dist)));
 
-			// --- Surface contact ---------------------------------------------
-			// The WrongSurface term as a rate. If this does not fall over a
-			// run, the bot is not learning to land, whatever the reward says.
 			const bool wrongSurface =
 				player.worldContact.hasContact && !player.isOnGround;
 			report.AddAvg("Surface/Wrong Contact Rate",
 						  wrongSurface ? 1.f : 0.f);
 
-			// A front flip drives the nose into the floor for a few ticks, and
-			// Player samples the final tick of eight, so the scrape is caught
-			// ~25% of the time. The design prices that at ~11x cheaper than the
-			// flip's own speed gain; this is the check on that arithmetic.
 			if (player.isFlipping)
 				report.AddAvg("Surface/Wrong Contact While Flipping",
 							  wrongSurface ? 1.f : 0.f);
 
-			// --- Landings
-			// -------------------------------------------------------
 			if (player.prev && player.isOnGround && !player.prev->isOnGround) {
 				report.AddAvg("Landing/Rate", 1.f);
 				report.AddAvg("Landing/Clean Share",
@@ -278,26 +210,15 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				report.AddAvg("Landing/Rate", 0.f);
 			}
 
-			// --- Speed
-			// ----------------------------------------------------------
 			const float speed = player.vel.Length();
 			report.AddAvg("Speed/Mean", speed);
 
-			// No reward pays for generic speed any more, so this is pure
-			// diagnostics: it says whether the bot is boosting and flipping or
-			// coasting on the throttle-only floor.
 			report.AddAvg("Speed/Above Throttle Cap Share",
 						  speed > THROTTLE_TOP_SPEED ? 1.f : 0.f);
 
 			if (player.prev) {
 				const float lost = player.prev->vel.Length() - speed;
-				// The deceleration TAIL, as threshold shares. p6budget shipped
-				// a single metric called "Speed/Max Step Decel" that was built
-				// with report.AddAvg, i.e. a MEAN -- it read 22.4 uu/s and
-				// could neither confirm nor refute the 400 uu/s collision
-				// threshold it existed to check. Shares at three thresholds
-				// make the tail readable without a histogram. Hits are excluded
-				// because a hard shot SHOULD cost speed.
+
 				if (!player.ballTouchedStep) {
 					report.AddAvg("Speed/Mean Step Decel", RS_MAX(0.f, lost));
 					report.AddAvg("Speed/Decel Above 200",
@@ -309,50 +230,29 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				}
 			}
 
-			// --- Facing, and the gap that killed p6budget --------------------
-			// p6budget's headline failure was that its NOSE alignment doubled
-			// (0.338 -> 0.741) while its VELOCITY alignment never moved off
-			// 0.300 across 100M steps. That was a DERIVED number -- Speed
-			// Towards Ball divided by Player/Speed -- and this project has
-			// retracted two analyses that rested on derivations. Both halves
-			// are first-class reads now, on the same rectification, so the gap
-			// can be measured directly.
-			//
-			// The ground/air split is the mechanism check: rotation is free in
-			// the air and costs steering on the ground, so if the nose is
-			// aimed only while airborne, the facing term is being bought
-			// without being paid for.
 			if (dist > 1.f) {
 				const Vec dirToBall = toBall / dist;
 				const float cosToBall = player.rotMat.forward.Dot(dirToBall);
 				report.AddAvg("FaceBall/Mean Cos", cosToBall);
 				report.AddAvg("FaceBall/Axis Share", std::fabs(cosToBall));
-				// What FaceBallRectifiedReward actually pays.
+
 				report.AddAvg("FaceBall/Rectified", RS_MAX(0.f, cosToBall));
 				report.AddAvg(player.isOnGround ? "FaceBall/Rectified Grounded"
 												: "FaceBall/Rectified Airborne",
 							  RS_MAX(0.f, cosToBall));
 
-				// The quantity that has to move for any of this to be working.
 				const float sp = player.vel.Length();
 				if (sp > 1.f)
 					report.AddAvg("Player/Velocity Alignment",
 								  RS_MAX(0.f, player.vel.Dot(dirToBall)) / sp);
 			}
 
-			// --- Touch edge -------------------------------------------------
-			// The rate the Touch term actually pays at, as opposed to
-			// Player/Ball Touch Ratio which counts every step of contact. The
-			// gap between them is how much carrying is happening.
 			report.AddAvg("Touch/Edge Rate",
 						  (player.ballTouchedStep &&
 						   !(player.prev && player.prev->ballTouchedStep))
 							  ? 1.f
 							  : 0.f);
 
-			// Same three quantities, split by how old the episode is. If the
-			// Early numbers are strong and Mid/Late collapse, the bot can
-			// approach a ball exactly once per spawn.
 			report.AddAvg(std::string("Episode/") + ageBucket + "/Touch Rate",
 						  player.ballTouchedStep ? 1.f : 0.f);
 			report.AddAvg(std::string("Episode/") + ageBucket + "/In Air Ratio",
@@ -364,18 +264,9 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 								  "/Approach Speed",
 							  RS_MAX(0.f, player.vel.Dot(toBall / dist)));
 
-			// Touch height is the clearest single indicator of whether the bot
-			// is developing an air game. Watch it more than the reward.
 			if (player.ballTouchedStep)
 				report.AddAvg("Player/Touch Height", state.ball.pos.z);
 
-			// --- Touch distribution
-			// ------------------------------------------- Distribution rather
-			// than the mean touch height (~147 measured): the mean hides the
-			// thing that actually matters, which is whether ANY touches are
-			// happening in the jump-only band at all. None of these depend on
-			// state.prev -- they read the current touch and grounded state, not
-			// a velocity delta.
 			{
 				const bool air = !player.isOnGround;
 				if (player.ballTouchedStep) {
@@ -384,40 +275,16 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 					report.AddAvg("Touch/Above 300", h > 300.f ? 1.f : 0.f);
 					report.AddAvg("Touch/Above 450", h > 450.f ? 1.f : 0.f);
 
-					// Did it get there with a jump, and did it flip into the
-					// ball? This is the target skill, stated as a metric.
 					report.AddAvg("Touch/Had Jumped",
 								  player.hasJumped ? 1.f : 0.f);
 					report.AddAvg("Touch/Had Flipped",
 								  player.hasFlipped ? 1.f : 0.f);
 
-					// What a realized touch is actually WORTH under
-					// StrongTouchReward, which is the only thing that can turn
-					// its provisional 1.0 budget into a measured one (roadmap
-					// D6). Hit force is |delta ball velocity| at contact; the
-					// reward is 0 below 20 kph and 1.0 at 130 kph. KPHToVel(x)
-					// is x * 250/9, so those are 555.6 and 3611.1 uu/s -- NOT
-					// the 183/1192 this comment used to claim. For scale,
-					// CAR_MAX_SPEED 2300 uu/s is 82.8 kph and the ball caps at
-					// 6000 uu/s = 216 kph, so 20 kph is a very weak touch.
-					//
-					// The gap between `Hit Force` and `Strong Value` is the
-					// point: a dribble carry produces a large touch RATE at
-					// near-zero force, so if Strong Value stays flat while
-					// `Player/Ball Touch Ratio` climbs, the bot is farming
-					// contact again and the rising-edge term is not enough.
 					if (state.prev) {
 						const float hitForce =
 							(state.ball.vel - state.prev->ball.vel).Length();
 						report.AddAvg("Touch/Hit Force", hitForce);
-						// What a realized touch earns from the term actually in
-						// the stack. `Strong Value` above is the RETIRED
-						// StrongTouch curve, kept only so the series stays
-						// comparable across runs; this is the one that
-						// reconciles against `RewardShare/TouchGoalAccel`.
-						// Being convex it falls away far faster than hit force
-						// does, and the gap between Raw and Value is exactly
-						// what p13strike buys.
+
 						{
 							const Vec target =
 								(player.team == Team::BLUE)
@@ -449,43 +316,14 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 							  player.ballTouchedStep ? 1.f : 0.f);
 			}
 
-			// --- What the policy actually DID --------------------------------
-			// Everything above is a state statistic: it says where the car
-			// ended up, not what the policy chose. "In Air Ratio 0.91" is
-			// consistent with a policy that jumps constantly AND with one that
-			// never jumps but keeps getting launched, which need opposite
-			// fixes.
-			//
-			// prevAction is the action applied during this step, so it must be
-			// conditioned on the PREVIOUS state -- that is the state the policy
-			// saw when it chose. Without prev there is no decision to
-			// attribute.
 			if (!player.prev)
 				continue;
 
 			const Player &before = *player.prev;
 
-			// Mirrors DefaultAction::GetActionMask: jump actions are offered
-			// while a flip/jump remains, and also while turtled (upside down),
-			// which is how a stuck car rights itself. If jump was not on the
-			// menu, the step says nothing about whether the policy wants it.
 			const bool turtled = before.worldContact.hasContact &&
 								 before.worldContact.contactNormal.z > 0.9f;
 			const bool couldJump = before.HasFlipOrJump() || turtled;
-
-			// A car resting upside down on the floor is "grounded" and jump is
-			// the correct way out of it, so an upright split is needed before
-			// a high grounded jump rate can be read as a farm rather than as
-			// recovery. Wheels-down is rotMat.up.z near +1.
-			//
-			// BUT: a car driving on a WALL is also grounded with up.z near 0,
-			// so it lands in the non-upright bucket too. That bucket was named
-			// "Inverted" and read as upside-down recovery for three runs, while
-			// p10touch's 0.0615 there -- 15x the eps-floor and rising -- was
-			// overwhelmingly wall jumping, the one place this bot leaves a
-			// surface on purpose. The name is now "Tilted" and the denominator
-			// is published alongside it, because "jumping is extinct" was drawn
-			// from the Upright bucket alone and was wrong.
 			const bool upright = before.rotMat.up.z > 0.7f;
 
 			if (before.isOnGround)
@@ -502,13 +340,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 								  player.prevAction.jump);
 			}
 
-			// --- Is it just standing there? ----------------------------------
-			// The old stack had a flat `Grounded` bonus that made standing
-			// still a risk-free annuity; that term is gone (deleted with
-			// GroundedBonusReward), but the ratio is still worth watching --
-			// SpeedToBallReward pays zero for a motionless car, so a nonzero
-			// stationary share now means the *rest* of the stack isn't moving
-			// the policy off it either.
 			if (player.isOnGround) {
 				const float sp = player.vel.Length();
 				report.AddAvg("Player/Grounded Speed", sp);
@@ -516,16 +347,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 							  sp < 200.f ? 1.f : 0.f);
 			}
 
-			// --- Is it actually driving? -------------------------------------
-			// Added while diagnosing a policy that boosts in straight lines and
-			// never turns. Everything else here measures resulting STATE; these
-			// measure the grounded control inputs directly, because "it does
-			// not steer" and "it steers but cannot hold a line" look identical
-			// from speed and position alone.
-			//
-			// Split by whether boost is even available: DefaultAction masks out
-			// every boost action at zero boost, so a raw boost rate conflates
-			// "chose not to boost" with "could not".
 			if (before.isOnGround && upright) {
 				report.AddAvg("Action/Steer Nonzero",
 							  player.prevAction.steer != 0.f ? 1.f : 0.f);
@@ -539,10 +360,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 								  player.prevAction.boost);
 			}
 
-			// --- What KIND of flip? ------------------------------------------
-			// DefaultAction's jump entries always have yaw == 0 (jump+yaw
-			// combinations are skipped when the table is built), so a diagonal
-			// flip is pitch and roll together; a straight flip is one axis.
 			if (player.prevAction.jump != 0.f) {
 				const bool pitching = player.prevAction.pitch != 0.f;
 				const bool rolling = player.prevAction.roll != 0.f;
@@ -550,19 +367,12 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 							  (pitching && rolling) ? 1.f : 0.f);
 				report.AddAvg("Flip/Neutral Share",
 							  (!pitching && !rolling) ? 1.f : 0.f);
-				// p6budget left 99.1% of jump-presses in neither bucket, i.e.
-				// single-axis, with no way to tell a front flip from a side
-				// flip. Watching the bot said side flips; the metrics could not
-				// confirm it. Roll-only IS a side flip, so split them.
+
 				report.AddAvg("Flip/Pitch Only Share",
 							  (pitching && !rolling) ? 1.f : 0.f);
 				report.AddAvg("Flip/Roll Only Share",
 							  (!pitching && rolling) ? 1.f : 0.f);
 
-				// airTimeSinceJump is the gap between leaving the ground and
-				// now, so on the step a second jump is pressed in the air it IS
-				// the flip delay. A deliberate stall shows up as a delay well
-				// past the ~0.1s a reflexive double-jump would give.
 				if (!before.isOnGround && before.hasJumped)
 					report.AddAvg("Flip/Delay Seconds",
 								  before.airTimeSinceJump);
@@ -574,10 +384,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 											: "Action/Boost When Airborne",
 						  player.prevAction.boost);
 
-			// Where does the air time come from? Of every ground->air
-			// transition, how many did the policy cause by pressing jump, as
-			// opposed to driving off a ramp, being bumped, or a curriculum
-			// spawn. If this is low the flip-spam reading is simply wrong.
 			if (before.isOnGround) {
 				report.AddAvg("Player/Leave Ground Rate", !player.isOnGround);
 				if (!player.isOnGround)
@@ -585,17 +391,9 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 								  player.prevAction.jump);
 			}
 
-			// How long a single airborne stint lasts, in seconds. Pairs with
-			// Leave Ground Rate: together they say whether 91% air time is many
-			// short hops or a few very long tumbles.
 			if (!player.isOnGround)
 				report.AddAvg("Player/Air Time", player.airTime);
 
-			// --- What does a flip actually buy? ------------------------------
-			// Landing vs sustained split: tests whether a flip is a speed pump
-			// or just a heading randomizer. Not a clean counterfactual --
-			// "sustained" cars have had time to accelerate -- but it bounds the
-			// effect.
 			if (player.isOnGround && dist > 1.f) {
 				const float towards =
 					RS_MAX(0.f, player.vel.Dot(toBall / dist));
@@ -616,7 +414,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 		report.AddAvg("Game/Players", static_cast<float>(state.players.size()));
 	}
 
-	// Report each phase as a fraction of sampled player-steps.
 	const int64_t total = phases.Total();
 	if (total > 0) {
 		for (int i = 0; i < PLAY_PHASE_COUNT; i++) {
@@ -627,10 +424,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 		}
 	}
 
-	// --- Reward shares ------------------------------------------------------
-	// lastRewards holds each term's raw (unweighted, pre-zero-sum) reward for
-	// one sampled player per arena; |r * w| across terms approximates where
-	// the realized reward mass is going. This is the farming detector.
 	auto &envSet = *learner->envSet;
 	if (!g_RewardLabels.empty()) {
 		std::vector<float> totals(g_RewardLabels.size(), 0.f);
@@ -651,10 +444,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 		}
 	}
 
-	// --- Observation health --------------------------------------------------
-	// Zero in every healthy run. Non-zero means a NaN or inf reached the
-	// network's input, which is the one failure that corrupts training without
-	// appearing anywhere else in this report.
 	{
 		const ObsHealth health = ConsumeObsHealth();
 		if (health.checked > 0)
@@ -663,9 +452,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 							  static_cast<float>(health.checked));
 	}
 
-	// --- Infinite-boost episodes --------------------------------------------
-	// Published so `Player/Boost` can never be read without knowing what share
-	// of episodes had a tank that could not drain.
 	for (size_t a = 0; a < envSet.stateSetters.size(); a++) {
 		auto *ib = dynamic_cast<InfiniteBoostState *>(envSet.stateSetters[a]);
 		if (ib)
@@ -673,18 +459,12 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 						  ib->LastWasInfinite() ? 1.f : 0.f);
 	}
 
-	// --- Scenario outcomes --------------------------------------------------
-	// Terminal arenas have not been reset yet at callback time, so the
-	// curriculum's last-picked name still labels the episode that just ended.
 	std::map<std::string, int> scenarioCounts;
 	for (size_t a = 0; a < envSet.stateSetters.size(); a++) {
 		auto *cs = dynamic_cast<CurriculumState *>(envSet.stateSetters[a]);
 		if (!cs || cs->LastPickedName().empty())
 			continue;
 		if (scenarioCounts.empty()) {
-			// Seed every configured scenario with zero so names not picked
-			// this step still contribute a sample; otherwise rare scenarios'
-			// Share averages are biased upward.
 			for (const auto &name : cs->EntryNames())
 				scenarioCounts[name] = 0;
 		}
@@ -696,35 +476,20 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 		}
 	}
 	if (!envSet.stateSetters.empty()) {
-		// A true share: count per name across all arenas, so a scenario that
-		// never runs is distinguishable from one that always does.
 		const float arenaCount = static_cast<float>(envSet.stateSetters.size());
 		for (const auto &[name, count] : scenarioCounts)
 			report.AddAvg("Scenario/" + name + "/Share",
 						  static_cast<float>(count) / arenaCount);
 	}
 
-	// --- What does the CRITIC think? ----------------------------------------
-	// V(grounded) vs V(airborne) says whether the critic favours air time on
-	// its own, independent of what the reward does. The TD split goes further:
-	// out of a grounded state, does bootstrapping through the jump action look
-	// better than not jumping? Note the TD figure omits the immediate reward
-	// (it's gamma*V(s') - V(s), not the full residual), so read it as "where
-	// does jumping take me", not as an advantage.
 	CriticValueMetrics(learner, states, report);
 }
 
-// ---------------------------------------------------------------------------
-
 void RunTraining(const TrainConfig &cfg) {
-	// RocketSim needs the collision meshes to simulate the arena geometry.
-	// Without them cars fall through the world, which presents as a bot that
-	// learns nothing rather than as an obvious error.
 	const char *meshEnv = std::getenv("HIVE_COLLISION_MESHES");
 	const std::string meshPath = meshEnv ? meshEnv : "collision_meshes";
 	RocketSim::Init(meshPath);
 
-	// Probe the observation width rather than deriving it. See env/Obs.h.
 	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam, cfg.obs);
 	std::cout << "Observation size: " << obsSize
 			  << " (maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
@@ -773,20 +538,13 @@ void RunTraining(const TrainConfig &cfg) {
 	lc.ppo.miniBatchSize = cfg.miniBatchSize;
 	lc.ppo.epochs = cfg.epochs;
 	lc.ppo.entropyScale = cfg.entropyScale;
-	// Above 0 this turns entropyScale into a CONTROLLED variable rather
-	// than a constant; the learner then reports `Entropy Scale` and
-	// `Entropy Target` so the loop is auditable. See the note on
-	// TrainConfig::entropyTarget for why a fixed coefficient cannot hold
-	// an entropy floor.
+
 	lc.ppo.entropyTarget = cfg.entropyTarget;
 	lc.ppo.entropyAdjustRate = cfg.entropyAdjustRate;
 	lc.ppo.gaeGamma = cfg.gaeGamma;
 	lc.ppo.policyLR = cfg.policyLR;
 	lc.ppo.criticLR = cfg.criticLR;
 
-	// The policy and shared-head shapes here MUST match ModelShape in
-	// Config.h, because that is what the RLBot client rebuilds at load time.
-	// Mismatch means the deployed bot silently loads garbage weights.
 	lc.ppo.sharedHead.layerSizes = cfg.modelShape.sharedHeadLayers;
 	lc.ppo.sharedHead.activationType = cfg.modelShape.activation;
 	lc.ppo.sharedHead.addLayerNorm = cfg.modelShape.addLayerNorm;
@@ -796,16 +554,10 @@ void RunTraining(const TrainConfig &cfg) {
 	lc.ppo.policy.activationType = cfg.modelShape.activation;
 	lc.ppo.policy.addLayerNorm = cfg.modelShape.addLayerNorm;
 
-	// The critic is training-only, so it never has to match the client. Give it
-	// the same shape as the policy; there is rarely a reason to differ.
 	lc.ppo.critic.layerSizes = cfg.modelShape.policyLayers;
 	lc.ppo.critic.activationType = cfg.modelShape.activation;
 	lc.ppo.critic.addLayerNorm = cfg.modelShape.addLayerNorm;
 
-	// --- Self-play ----------------------------------------------------------
-	// The learner forces savePolicyVersions on if either of these is enabled,
-	// since both need the version pool. Setting it explicitly documents the
-	// dependency rather than relying on that.
 	lc.trainAgainstOldVersions = cfg.selfPlay.trainAgainstOldVersions;
 	lc.trainAgainstOldChance = cfg.selfPlay.trainAgainstOldChance;
 	lc.savePolicyVersions =
@@ -827,19 +579,15 @@ void RunTraining(const TrainConfig &cfg) {
 	lc.renderMode = cfg.renderMode;
 	lc.renderTimeScale = cfg.renderTimeScale;
 
-	// Capture cfg by value: the learner calls this for every game at startup,
-	// and outliving the caller's stack frame is not worth risking.
 	auto envCreateFn = [cfg](int index) -> EnvCreateResult {
 		return CreateEnv(index, cfg);
 	};
 
 	Learner learner(envCreateFn, lc, StepCallback);
 
-	// Installed after the Learner (and its embedded Python interpreter) is
-	// constructed, since Python init can otherwise install its own handler.
 	std::signal(SIGINT, HandleSigint);
 
 	learner.Start();
 }
 
-} // namespace Hive
+}  // namespace Hive

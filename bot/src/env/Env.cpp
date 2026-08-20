@@ -15,10 +15,6 @@ using namespace RLGC;
 
 namespace Hive {
 
-// (randBallSpeed, randCarSpeed, carsOnGround) = (true, true, false), which is
-// the RandomState configuration Zealan's guide specifies: random positions and
-// velocities for both the ball and the cars, with cars spawning airborne on
-// half of resets so they learn to land.
 StateSetter* BuildSpawner(const TrainConfig& cfg) {
 	StateSetter* base = (cfg.spawn == TrainConfig::SpawnMode::Curriculum)
 		? BuildGeneralCurriculum(cfg.curriculum)
@@ -27,14 +23,10 @@ StateSetter* BuildSpawner(const TrainConfig& cfg) {
 	if (cfg.infiniteBoostChance <= 0.f)
 		return base;
 
-	// Wraps rather than replaces, so the spawn distribution is unchanged and
-	// the only difference is whether the tank drains.
 	return new InfiniteBoostState(base, cfg.infiniteBoostChance);
 }
 
 StateSetter* BuildGeneralCurriculum(const CurriculumWeights& w) {
-	// CurriculumState drops zero-weight entries and remembers which scenario
-	// each reset came from, which is what the Scenario/* metrics report.
 	return new CurriculumState({
 		{new NeutralPlayState(), w.neutralPlay, "NeutralPlay"},
 		{new BallContactState(), w.ballContact, "BallContact"},
@@ -67,4 +59,4 @@ EnvCreateResult CreateEnv(int index, const TrainConfig& cfg) {
 	return result;
 }
 
-} // namespace Hive
+}  // namespace Hive

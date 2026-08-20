@@ -2,7 +2,7 @@
 
 #include "../env/Actions.h"
 #include "../env/Obs.h"
-
+#include "../policy/RolloutPlanner.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -11,10 +11,6 @@
 using namespace RLGC;
 
 namespace Hive {
-
-// ---------------------------------------------------------------------------
-// Settings
-// ---------------------------------------------------------------------------
 
 static std::string EnvOr(const char* key, const std::string& fallback) {
 	const char* v = std::getenv(key);
@@ -33,9 +29,20 @@ static int EnvIntOr(const char* key, int fallback) {
 	}
 }
 
+static float EnvFloatOr(const char* key, float fallback) {
+	const char* v = std::getenv(key);
+	if (!v || !*v)
+		return fallback;
+	try {
+		return std::stof(v);
+	} catch (...) {
+		std::fprintf(stderr, "[HivemindBot] WARNING: %s is not a float, using %f\n", key, fallback);
+		return fallback;
+	}
+}
+
 BotSettings BotSettings::FromEnvironment() {
 	BotSettings s = {};
-
 	const std::string model = EnvOr("HIVE_MODEL", "");
 	if (model.empty()) {
 		throw std::runtime_error(
@@ -54,12 +61,12 @@ BotSettings BotSettings::FromEnvironment() {
 	s.deterministic = EnvIntOr("HIVE_DETERMINISTIC", 1) != 0;
 	s.useGPU = EnvIntOr("HIVE_USE_GPU", 1) != 0;
 
+	s.lookaheadTicks = EnvIntOr("HIVE_LOOKAHEAD_TICKS", 0);
+	s.rolloutCandidates = EnvIntOr("HIVE_ROLLOUT_CANDIDATES", 32);
+	s.mppiTemperature = EnvFloatOr("HIVE_MPPI_TEMPERATURE", 0.3f);
+
 	return s;
 }
-
-// ---------------------------------------------------------------------------
-// Shared context
-// ---------------------------------------------------------------------------
 
 SharedContext& Context() {
 	static SharedContext ctx;
@@ -81,20 +88,25 @@ void SharedContext::Initialize(const BotSettings& s) {
 	policy->Load(settings.model);
 	std::printf("[HivemindBot] Loaded model from %s\n", settings.model.c_str());
 
+	if (settings.lookaheadTicks > 0) {
+		PlannerConfig pcfg = {};
+		pcfg.horizonTicks = settings.lookaheadTicks;
+		pcfg.numCandidates = settings.rolloutCandidates;
+		pcfg.temperature = settings.mppiTemperature;
+		planner = std::make_unique<RolloutPlanner>(pcfg);
+		std::printf("[HivemindBot] Lookahead MPPI search enabled: horizon=%d ticks, candidates=%d, temp=%.2f\n",
+		            settings.lookaheadTicks, settings.rolloutCandidates, settings.mppiTemperature);
+	}
+
 	std::printf("[HivemindBot] Observation size %d, tickSkip %d, actionDelay %d, %s\n",
 	            obsSize, settings.tickSkip, settings.actionDelay,
 	            settings.useGPU ? "GPU" : "CPU");
 }
 
-// ---------------------------------------------------------------------------
-// Bot
-// ---------------------------------------------------------------------------
-
 HivemindBot::HivemindBot(std::unordered_set<unsigned> indices,
                          unsigned team,
                          std::string name) noexcept
 	: rlbot::Bot(std::move(indices), team, std::move(name)) {
-
 	std::printf("[HivemindBot] Team %u controlling %zu car(s):", team, this->indices.size());
 	for (unsigned idx : this->indices) {
 		std::printf(" %u", idx);
@@ -115,9 +127,6 @@ void HivemindBot::initialize(const rlbot::flat::ControllableTeamInfo* controllab
 
 void HivemindBot::update(const rlbot::flat::GamePacket* packet,
                          const rlbot::flat::BallPrediction* ballPrediction) noexcept {
-	// The interface marks update() noexcept, so nothing may escape. A throwing
-	// inference call must degrade to "keep holding the last controls" rather
-	// than terminate the process mid-match.
 	try {
 		if (!packet || !packet->players()) {
 			for (unsigned idx : indices)
@@ -125,28 +134,22 @@ void HivemindBot::update(const rlbot::flat::GamePacket* packet,
 			return;
 		}
 
-		// --- Tick accounting -------------------------------------------------
 		const float now = packet->match_info() ? packet->match_info()->seconds_elapsed() : 0.f;
 		int ticksElapsed = 1;
 		if (prevSeconds >= 0.f) {
 			ticksElapsed = static_cast<int>(std::lround((now - prevSeconds) * 120.f));
-			// Clamp: a paused game or a goal replay can produce a huge or
-			// negative delta, which would otherwise desync the action cadence.
+
 			ticksElapsed = RS_MAX(0, RS_MIN(ticksElapsed, 32));
 		}
 		prevSeconds = now;
 
 		const GameState gs = converter.Convert(packet);
 		const auto& settings = Context().settings;
-
-		// --- Decide which cars need a fresh action ---------------------------
 		std::vector<unsigned> needInference;
 		std::vector<Player> players;
 		std::vector<GameState> states;
 
 		for (unsigned idx : indices) {
-			// A car we were assigned may not be in the packet yet (or at all,
-			// briefly, during a match restart).
 			if (idx >= packet->players()->size())
 				continue;
 
@@ -160,37 +163,32 @@ void HivemindBot::update(const rlbot::flat::GamePacket* packet,
 			}
 		}
 
-		// --- One batched forward pass for every car that needs it ------------
 		if (!needInference.empty()) {
 			auto actions = Context().policy->InferBatch(
 				players, states, settings.deterministic, settings.temperature);
 
 			for (size_t i = 0; i < needInference.size(); i++) {
+				Action act = actions[i];
+				if (Context().planner && settings.lookaheadTicks > 0) {
+					act = Context().planner->PlanAction(states[i], players[i], act);
+				}
 				CarState& car = cars[needInference[i]];
-				car.queued = actions[i];
+				car.queued = act;
 				car.needsInference = false;
 			}
 		}
 
-		// --- Apply the trained action cadence --------------------------------
 		for (unsigned idx : indices) {
 			CarState& car = cars[idx];
 
-			// Latency: hold the previous action until actionDelay ticks have
-			// passed, matching how the policy experienced the world in
-			// training.
 			if (car.ticks >= (settings.actionDelay - 1) || car.ticks == -1)
 				car.applied = car.queued;
 
-			// Repeat: infer again only every tickSkip ticks.
 			if (car.ticks >= settings.tickSkip || car.ticks == -1) {
 				car.ticks = 0;
 				car.needsInference = true;
 			}
 
-			// ControllerState is a flatbuffers struct: build it in one shot.
-			// Field order is throttle, steer, pitch, yaw, roll, then the
-			// buttons -- matching RLGC::Action's own ordering.
 			setOutput(idx, rlbot::flat::ControllerState(
 				car.applied.throttle,
 				car.applied.steer,
@@ -200,12 +198,11 @@ void HivemindBot::update(const rlbot::flat::GamePacket* packet,
 				car.applied.jump == 1.f,
 				car.applied.boost == 1.f,
 				car.applied.handbrake == 1.f,
-				/*use_item=*/false));
+				false));
 		}
-
 	} catch (const std::exception& e) {
 		if (!loggedError) {
-			loggedError = true; // Log once; a per-tick error would flood output
+			loggedError = true;
 			std::fprintf(stderr, "[HivemindBot] ERROR in update(): %s\n", e.what());
 		}
 		for (unsigned idx : indices)
@@ -220,4 +217,4 @@ void HivemindBot::update(const rlbot::flat::GamePacket* packet,
 	}
 }
 
-} // namespace Hive
+}  // namespace Hive

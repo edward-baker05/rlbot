@@ -5,16 +5,16 @@
 
 namespace Hive {
 
-// Headless checkpoint-vs-checkpoint matches in RocketSim. This is the
-// frozen-reference-pool tool: pit any two checkpoints (current vs a gate
-// checkpoint, run A vs run B) without a learner or a game client.
 struct EvalConfig {
 	std::filesystem::path blueModel;
 	std::filesystem::path orangeModel;
 	int games = 20;
-	float maxSeconds = 300.f;   // per game, sim time
+	float maxSeconds = 300.f;
 	bool useGPU = true;
 	int64_t seed = -1;
+	int lookaheadBlue = 0;
+	int lookaheadOrange = 0;
+	int candidates = 32;
 };
 
 struct EvalResult {
@@ -24,4 +24,4 @@ struct EvalResult {
 
 EvalResult RunEval(const EvalConfig& cfg);
 
-} // namespace Hive
+}  // namespace Hive

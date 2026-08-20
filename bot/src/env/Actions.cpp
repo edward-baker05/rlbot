@@ -9,4 +9,4 @@ std::unique_ptr<RLGC::DefaultAction> MakeActionParser(bool masked) {
 	return std::make_unique<UnmaskedAction>();
 }
 
-} // namespace Hive
+}  // namespace Hive

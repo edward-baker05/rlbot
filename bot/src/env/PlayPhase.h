@@ -7,9 +7,6 @@
 
 namespace Hive {
 
-// Play phases are metrics labels only, never routing: they describe what the
-// single policy is doing at a given moment, for wandb, not which model runs.
-
 enum class PlayPhase : int {
 	Aerial = 0,
 	AirDribble,
@@ -39,7 +36,6 @@ PlayPhase ClassifyPhase(const RLGC::Player& player,
                         const RLGC::GameState& state,
                         const PhaseThresholds& t = {});
 
-// Per-phase counters for training metrics.
 struct PhaseCounts {
 	std::array<int64_t, PLAY_PHASE_COUNT> counts = {};
 
@@ -53,4 +49,4 @@ struct PhaseCounts {
 	}
 };
 
-} // namespace Hive
+}  // namespace Hive

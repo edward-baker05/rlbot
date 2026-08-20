@@ -15,4 +15,4 @@ std::vector<float> NormalizeShares(const std::vector<float>& totals) {
 	return out;
 }
 
-} // namespace Hive
+}  // namespace Hive

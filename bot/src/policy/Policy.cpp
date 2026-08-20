@@ -20,8 +20,6 @@ void Policy::Load(const std::filesystem::path& folder) {
 			std::string("Policy: checkpoint folder does not exist: ") + folder.string());
 	}
 
-	// GigaLearn writes each sub-model as an uppercased <NAME>.lt file. Checking
-	// here turns an opaque libtorch failure into an actionable message.
 	bool anyModelFile = false;
 	for (const auto& entry : std::filesystem::directory_iterator(folder)) {
 		if (entry.path().extension() == ".lt") {
@@ -39,7 +37,7 @@ void Policy::Load(const std::filesystem::path& folder) {
 	sharedCfg.layerSizes = shape.sharedHeadLayers;
 	sharedCfg.activationType = shape.activation;
 	sharedCfg.addLayerNorm = shape.addLayerNorm;
-	sharedCfg.addOutputLayer = false; // Shared head feeds the policy, no logits
+	sharedCfg.addOutputLayer = false;
 
 	GGL::PartialModelConfig policyCfg = {};
 	policyCfg.layerSizes = shape.policyLayers;
@@ -64,4 +62,4 @@ std::vector<Action> Policy::InferBatch(const std::vector<Player>& players,
 	return unit->BatchInferActions(players, states, deterministic, temperature);
 }
 
-} // namespace Hive
+}  // namespace Hive
