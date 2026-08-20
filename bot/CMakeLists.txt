@@ -79,8 +79,6 @@ add_library(HiveCore STATIC
 
 	src/policy/Policy.cpp
 	src/policy/Policy.h
-	src/policy/RolloutPlanner.cpp
-	src/policy/RolloutPlanner.h
 
 	src/rlbot/HivemindBot.cpp
 	src/rlbot/HivemindBot.h
@@ -143,7 +141,6 @@ add_executable(HiveTests
 	tests/test_actionspace.cpp
 	tests/test_relativeobs.cpp
 	tests/test_checkpoints.cpp
-	tests/test_rollout_planner.cpp
 )
 target_link_libraries(HiveTests PRIVATE HiveCore)
 target_include_directories(HiveTests PRIVATE tests)

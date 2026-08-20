@@ -4,7 +4,6 @@
 #include "../env/Actions.h"
 #include "../env/Obs.h"
 #include "../policy/Policy.h"
-#include "../policy/RolloutPlanner.h"
 
 #include <cassert>
 #include <cstdio>
@@ -30,16 +29,6 @@ EvalResult RunEval(const EvalConfig& ecfg) {
 	Policy orange(obsBuilder.get(), obsSize, parser.get(), cfg.modelShape, ecfg.useGPU);
 	blue.Load(ecfg.blueModel);
 	orange.Load(ecfg.orangeModel);
-
-	PlannerConfig pcfgBlue = {};
-	pcfgBlue.horizonTicks = ecfg.lookaheadBlue;
-	pcfgBlue.numCandidates = ecfg.candidates;
-	RolloutPlanner plannerBlue(pcfgBlue);
-
-	PlannerConfig pcfgOrange = {};
-	pcfgOrange.horizonTicks = ecfg.lookaheadOrange;
-	pcfgOrange.numCandidates = ecfg.candidates;
-	RolloutPlanner plannerOrange(pcfgOrange);
 
 	EvalResult res = {};
 	for (int game = 0; game < ecfg.games; game++) {
@@ -70,18 +59,8 @@ EvalResult RunEval(const EvalConfig& ecfg) {
 
 			auto actBlue = blue.InferBatch({gs.players[0]}, {gs}, true);
 			auto actOrange = orange.InferBatch({gs.players[1]}, {gs}, true);
-			Action chosenBlue = actBlue[0];
-			Action chosenOrange = actOrange[0];
-
-			if (ecfg.lookaheadBlue > 0) {
-				chosenBlue = plannerBlue.PlanAction(gs, gs.players[0], chosenBlue);
-			}
-			if (ecfg.lookaheadOrange > 0) {
-				chosenOrange = plannerOrange.PlanAction(gs, gs.players[1], chosenOrange);
-			}
-
-			held[0].queued = chosenBlue;
-			held[1].queued = chosenOrange;
+			held[0].queued = actBlue[0];
+			held[1].queued = actOrange[0];
 
 			arena->Step(cfg.actionDelay);
 			held[0].applied = held[0].queued;

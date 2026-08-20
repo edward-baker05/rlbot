@@ -24,9 +24,6 @@ struct BotSettings {
 	ModelShape modelShape = {};
 	bool deterministic = true;
 	float temperature = 1.f;
-	int lookaheadTicks = 0;
-	int rolloutCandidates = 32;
-	float mppiTemperature = 0.3f;
 	bool useGPU = true;
 
 	static BotSettings FromEnvironment();
@@ -37,7 +34,6 @@ struct SharedContext {
 	std::unique_ptr<RLGC::ObsBuilder> obsBuilder;
 	std::unique_ptr<RLGC::ActionParser> actionParser;
 	std::unique_ptr<Policy> policy;
-	std::unique_ptr<class RolloutPlanner> planner;
 	int obsSize = 0;
 
 	void Initialize(const BotSettings& settings);

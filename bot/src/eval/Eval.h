@@ -12,9 +12,6 @@ struct EvalConfig {
 	float maxSeconds = 300.f;
 	bool useGPU = true;
 	int64_t seed = -1;
-	int lookaheadBlue = 0;
-	int lookaheadOrange = 0;
-	int candidates = 32;
 };
 
 struct EvalResult {

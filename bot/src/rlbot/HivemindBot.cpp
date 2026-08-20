@@ -2,7 +2,6 @@
 
 #include "../env/Actions.h"
 #include "../env/Obs.h"
-#include "../policy/RolloutPlanner.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -29,18 +28,6 @@ static int EnvIntOr(const char* key, int fallback) {
 	}
 }
 
-static float EnvFloatOr(const char* key, float fallback) {
-	const char* v = std::getenv(key);
-	if (!v || !*v)
-		return fallback;
-	try {
-		return std::stof(v);
-	} catch (...) {
-		std::fprintf(stderr, "[HivemindBot] WARNING: %s is not a float, using %f\n", key, fallback);
-		return fallback;
-	}
-}
-
 BotSettings BotSettings::FromEnvironment() {
 	BotSettings s = {};
 	const std::string model = EnvOr("HIVE_MODEL", "");
@@ -60,10 +47,6 @@ BotSettings BotSettings::FromEnvironment() {
 	s.actionDelay = EnvIntOr("HIVE_ACTION_DELAY", 7);
 	s.deterministic = EnvIntOr("HIVE_DETERMINISTIC", 1) != 0;
 	s.useGPU = EnvIntOr("HIVE_USE_GPU", 1) != 0;
-
-	s.lookaheadTicks = EnvIntOr("HIVE_LOOKAHEAD_TICKS", 0);
-	s.rolloutCandidates = EnvIntOr("HIVE_ROLLOUT_CANDIDATES", 32);
-	s.mppiTemperature = EnvFloatOr("HIVE_MPPI_TEMPERATURE", 0.3f);
 
 	return s;
 }
@@ -87,16 +70,6 @@ void SharedContext::Initialize(const BotSettings& s) {
 
 	policy->Load(settings.model);
 	std::printf("[HivemindBot] Loaded model from %s\n", settings.model.c_str());
-
-	if (settings.lookaheadTicks > 0) {
-		PlannerConfig pcfg = {};
-		pcfg.horizonTicks = settings.lookaheadTicks;
-		pcfg.numCandidates = settings.rolloutCandidates;
-		pcfg.temperature = settings.mppiTemperature;
-		planner = std::make_unique<RolloutPlanner>(pcfg);
-		std::printf("[HivemindBot] Lookahead MPPI search enabled: horizon=%d ticks, candidates=%d, temp=%.2f\n",
-		            settings.lookaheadTicks, settings.rolloutCandidates, settings.mppiTemperature);
-	}
 
 	std::printf("[HivemindBot] Observation size %d, tickSkip %d, actionDelay %d, %s\n",
 	            obsSize, settings.tickSkip, settings.actionDelay,
@@ -168,12 +141,8 @@ void HivemindBot::update(const rlbot::flat::GamePacket* packet,
 				players, states, settings.deterministic, settings.temperature);
 
 			for (size_t i = 0; i < needInference.size(); i++) {
-				Action act = actions[i];
-				if (Context().planner && settings.lookaheadTicks > 0) {
-					act = Context().planner->PlanAction(states[i], players[i], act);
-				}
 				CarState& car = cars[needInference[i]];
-				car.queued = act;
+				car.queued = actions[i];
 				car.needsInference = false;
 			}
 		}
