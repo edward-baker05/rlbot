@@ -33,6 +33,64 @@ def _csv_dir():
     return os.environ.get("HIVE_METRICS_DIR", "metrics")
 
 
+def _id_sidecar(name):
+    """Where this run LABEL's own wandb run id is recorded."""
+    return os.path.join(_csv_dir(), f"{name}.wandb-id")
+
+
+def _claim_run_id(name, id, csv_existed):
+    """Decide whether `id` may be used to RESUME a wandb run under `name`.
+
+    GigaLearn stores the wandb run id inside the checkpoint
+    (RUNNING_STATS.json -> run_id) and passes it back on resume, so
+    `wandb.init(id=..., resume="allow")` continues the same remote run. That is
+    correct when a label resumes its own checkpoints, and silently destructive
+    when a checkpoint is COPIED between labels: the new label adopts the old
+    run's id, so it renames the old wandb run to the new label and appends its
+    own iterations to the old run's history.
+
+    That is not hypothetical. Seeding a p13strike calibration probe by copying
+    `checkpoints/main-p12goal/250006016` into `checkpoints/main-p13cal/` carried
+    run_id i4oupqtr with it, and two 2M-step probes renamed the 250M p12goal run
+    to "main-p13cal" and stapled ~76 iterations onto its tail at x = 250-252M.
+    The local CSVs were untouched -- they key off the label, not the id -- so
+    only the remote copy was affected, but nothing warned about it at all.
+
+    The invariant: a run id belongs to the LABEL that created it. This records
+    that ownership in a sidecar next to the CSV and refuses any id it cannot
+    account for, which is cheap, needs no network, and fails toward "start a new
+    run" rather than toward "overwrite someone else's".
+    """
+    if not id:
+        return None
+
+    sidecar = _id_sidecar(name)
+    if os.path.exists(sidecar):
+        try:
+            owned = open(sidecar).read().strip()
+        except Exception:
+            owned = ""
+        if owned == id:
+            return id
+        print(f"[metrics] REFUSING wandb id {id!r}: {name!r} owns {owned!r}. "
+              f"Starting a NEW wandb run. This means a checkpoint was copied "
+              f"between run labels.")
+        return None
+
+    # No sidecar. Either this label predates the sidecar (legacy) or the id came
+    # from somewhere else. A label that has run before under this name has a CSV
+    # already; one that has not, has no business holding a run id.
+    if csv_existed:
+        print(f"[metrics] adopting wandb id {id!r} for {name!r} (pre-existing "
+              f"run, recording ownership)")
+        return id
+
+    print(f"[metrics] REFUSING wandb id {id!r}: {name!r} has never run here, so "
+          f"that id belongs to another label -- a checkpoint was copied. "
+          f"Starting a NEW wandb run instead of hijacking it.")
+    return None
+
+
 def init(py_exec_path, project, group, name, id=None):
     """Called once by GigaLearn at startup. Returns a run id string."""
     global _wandb_run, _csv_path, _csv_columns, _csv_rows
@@ -53,7 +111,8 @@ def init(py_exec_path, project, group, name, id=None):
     # A few hundred rows by a few dozen columns is trivial to rewrite.
     _csv_columns = []
     _csv_rows = []
-    if os.path.exists(_csv_path):
+    csv_existed = os.path.exists(_csv_path)
+    if csv_existed:
         try:
             with open(_csv_path, "r", newline="") as f:
                 for row in csv.DictReader(f):
@@ -86,16 +145,25 @@ def init(py_exec_path, project, group, name, id=None):
         print(f"[metrics] wandb unavailable ({e!r}); CSV only")
         return id or "csv-only"
 
+    # A copied checkpoint carries the ORIGINAL run's wandb id. Resuming on it
+    # would rename that run and append to its history. See _claim_run_id.
+    resume_id = _claim_run_id(name, id, csv_existed)
+
     try:
-        if id:
+        if resume_id:
             _wandb_run = wandb.init(project=project, group=group, name=name,
-                                    id=id, resume="allow")
+                                    id=resume_id, resume="allow")
         else:
             _wandb_run = wandb.init(project=project, group=group, name=name)
+        try:
+            with open(_id_sidecar(name), "w") as f:
+                f.write(_wandb_run.id)
+        except Exception as e:
+            print(f"[metrics] could not record run-id ownership: {e!r}")
         return _wandb_run.id
     except Exception as e:
         print(f"[metrics] wandb.init failed ({e!r}); CSV only")
-        return id or "csv-only"
+        return resume_id or "csv-only"
 
 
 def add_metrics(metrics):

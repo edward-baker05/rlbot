@@ -61,6 +61,45 @@ one ball touch**, not a goal -- a goal arrives 0.116 times per episode and
 cannot be audited against telemetry, which is why every post-mortem had to
 reconstruct the ledger by hand.
 
+### Sources, and what counts as evidence
+
+Analysis, run designs and suggestions must be grounded in **mathematics, known
+reinforcement-learning theory, and documented Rocket-League-specific
+principles**. An argument from intuition, from what "should" work, or from an
+unattributed claim is not an argument. Where a claim is checkable against this
+project's own telemetry, check it against the telemetry before asserting it.
+
+**`reference-guide/` is guidance, not a tutorial.** It is Zealan's
+RLGym-PPO-Guide: generally correct, somewhat dated, and written for a
+**different framework** (Python rlgym-ppo, not GigaLearn C++). Treat it as a
+strong prior on direction and proportion; never as a spec to port verbatim.
+`entropyScale` is the standing example of what happens when a number crosses
+the framework boundary without anyone checking what it means on this side.
+
+**Rocket-League-specific claims are trusted only from Zealan, Aech, Rolv, or
+the official RLBot / RLGym documentation.** Anything else -- blog posts,
+Discord folklore, other bots' READMEs, and model output including this file's
+-- is a hypothesis to be tested, not a fact to be cited. Name which of the four
+a claim comes from, or say plainly that it has no source.
+
+**Trusted references, in full, so nobody has to go looking:**
+
+| Source | Where | What it is good for |
+|---|---|---|
+| Zealan's RLGym-PPO-Guide | `reference-guide/` (vendored, own git history) | Reward proportions, stage transitions, learner settings. Python rlgym-ppo, so numbers need translating |
+| RLGym-tools | <https://github.com/RLGym/rlgym-tools> | Reference implementations of the rewards everyone actually uses (`AdvancedTouchReward`, aerial and boost terms, state setters). Official RLGym org, so it counts as trusted |
+| RLGym docs | <https://rlgym.org/> | API semantics, terminal conditions, obs/action conventions |
+| RLBot docs | <https://rlbot.org/> and <https://github.com/RLBot/core> | v5 match running, the deployment side |
+| RLGymCPP (in-tree) | `external/GigaLearnCPP-Leak/GigaLearnCPP/RLGymCPP/` | The actual semantics of anything `RLGC::`, and the only authority on constants. `Math::KPHToVel(x) = x * 250/9` |
+
+**Academic RL papers are encouraged**, and should be read for the mechanism and
+the derivation rather than the abstract. **Lucy-SKG is specifically NOT
+authoritative.** The paper is interesting, but community analysis of the
+resulting bot found it far from genuinely strong, so nothing in it may be
+adopted on the paper's say-so. Its constructions may be *used* where the maths
+stands on its own -- `TouchGoalAccelReward` is one -- but the citation is never
+the justification; the derivation is.
+
 ### Two traps that cost this project runs
 
 **`entropyScale` is not comparable to rlgym-ppo's.** GigaLearn normalizes
@@ -158,6 +197,30 @@ no `rlbot` CLI: v5's Python package (`pip install --user --pre rlbot`,
 installed) is a library, and matches are started with `scripts/run_match.py`,
 which drives `rlbot.managers.MatchManager` plus the RLBotServer binary in
 `libs/rlbot/` (downloaded from RLBot/core releases; gitignored).
+
+## The wandb run-id trap
+
+**A checkpoint carries the wandb run id, so copying one between labels hijacks
+the original's remote run.** `RUNNING_STATS.json` stores `run_id`; GigaLearn
+reads it on resume (`Learner.cpp:200`) and hands it to the metric receiver,
+which calls `wandb.init(id=..., resume="allow")`. Copying
+`checkpoints/main-<a>/<step>` into `checkpoints/main-<b>/` therefore makes run
+`b` **rename run `a` on wandb and append to its history**, and nothing warns.
+
+It happened on 2026-08-19: seeding a p13strike calibration probe from
+`main-p12goal/250006016` renamed the 250M p12goal run to `main-p13cal` and
+stapled ~76 iterations onto its tail at x = 250-252M. **The local CSVs were
+untouched** -- they key off the label, not the id -- so every conclusion in
+`runs/RUNLOG.md` stands; only the remote copy was affected.
+
+`bot/metrics/metric_receiver.py` now records ownership in
+`metrics/<label>.wandb-id` and refuses any id it cannot account for, failing
+toward "start a new run" rather than "overwrite someone else's". **When you copy
+a checkpoint into a new label, delete `RUNNING_STATS.json`'s `run_id` or just
+let the guard fire** -- but read the console: it prints `REFUSING wandb id`.
+
+A fresh label with no checkpoint folder never has this problem: `runID` is only
+ever set from a loaded checkpoint, so it is empty and wandb starts a new run.
 
 ## Parity traps
 

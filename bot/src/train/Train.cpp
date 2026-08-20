@@ -1,11 +1,11 @@
 #include "Train.h"
 
 #include "../env/Curriculum.h"
-#include "../env/StateSetters.h"
 #include "../env/Env.h"
 #include "../env/Obs.h"
 #include "../env/PlayPhase.h"
 #include "../env/Rewards.h"
+#include "../env/StateSetters.h"
 #include "Metrics.h"
 
 #include <GigaLearnCPP/Learner.h>
@@ -54,15 +54,21 @@ static std::vector<std::pair<std::string, float>> g_RewardLabels;
 static int g_MaxPlayersPerTeam = 1;
 static ObsMode g_ObsMode = ObsMode::Relative;
 
+// Mirrors RewardBudget::touchAccelExponent so the metric reports the same
+// curve the reward pays on. A metric that silently disagrees with its
+// reward is worse than no metric.
+static float g_TouchAccelExponent = 2.f;
+
 // Decision steps since each arena last reset, for the Episode/* buckets.
 static std::vector<int> g_EpisodeAge;
 
-
 // Runs on a fraction of sampled iterations: an extra critic forward pass is not
-// free, and this exists to answer a question, not to run forever. Same thread as
-// collection (Learner.cpp calls the step callback after envSet->Sync()), so
+// free, and this exists to answer a question, not to run forever. Same thread
+// as collection (Learner.cpp calls the step callback after envSet->Sync()), so
 // touching the models here does not race the workers.
-static void CriticValueMetrics(Learner* learner, const std::vector<GameState>& states, Report& report) {
+static void CriticValueMetrics(Learner *learner,
+							   const std::vector<GameState> &states,
+							   Report &report) {
 	static int callCount = 0;
 	if ((callCount++ % 8) != 0)
 		return;
@@ -82,32 +88,35 @@ static void CriticValueMetrics(Learner* learner, const std::vector<GameState>& s
 	std::vector<Tag> tags;
 	int obsSize = 0;
 
-	auto push = [&](const Player& p, const GameState& gs, Tag tag) {
+	auto push = [&](const Player &p, const GameState &gs, Tag tag) {
 		FList obs = obsBuilder->BuildObs(p, gs);
 		if (obsSize == 0)
 			obsSize = static_cast<int>(obs.size());
 		if (static_cast<int>(obs.size()) != obsSize)
-			return; // ragged obs would corrupt the batch; skip rather than guess
+			return; // ragged obs would corrupt the batch; skip rather than
+					// guess
 		flat.insert(flat.end(), obs.begin(), obs.end());
 		tags.push_back(tag);
 	};
 
-	for (const GameState& state : states) {
+	for (const GameState &state : states) {
 		if (!state.prev)
 			continue;
 
-		for (const Player& player : state.players) {
+		for (const Player &player : state.players) {
 			if (!player.prev)
 				continue;
-			const Player& before = *player.prev;
+			const Player &before = *player.prev;
 
-			const bool turtled =
-				before.worldContact.hasContact && before.worldContact.contactNormal.z > 0.9f;
-			const bool decision = before.isOnGround && before.rotMat.up.z > 0.7f &&
-			                      (before.HasFlipOrJump() || turtled);
+			const bool turtled = before.worldContact.hasContact &&
+								 before.worldContact.contactNormal.z > 0.9f;
+			const bool decision = before.isOnGround &&
+								  before.rotMat.up.z > 0.7f &&
+								  (before.HasFlipOrJump() || turtled);
 
 			const bool jumped = player.prevAction.jump != 0.f;
-			push(before, *state.prev, {true, before.isOnGround, decision, jumped});
+			push(before, *state.prev,
+				 {true, before.isOnGround, decision, jumped});
 			push(player, state, {false, player.isOnGround, decision, jumped});
 		}
 	}
@@ -119,8 +128,9 @@ static void CriticValueMetrics(Learner* learner, const std::vector<GameState>& s
 	const int rows = static_cast<int>(tags.size());
 	torch::Tensor obs =
 		torch::from_blob(flat.data(), {rows, obsSize}, torch::kFloat32).clone();
-	torch::Tensor vals = learner->ppo->InferCritic(obs.to(learner->ppo->device)).cpu().flatten();
-	const float* v = vals.const_data_ptr<float>();
+	torch::Tensor vals =
+		learner->ppo->InferCritic(obs.to(learner->ppo->device)).cpu().flatten();
+	const float *v = vals.const_data_ptr<float>();
 
 	const float gamma = learner->config.ppo.gaeGamma;
 
@@ -132,14 +142,17 @@ static void CriticValueMetrics(Learner* learner, const std::vector<GameState>& s
 
 		report.AddAvg("Critic/V All", v[i]);
 		// The plain split answers (a) directly: is being airborne worth more?
-		report.AddAvg(tags[i].grounded ? "Critic/V Grounded" : "Critic/V Airborne", v[i]);
+		report.AddAvg(
+			tags[i].grounded ? "Critic/V Grounded" : "Critic/V Airborne", v[i]);
 
 		if (tags[i].decision) {
 			const float tdDelta = gamma * v[i + 1] - v[i];
-			report.AddAvg(tags[i].jumped ? "Critic/TD Delta Jump" : "Critic/TD Delta NoJump",
-			              tdDelta);
-			report.AddAvg(tags[i].jumped ? "Critic/V After Jump" : "Critic/V After NoJump",
-			              v[i + 1]);
+			report.AddAvg(tags[i].jumped ? "Critic/TD Delta Jump"
+										 : "Critic/TD Delta NoJump",
+						  tdDelta);
+			report.AddAvg(tags[i].jumped ? "Critic/V After Jump"
+										 : "Critic/V After NoJump",
+						  v[i + 1]);
 		}
 	}
 }
@@ -147,7 +160,7 @@ static void CriticValueMetrics(Learner* learner, const std::vector<GameState>& s
 // Save first, then _exit rather than return: unwinding out of a callback
 // mid-collection would race the worker threads, and there is nothing left to
 // clean up once the checkpoint is on disk.
-static void SaveAndExit(Learner* learner, const char* reason) {
+static void SaveAndExit(Learner *learner, const char *reason) {
 	std::cout << "\n" << reason << ". Saving and exiting.\n";
 	std::cout.flush();
 	learner->Save();
@@ -156,7 +169,8 @@ static void SaveAndExit(Learner* learner, const char* reason) {
 	std::_Exit(0);
 }
 
-static void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
+static void StepCallback(Learner *learner, const std::vector<GameState> &states,
+						 Report &report) {
 	// GigaLearn's training loop runs until the user presses Q; there is no
 	// timestep limit and no documented way to break out of it. The step
 	// callback is the only hook that runs inside the loop with access to the
@@ -164,9 +178,11 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 	if (g_StopRequested) {
 		SaveAndExit(learner, "Interrupted (Ctrl-C or wandb Stop)");
 	}
-	if (g_MaxSteps > 0 && static_cast<int64_t>(learner->totalTimesteps) >= g_MaxSteps) {
+	if (g_MaxSteps > 0 &&
+		static_cast<int64_t>(learner->totalTimesteps) >= g_MaxSteps) {
 		std::ostringstream reason;
-		reason << "Reached step budget (" << learner->totalTimesteps << " >= " << g_MaxSteps << ")";
+		reason << "Reached step budget (" << learner->totalTimesteps
+			   << " >= " << g_MaxSteps << ")";
 		SaveAndExit(learner, reason.str().c_str());
 	}
 
@@ -176,7 +192,7 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 	// approach failure right after spawn is distinguishable from a recovery
 	// failure later in the episode.
 	{
-		auto& es = learner->envSet->state;
+		auto &es = learner->envSet->state;
 		if (g_EpisodeAge.size() != states.size())
 			g_EpisodeAge.assign(states.size(), 0);
 		for (size_t a = 0; a < states.size(); a++) {
@@ -189,7 +205,8 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 				// figure of 150. Recorded at the terminal step so it is a real
 				// episode length rather than a running age, and outside the
 				// sampling gate so no episode is missed.
-				report.AddAvg("Episode/Mean Steps", static_cast<float>(g_EpisodeAge[a]));
+				report.AddAvg("Episode/Mean Steps",
+							  static_cast<float>(g_EpisodeAge[a]));
 				g_EpisodeAge[a] = 0;
 			}
 		}
@@ -204,13 +221,15 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 	PhaseCounts phases;
 
 	for (size_t arenaIdx = 0; arenaIdx < states.size(); arenaIdx++) {
-		const GameState& state = states[arenaIdx];
+		const GameState &state = states[arenaIdx];
 		// Buckets are decision steps at 15 Hz: the first second off the spawn,
 		// the next three, then everything after.
-		const int age = arenaIdx < g_EpisodeAge.size() ? g_EpisodeAge[arenaIdx] : 0;
-		const char* ageBucket = (age < 15) ? "Early" : (age < 60 ? "Mid" : "Late");
+		const int age =
+			arenaIdx < g_EpisodeAge.size() ? g_EpisodeAge[arenaIdx] : 0;
+		const char *ageBucket =
+			(age < 15) ? "Early" : (age < 60 ? "Mid" : "Late");
 
-		for (const Player& player : state.players) {
+		for (const Player &player : state.players) {
 			// --- Play phase distribution -------------------------------------
 			// Shows what the policy actually spends its time doing. If you
 			// bump the aerial weight in the curriculum and the Aerial share
@@ -228,31 +247,39 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			const Vec toBall = state.ball.pos - player.pos;
 			const float dist = toBall.Length();
 			if (dist > 1.f)
-				report.AddAvg("Player/Speed Towards Ball", RS_MAX(0.f, player.vel.Dot(toBall / dist)));
+				report.AddAvg("Player/Speed Towards Ball",
+							  RS_MAX(0.f, player.vel.Dot(toBall / dist)));
 
 			// --- Surface contact ---------------------------------------------
 			// The WrongSurface term as a rate. If this does not fall over a
 			// run, the bot is not learning to land, whatever the reward says.
-			const bool wrongSurface = player.worldContact.hasContact && !player.isOnGround;
-			report.AddAvg("Surface/Wrong Contact Rate", wrongSurface ? 1.f : 0.f);
+			const bool wrongSurface =
+				player.worldContact.hasContact && !player.isOnGround;
+			report.AddAvg("Surface/Wrong Contact Rate",
+						  wrongSurface ? 1.f : 0.f);
 
 			// A front flip drives the nose into the floor for a few ticks, and
 			// Player samples the final tick of eight, so the scrape is caught
 			// ~25% of the time. The design prices that at ~11x cheaper than the
 			// flip's own speed gain; this is the check on that arithmetic.
 			if (player.isFlipping)
-				report.AddAvg("Surface/Wrong Contact While Flipping", wrongSurface ? 1.f : 0.f);
+				report.AddAvg("Surface/Wrong Contact While Flipping",
+							  wrongSurface ? 1.f : 0.f);
 
-			// --- Landings -------------------------------------------------------
+			// --- Landings
+			// -------------------------------------------------------
 			if (player.prev && player.isOnGround && !player.prev->isOnGround) {
 				report.AddAvg("Landing/Rate", 1.f);
-				report.AddAvg("Landing/Clean Share", player.worldContact.hasContact ? 0.f : 1.f);
-				report.AddAvg("Landing/Impact Speed", RS_MAX(0.f, -player.prev->vel.z));
+				report.AddAvg("Landing/Clean Share",
+							  player.worldContact.hasContact ? 0.f : 1.f);
+				report.AddAvg("Landing/Impact Speed",
+							  RS_MAX(0.f, -player.prev->vel.z));
 			} else {
 				report.AddAvg("Landing/Rate", 0.f);
 			}
 
-			// --- Speed ----------------------------------------------------------
+			// --- Speed
+			// ----------------------------------------------------------
 			const float speed = player.vel.Length();
 			report.AddAvg("Speed/Mean", speed);
 
@@ -260,7 +287,7 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			// diagnostics: it says whether the bot is boosting and flipping or
 			// coasting on the throttle-only floor.
 			report.AddAvg("Speed/Above Throttle Cap Share",
-			              speed > THROTTLE_TOP_SPEED ? 1.f : 0.f);
+						  speed > THROTTLE_TOP_SPEED ? 1.f : 0.f);
 
 			if (player.prev) {
 				const float lost = player.prev->vel.Length() - speed;
@@ -273,10 +300,12 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 				// because a hard shot SHOULD cost speed.
 				if (!player.ballTouchedStep) {
 					report.AddAvg("Speed/Mean Step Decel", RS_MAX(0.f, lost));
-					report.AddAvg("Speed/Decel Above 200", lost > 200.f ? 1.f : 0.f);
+					report.AddAvg("Speed/Decel Above 200",
+								  lost > 200.f ? 1.f : 0.f);
 					report.AddAvg("Speed/Decel Above 400",
-					              lost > HARSH_LOSS_THRESHOLD ? 1.f : 0.f);
-					report.AddAvg("Speed/Decel Above 800", lost > 800.f ? 1.f : 0.f);
+								  lost > HARSH_LOSS_THRESHOLD ? 1.f : 0.f);
+					report.AddAvg("Speed/Decel Above 800",
+								  lost > 800.f ? 1.f : 0.f);
 				}
 			}
 
@@ -301,14 +330,14 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 				// What FaceBallRectifiedReward actually pays.
 				report.AddAvg("FaceBall/Rectified", RS_MAX(0.f, cosToBall));
 				report.AddAvg(player.isOnGround ? "FaceBall/Rectified Grounded"
-				                                : "FaceBall/Rectified Airborne",
-				              RS_MAX(0.f, cosToBall));
+												: "FaceBall/Rectified Airborne",
+							  RS_MAX(0.f, cosToBall));
 
 				// The quantity that has to move for any of this to be working.
 				const float sp = player.vel.Length();
 				if (sp > 1.f)
 					report.AddAvg("Player/Velocity Alignment",
-					              RS_MAX(0.f, player.vel.Dot(dirToBall)) / sp);
+								  RS_MAX(0.f, player.vel.Dot(dirToBall)) / sp);
 			}
 
 			// --- Touch edge -------------------------------------------------
@@ -316,31 +345,37 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			// Player/Ball Touch Ratio which counts every step of contact. The
 			// gap between them is how much carrying is happening.
 			report.AddAvg("Touch/Edge Rate",
-			              (player.ballTouchedStep
-			               && !(player.prev && player.prev->ballTouchedStep)) ? 1.f : 0.f);
+						  (player.ballTouchedStep &&
+						   !(player.prev && player.prev->ballTouchedStep))
+							  ? 1.f
+							  : 0.f);
 
 			// Same three quantities, split by how old the episode is. If the
 			// Early numbers are strong and Mid/Late collapse, the bot can
 			// approach a ball exactly once per spawn.
 			report.AddAvg(std::string("Episode/") + ageBucket + "/Touch Rate",
-			              player.ballTouchedStep ? 1.f : 0.f);
-			report.AddAvg(std::string("Episode/") + ageBucket + "/In Air Ratio", !player.isOnGround);
-			report.AddAvg(std::string("Episode/") + ageBucket + "/Ball Dist", dist);
+						  player.ballTouchedStep ? 1.f : 0.f);
+			report.AddAvg(std::string("Episode/") + ageBucket + "/In Air Ratio",
+						  !player.isOnGround);
+			report.AddAvg(std::string("Episode/") + ageBucket + "/Ball Dist",
+						  dist);
 			if (dist > 1.f)
-				report.AddAvg(std::string("Episode/") + ageBucket + "/Approach Speed",
-				              RS_MAX(0.f, player.vel.Dot(toBall / dist)));
+				report.AddAvg(std::string("Episode/") + ageBucket +
+								  "/Approach Speed",
+							  RS_MAX(0.f, player.vel.Dot(toBall / dist)));
 
 			// Touch height is the clearest single indicator of whether the bot
 			// is developing an air game. Watch it more than the reward.
 			if (player.ballTouchedStep)
 				report.AddAvg("Player/Touch Height", state.ball.pos.z);
 
-			// --- Touch distribution -------------------------------------------
-			// Distribution rather than the mean touch height (~147 measured):
-			// the mean hides the thing that actually matters, which is whether
-			// ANY touches are happening in the jump-only band at all. None of
-			// these depend on state.prev -- they read the current touch and
-			// grounded state, not a velocity delta.
+			// --- Touch distribution
+			// ------------------------------------------- Distribution rather
+			// than the mean touch height (~147 measured): the mean hides the
+			// thing that actually matters, which is whether ANY touches are
+			// happening in the jump-only band at all. None of these depend on
+			// state.prev -- they read the current touch and grounded state, not
+			// a velocity delta.
 			{
 				const bool air = !player.isOnGround;
 				if (player.ballTouchedStep) {
@@ -351,15 +386,20 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 
 					// Did it get there with a jump, and did it flip into the
 					// ball? This is the target skill, stated as a metric.
-					report.AddAvg("Touch/Had Jumped", player.hasJumped ? 1.f : 0.f);
-					report.AddAvg("Touch/Had Flipped", player.hasFlipped ? 1.f : 0.f);
+					report.AddAvg("Touch/Had Jumped",
+								  player.hasJumped ? 1.f : 0.f);
+					report.AddAvg("Touch/Had Flipped",
+								  player.hasFlipped ? 1.f : 0.f);
 
 					// What a realized touch is actually WORTH under
 					// StrongTouchReward, which is the only thing that can turn
 					// its provisional 1.0 budget into a measured one (roadmap
 					// D6). Hit force is |delta ball velocity| at contact; the
-					// reward is 0 below 20 kph (~183 uu/s) and 1.0 at 130 kph
-					// (~1192 uu/s).
+					// reward is 0 below 20 kph and 1.0 at 130 kph. KPHToVel(x)
+					// is x * 250/9, so those are 555.6 and 3611.1 uu/s -- NOT
+					// the 183/1192 this comment used to claim. For scale,
+					// CAR_MAX_SPEED 2300 uu/s is 82.8 kph and the ball caps at
+					// 6000 uu/s = 216 kph, so 20 kph is a very weak touch.
 					//
 					// The gap between `Hit Force` and `Strong Value` is the
 					// point: a dribble carry produces a large touch RATE at
@@ -370,36 +410,67 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 						const float hitForce =
 							(state.ball.vel - state.prev->ball.vel).Length();
 						report.AddAvg("Touch/Hit Force", hitForce);
-						report.AddAvg("Touch/Strong Value",
-						              hitForce < RLGC::Math::KPHToVel(20)
-						                  ? 0.f
-						                  : RS_MIN(1.f, hitForce / RLGC::Math::KPHToVel(130)));
+						// What a realized touch earns from the term actually in
+						// the stack. `Strong Value` above is the RETIRED
+						// StrongTouch curve, kept only so the series stays
+						// comparable across runs; this is the one that
+						// reconciles against `RewardShare/TouchGoalAccel`.
+						// Being convex it falls away far faster than hit force
+						// does, and the gap between Raw and Value is exactly
+						// what p13strike buys.
+						{
+							const Vec target =
+								(player.team == Team::BLUE)
+									? CommonValues::ORANGE_GOAL_CENTER
+									: CommonValues::BLUE_GOAL_CENTER;
+							const Vec toGoal =
+								(target - state.ball.pos).Normalized();
+							const float dv = state.ball.vel.Dot(toGoal) -
+											 state.prev->ball.vel.Dot(toGoal);
+							const float x = RS_CLAMP(
+								dv / RLGC::Math::KPHToVel(130), -1.f, 1.f);
+							report.AddAvg("Touch/Goal Accel Raw", x);
+							report.AddAvg(
+								"Touch/Goal Accel Value",
+								std::copysign(std::pow(std::fabs(x),
+													   g_TouchAccelExponent),
+											  x));
+						}
+						report.AddAvg(
+							"Touch/Strong Value",
+							hitForce < RLGC::Math::KPHToVel(20)
+								? 0.f
+								: RS_MIN(1.f,
+										 hitForce / RLGC::Math::KPHToVel(130)));
 					}
 				}
-				report.AddAvg(air ? "Touch/Rate Airborne" : "Touch/Rate Grounded",
-				              player.ballTouchedStep ? 1.f : 0.f);
+				report.AddAvg(air ? "Touch/Rate Airborne"
+								  : "Touch/Rate Grounded",
+							  player.ballTouchedStep ? 1.f : 0.f);
 			}
 
 			// --- What the policy actually DID --------------------------------
 			// Everything above is a state statistic: it says where the car
 			// ended up, not what the policy chose. "In Air Ratio 0.91" is
 			// consistent with a policy that jumps constantly AND with one that
-			// never jumps but keeps getting launched, which need opposite fixes.
+			// never jumps but keeps getting launched, which need opposite
+			// fixes.
 			//
 			// prevAction is the action applied during this step, so it must be
 			// conditioned on the PREVIOUS state -- that is the state the policy
-			// saw when it chose. Without prev there is no decision to attribute.
+			// saw when it chose. Without prev there is no decision to
+			// attribute.
 			if (!player.prev)
 				continue;
 
-			const Player& before = *player.prev;
+			const Player &before = *player.prev;
 
 			// Mirrors DefaultAction::GetActionMask: jump actions are offered
 			// while a flip/jump remains, and also while turtled (upside down),
 			// which is how a stuck car rights itself. If jump was not on the
 			// menu, the step says nothing about whether the policy wants it.
-			const bool turtled =
-				before.worldContact.hasContact && before.worldContact.contactNormal.z > 0.9f;
+			const bool turtled = before.worldContact.hasContact &&
+								 before.worldContact.contactNormal.z > 0.9f;
 			const bool couldJump = before.HasFlipOrJump() || turtled;
 
 			// A car resting upside down on the floor is "grounded" and jump is
@@ -418,15 +489,17 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			const bool upright = before.rotMat.up.z > 0.7f;
 
 			if (before.isOnGround)
-				report.AddAvg("Player/Grounded Tilted Ratio", upright ? 0.f : 1.f);
+				report.AddAvg("Player/Grounded Tilted Ratio",
+							  upright ? 0.f : 1.f);
 
 			if (couldJump) {
 				if (before.isOnGround)
 					report.AddAvg(upright ? "Action/Jump When Grounded Upright"
-					                      : "Action/Jump When Grounded Tilted",
-					              player.prevAction.jump);
+										  : "Action/Jump When Grounded Tilted",
+								  player.prevAction.jump);
 				else
-					report.AddAvg("Action/Jump When Airborne", player.prevAction.jump);
+					report.AddAvg("Action/Jump When Airborne",
+								  player.prevAction.jump);
 			}
 
 			// --- Is it just standing there? ----------------------------------
@@ -439,26 +512,31 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			if (player.isOnGround) {
 				const float sp = player.vel.Length();
 				report.AddAvg("Player/Grounded Speed", sp);
-				report.AddAvg("Player/Grounded Stationary Ratio", sp < 200.f ? 1.f : 0.f);
+				report.AddAvg("Player/Grounded Stationary Ratio",
+							  sp < 200.f ? 1.f : 0.f);
 			}
 
 			// --- Is it actually driving? -------------------------------------
 			// Added while diagnosing a policy that boosts in straight lines and
 			// never turns. Everything else here measures resulting STATE; these
-			// measure the grounded control inputs directly, because "it does not
-			// steer" and "it steers but cannot hold a line" look identical from
-			// speed and position alone.
+			// measure the grounded control inputs directly, because "it does
+			// not steer" and "it steers but cannot hold a line" look identical
+			// from speed and position alone.
 			//
 			// Split by whether boost is even available: DefaultAction masks out
 			// every boost action at zero boost, so a raw boost rate conflates
 			// "chose not to boost" with "could not".
 			if (before.isOnGround && upright) {
-				report.AddAvg("Action/Steer Nonzero", player.prevAction.steer != 0.f ? 1.f : 0.f);
-				report.AddAvg("Action/Throttle Forward", player.prevAction.throttle > 0.f ? 1.f : 0.f);
-				report.AddAvg("Action/Throttle Zero", player.prevAction.throttle == 0.f ? 1.f : 0.f);
+				report.AddAvg("Action/Steer Nonzero",
+							  player.prevAction.steer != 0.f ? 1.f : 0.f);
+				report.AddAvg("Action/Throttle Forward",
+							  player.prevAction.throttle > 0.f ? 1.f : 0.f);
+				report.AddAvg("Action/Throttle Zero",
+							  player.prevAction.throttle == 0.f ? 1.f : 0.f);
 				report.AddAvg("Action/Handbrake", player.prevAction.handbrake);
 				if (before.boost > 0.f)
-					report.AddAvg("Action/Boost When Available", player.prevAction.boost);
+					report.AddAvg("Action/Boost When Available",
+								  player.prevAction.boost);
 			}
 
 			// --- What KIND of flip? ------------------------------------------
@@ -468,28 +546,33 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			if (player.prevAction.jump != 0.f) {
 				const bool pitching = player.prevAction.pitch != 0.f;
 				const bool rolling = player.prevAction.roll != 0.f;
-				report.AddAvg("Flip/Diagonal Share", (pitching && rolling) ? 1.f : 0.f);
-				report.AddAvg("Flip/Neutral Share", (!pitching && !rolling) ? 1.f : 0.f);
+				report.AddAvg("Flip/Diagonal Share",
+							  (pitching && rolling) ? 1.f : 0.f);
+				report.AddAvg("Flip/Neutral Share",
+							  (!pitching && !rolling) ? 1.f : 0.f);
 				// p6budget left 99.1% of jump-presses in neither bucket, i.e.
 				// single-axis, with no way to tell a front flip from a side
 				// flip. Watching the bot said side flips; the metrics could not
 				// confirm it. Roll-only IS a side flip, so split them.
-				report.AddAvg("Flip/Pitch Only Share", (pitching && !rolling) ? 1.f : 0.f);
-				report.AddAvg("Flip/Roll Only Share", (!pitching && rolling) ? 1.f : 0.f);
+				report.AddAvg("Flip/Pitch Only Share",
+							  (pitching && !rolling) ? 1.f : 0.f);
+				report.AddAvg("Flip/Roll Only Share",
+							  (!pitching && rolling) ? 1.f : 0.f);
 
 				// airTimeSinceJump is the gap between leaving the ground and
 				// now, so on the step a second jump is pressed in the air it IS
 				// the flip delay. A deliberate stall shows up as a delay well
 				// past the ~0.1s a reflexive double-jump would give.
 				if (!before.isOnGround && before.hasJumped)
-					report.AddAvg("Flip/Delay Seconds", before.airTimeSinceJump);
+					report.AddAvg("Flip/Delay Seconds",
+								  before.airTimeSinceJump);
 			}
 			if (before.isOnGround)
 				report.AddAvg("Player/Grounded Upright Ratio", upright);
 
 			report.AddAvg(before.isOnGround ? "Action/Boost When Grounded"
-			                                : "Action/Boost When Airborne",
-			              player.prevAction.boost);
+											: "Action/Boost When Airborne",
+						  player.prevAction.boost);
 
 			// Where does the air time come from? Of every ground->air
 			// transition, how many did the policy cause by pressing jump, as
@@ -498,7 +581,8 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			if (before.isOnGround) {
 				report.AddAvg("Player/Leave Ground Rate", !player.isOnGround);
 				if (!player.isOnGround)
-					report.AddAvg("Player/Takeoff Was Jump", player.prevAction.jump);
+					report.AddAvg("Player/Takeoff Was Jump",
+								  player.prevAction.jump);
 			}
 
 			// How long a single airborne stint lasts, in seconds. Pairs with
@@ -513,12 +597,15 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 			// "sustained" cars have had time to accelerate -- but it bounds the
 			// effect.
 			if (player.isOnGround && dist > 1.f) {
-				const float towards = RS_MAX(0.f, player.vel.Dot(toBall / dist));
+				const float towards =
+					RS_MAX(0.f, player.vel.Dot(toBall / dist));
 				const bool landed = !before.isOnGround;
 				report.AddAvg(landed ? "Player/Approach Speed On Landing"
-				                     : "Player/Approach Speed Sustained", towards);
+									 : "Player/Approach Speed Sustained",
+							  towards);
 				report.AddAvg(landed ? "Player/Speed On Landing"
-				                     : "Player/Speed Sustained", player.vel.Length());
+									 : "Player/Speed Sustained",
+							  player.vel.Length());
 			}
 		}
 
@@ -529,14 +616,14 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 		report.AddAvg("Game/Players", static_cast<float>(state.players.size()));
 	}
 
-
 	// Report each phase as a fraction of sampled player-steps.
 	const int64_t total = phases.Total();
 	if (total > 0) {
 		for (int i = 0; i < PLAY_PHASE_COUNT; i++) {
 			const auto phase = static_cast<PlayPhase>(i);
 			report.AddAvg(std::string("Phase/") + PlayPhaseName(phase),
-			              static_cast<float>(phases.counts[i]) / static_cast<float>(total));
+						  static_cast<float>(phases.counts[i]) /
+							  static_cast<float>(total));
 		}
 	}
 
@@ -544,12 +631,12 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 	// lastRewards holds each term's raw (unweighted, pre-zero-sum) reward for
 	// one sampled player per arena; |r * w| across terms approximates where
 	// the realized reward mass is going. This is the farming detector.
-	auto& envSet = *learner->envSet;
+	auto &envSet = *learner->envSet;
 	if (!g_RewardLabels.empty()) {
 		std::vector<float> totals(g_RewardLabels.size(), 0.f);
 		bool any = false;
 		for (size_t a = 0; a < envSet.state.lastRewards.size(); a++) {
-			const auto& last = envSet.state.lastRewards[a];
+			const auto &last = envSet.state.lastRewards[a];
 			if (last.size() != totals.size())
 				continue;
 			for (size_t j = 0; j < totals.size(); j++)
@@ -559,7 +646,8 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 		if (any) {
 			auto shares = NormalizeShares(totals);
 			for (size_t j = 0; j < shares.size(); j++)
-				report.AddAvg("RewardShare/" + g_RewardLabels[j].first, shares[j]);
+				report.AddAvg("RewardShare/" + g_RewardLabels[j].first,
+							  shares[j]);
 		}
 	}
 
@@ -571,17 +659,18 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 		const ObsHealth health = ConsumeObsHealth();
 		if (health.checked > 0)
 			report.AddAvg("Obs/Non-Finite Rate",
-			              static_cast<float>(health.nonFinite) /
-			                  static_cast<float>(health.checked));
+						  static_cast<float>(health.nonFinite) /
+							  static_cast<float>(health.checked));
 	}
 
 	// --- Infinite-boost episodes --------------------------------------------
 	// Published so `Player/Boost` can never be read without knowing what share
 	// of episodes had a tank that could not drain.
 	for (size_t a = 0; a < envSet.stateSetters.size(); a++) {
-		auto* ib = dynamic_cast<InfiniteBoostState*>(envSet.stateSetters[a]);
+		auto *ib = dynamic_cast<InfiniteBoostState *>(envSet.stateSetters[a]);
 		if (ib)
-			report.AddAvg("Boost/Infinite Episode Share", ib->LastWasInfinite() ? 1.f : 0.f);
+			report.AddAvg("Boost/Infinite Episode Share",
+						  ib->LastWasInfinite() ? 1.f : 0.f);
 	}
 
 	// --- Scenario outcomes --------------------------------------------------
@@ -589,28 +678,30 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 	// curriculum's last-picked name still labels the episode that just ended.
 	std::map<std::string, int> scenarioCounts;
 	for (size_t a = 0; a < envSet.stateSetters.size(); a++) {
-		auto* cs = dynamic_cast<CurriculumState*>(envSet.stateSetters[a]);
+		auto *cs = dynamic_cast<CurriculumState *>(envSet.stateSetters[a]);
 		if (!cs || cs->LastPickedName().empty())
 			continue;
 		if (scenarioCounts.empty()) {
 			// Seed every configured scenario with zero so names not picked
 			// this step still contribute a sample; otherwise rare scenarios'
 			// Share averages are biased upward.
-			for (const auto& name : cs->EntryNames())
+			for (const auto &name : cs->EntryNames())
 				scenarioCounts[name] = 0;
 		}
 		scenarioCounts[cs->LastPickedName()]++;
 		if (envSet.state.terminals[a]) {
 			const bool goal = states[a].goalScored;
-			report.AddAvg("Scenario/" + cs->LastPickedName() + "/EndedInGoal", goal ? 1.f : 0.f);
+			report.AddAvg("Scenario/" + cs->LastPickedName() + "/EndedInGoal",
+						  goal ? 1.f : 0.f);
 		}
 	}
 	if (!envSet.stateSetters.empty()) {
 		// A true share: count per name across all arenas, so a scenario that
 		// never runs is distinguishable from one that always does.
 		const float arenaCount = static_cast<float>(envSet.stateSetters.size());
-		for (const auto& [name, count] : scenarioCounts)
-			report.AddAvg("Scenario/" + name + "/Share", static_cast<float>(count) / arenaCount);
+		for (const auto &[name, count] : scenarioCounts)
+			report.AddAvg("Scenario/" + name + "/Share",
+						  static_cast<float>(count) / arenaCount);
 	}
 
 	// --- What does the CRITIC think? ----------------------------------------
@@ -625,42 +716,49 @@ static void StepCallback(Learner* learner, const std::vector<GameState>& states,
 
 // ---------------------------------------------------------------------------
 
-void RunTraining(const TrainConfig& cfg) {
+void RunTraining(const TrainConfig &cfg) {
 	// RocketSim needs the collision meshes to simulate the arena geometry.
 	// Without them cars fall through the world, which presents as a bot that
 	// learns nothing rather than as an obvious error.
-	const char* meshEnv = std::getenv("HIVE_COLLISION_MESHES");
+	const char *meshEnv = std::getenv("HIVE_COLLISION_MESHES");
 	const std::string meshPath = meshEnv ? meshEnv : "collision_meshes";
 	RocketSim::Init(meshPath);
 
 	// Probe the observation width rather than deriving it. See env/Obs.h.
 	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam, cfg.obs);
 	std::cout << "Observation size: " << obsSize
-	          << " (maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
+			  << " (maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
 	std::cout << "Run:              " << cfg.RunName() << "\n";
 	std::cout << "Checkpoints:      " << cfg.CheckpointFolder() << "\n";
 	std::cout << "Self-play:        "
-	          << (cfg.selfPlay.trainAgainstOldVersions
-	                  ? "on (" + std::to_string(static_cast<int>(cfg.selfPlay.trainAgainstOldChance * 100)) +
-	                        "% of iterations, snapshot every " +
-	                        std::to_string(cfg.selfPlay.tsPerVersion / 1'000'000) + "M steps)"
-	                  : "off")
-	          << "\n";
-	std::cout << "Skill tracking:   " << (cfg.selfPlay.trackSkill ? "on" : "off") << "\n";
+			  << (cfg.selfPlay.trainAgainstOldVersions
+					  ? "on (" +
+							std::to_string(static_cast<int>(
+								cfg.selfPlay.trainAgainstOldChance * 100)) +
+							"% of iterations, snapshot every " +
+							std::to_string(cfg.selfPlay.tsPerVersion /
+										   1'000'000) +
+							"M steps)"
+					  : "off")
+			  << "\n";
+	std::cout << "Skill tracking:   "
+			  << (cfg.selfPlay.trackSkill ? "on" : "off") << "\n";
 	if (cfg.maxSteps > 0)
 		std::cout << "Step budget:      " << cfg.maxSteps << "\n";
 
 	g_MaxSteps = cfg.maxSteps;
 	g_MaxPlayersPerTeam = cfg.maxPlayersPerTeam;
 	g_ObsMode = cfg.obs;
+	g_TouchAccelExponent = cfg.rewards.touchAccelExponent;
 
 	g_RewardLabels.clear();
-	for (auto& s : GeneralRewardSpecs(cfg))
+	for (auto &s : GeneralRewardSpecs(cfg))
 		g_RewardLabels.push_back({s.name, s.weight});
 
 	LearnerConfig lc = {};
 
-	lc.deviceType = cfg.useGPU ? LearnerDeviceType::GPU_CUDA : LearnerDeviceType::CPU;
+	lc.deviceType =
+		cfg.useGPU ? LearnerDeviceType::GPU_CUDA : LearnerDeviceType::CPU;
 	lc.numGames = cfg.numGames;
 	lc.tickSkip = cfg.tickSkip;
 	lc.actionDelay = cfg.actionDelay;
@@ -675,6 +773,13 @@ void RunTraining(const TrainConfig& cfg) {
 	lc.ppo.miniBatchSize = cfg.miniBatchSize;
 	lc.ppo.epochs = cfg.epochs;
 	lc.ppo.entropyScale = cfg.entropyScale;
+	// Above 0 this turns entropyScale into a CONTROLLED variable rather
+	// than a constant; the learner then reports `Entropy Scale` and
+	// `Entropy Target` so the loop is auditable. See the note on
+	// TrainConfig::entropyTarget for why a fixed coefficient cannot hold
+	// an entropy floor.
+	lc.ppo.entropyTarget = cfg.entropyTarget;
+	lc.ppo.entropyAdjustRate = cfg.entropyAdjustRate;
 	lc.ppo.gaeGamma = cfg.gaeGamma;
 	lc.ppo.policyLR = cfg.policyLR;
 	lc.ppo.criticLR = cfg.criticLR;
@@ -703,7 +808,8 @@ void RunTraining(const TrainConfig& cfg) {
 	// dependency rather than relying on that.
 	lc.trainAgainstOldVersions = cfg.selfPlay.trainAgainstOldVersions;
 	lc.trainAgainstOldChance = cfg.selfPlay.trainAgainstOldChance;
-	lc.savePolicyVersions = cfg.selfPlay.trainAgainstOldVersions || cfg.selfPlay.trackSkill;
+	lc.savePolicyVersions =
+		cfg.selfPlay.trainAgainstOldVersions || cfg.selfPlay.trackSkill;
 	lc.tsPerVersion = cfg.selfPlay.tsPerVersion;
 	lc.maxOldVersions = cfg.selfPlay.maxOldVersions;
 

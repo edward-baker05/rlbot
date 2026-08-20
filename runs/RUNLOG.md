@@ -7,6 +7,7 @@ Format: `date | label | config delta from previous entry | why | outcome`
 
 | Date | Label | Config delta | Why | Outcome |
 |---|---|---|---|---|
+| 2026-08-19 | p12goal | **Three changes, one concept** (declared as not-one-variable): `StrongTouch` -> `TouchGoalAccel` (budget 3.0 carried over, signed goal-directed change in ball speed at contact); `Goal` 10.0 symmetric; `AirTouch` 2.0 = `min(airTimeFrac, heightFrac)`. Boost budgets, obs, spawns, mask, LR, entropy, tsPerItr, gamma all frozen. `infiniteBoostChance` stayed 0 (no `Infinite Boost Share` column; `Player/Boost` reads 5.5 at 10M). **Run to 250M, not 100M** -- deliberate overnight extension, stopped by hand | The guide's middle-stage gate: the bot can hit the ball, so tell it the net exists and pay for productive air | **2 of 5 predictions, BOTH kill criteria missed, and the best bot this project has made.** Scorecard: **(1) `Touch/Hit Force` > 700 -- FAILED, 801 -> 489 (100M) -> 422 (250M).** Third consecutive falling run: 878 (p10 peak) -> 551 (p11) -> 422. **(2) `Episode/Mean Steps` < 1200 -- CORRECT, 1788 -> 390 = 26.0 s.** Goals now end episodes; mean gap between contacts is 1/0.0291 = 34 steps = 2.3 s so `NoTouchCondition` almost never fires. **(3) `Touch/Above 450` > 0.15 and `Touch Height` > 260 -- FAILED AND INVERTED: 0.081 -> 0.037, 195 -> 155**, `Touch/Above 200` 0.195 -> 0.078. **(4) `Player/Boost` > 15 -- passed on the number (9.4 -> 25.3) and the mechanism is the OPPOSITE of the hypothesis.** `Action/Boost When Grounded` 0.72 -> 0.356 and `Boost When Airborne` 0.27 -> 0.197: the tank filled because the bot stopped SPENDING, and episodes are 4.6x shorter so mean boost is sampled far closer to spawn. **The p11 diagnosis is not confirmed, it is untested** -- it predicted boost rising *because* air touches did, and air touches fell. **(5) `Jump When Grounded Upright` > 0.02 -- FAILED, 0.0107 -> 0.00400, which is the eps-floor to three figures** (0.02 x 18/90 = 0.00400). Measured/floor = **1.00**: the cleanest extinction this project has recorded. **Both pre-registered kill criteria fired and the run continued anyway:** 25M wanted `RewardShare/AirTouch` > 0.02 and it read **0.0018** (11x below); 50M wanted `Touch/Hit Force` > 620 and it read **609.7**. **THE DECISIVE MEASUREMENT: the critic has priced the takeoff, under something close to a randomized trial.** `Critic/TD Delta Jump` -0.070 -> **-0.2249** against `NoJump` -0.0199, the gap widening monotonically. Read it carefully. (a) The metric is `gamma*V(s') - V(s)`, **not** a full TD residual -- `Train.cpp:139` omits the step reward -- so it is the critic's opinion of where the jump leads, not realized return. (b) At V ~ 1.5 and gamma 0.99, `gamma*V - V` is **-0.015 even with no value change**, and `NoJump` reads -0.0199, i.e. essentially that drift. The excess attributable to jumping is therefore **-0.205 standardized = -0.81 touch-units** at `GAE/Returns STD` 3.939. (c) **The comparison is near-causal**: the policy's own P(jump) is 0.0004 against an eps-floor of 0.0040, so ~91% of sampled jumps are floor-assigned, and the floor mixes uniformly over valid actions **independent of state** -- the fourth external patch doubles as random treatment assignment on the jump action. `Critic/V Grounded` 1.495 vs `V Airborne` 1.258 (0.93 raw) points the same way but is a **marginal, non-causal** comparison, confounded by which states are airborne (launch recovery, walls); it corroborates the direction, it does not independently measure the price. **AirTouch pays 0.37 against that 0.81.** Raw mean 0.000461/step / `Ball Touch Ratio` 0.0411 = 0.0112 per contact step = 0.0224 touch-units per touch; airborne touches are 6.1% of touches (In Air 0.181 x `Touch/Rate Airborne` 0.0138 against 0.819 x `Rate Grounded` 0.0471), so an airborne touch averages 0.184 x 2.0 = **0.37**. Even a textbook air dribble (ball z 800, 1.0 s aloft) pays 2.0 x min(0.571, 0.391) = **0.78 against a cost of 0.81.** **`airTouch = 2.0` was set 15-20% BELOW the indifference point**, which is exactly the signature of a behaviour that appears and decays rather than establishing or vanishing -- p10touch, p11 at 42-56M, and here not at all. **Third consecutive inert term.** RewardShare of the term the run was built around: p10 StrongTouch **0.037**, p11 SaveBoost **0.016**, p12 AirTouch **0.008**. The budget framework converts a *maximal* payout; the policy responds to *realized mass* = budget x mean realized value x rate, and nothing in the framework estimates the rate. **The possession equilibrium, with the ledger.** Per episode at 250M (390 steps), from `Rewards/<class>` x weight, reconciling to `Average Step Reward` 0.0714 within 4.5%: SpeedToBall **14.64 (55.0%)**, FaceBall 5.09 (19.1%), TouchEdge 2.76 (10.4%), TouchGoalAccel 2.47 (9.3%), SaveBoost 1.19 (4.5%), PickupBoost 0.41 (1.5%), AirTouch 0.36 (1.35%), Air 0.20 (0.8%); net ~26.6. **84.5% of the ledger pays for being near, pointed at and in contact with the ball; 9.3% pays for what the ball does.** SpeedToBall + FaceBall has held 0.61-0.88 of reward mass in **every run this project has ever done** (p8ref 0.761, p10 0.876, p11 0.778, p12 0.606; only the p9rel farm displaced it) and has **never once been reduced**. **Why the touches are soft, and it is not a bug.** `TouchGoalAccel` is LINEAR in goal-directed dv, and the total goal-directed dv required to score is fixed by the length of the field, so a linear term is **indifferent between one 2000 uu/s strike and five 400 uu/s pokes** -- it pays the same. The other 84% is not indifferent: a poke leaves the ball inside re-contact range and a strike does not. Measured: 11.3 contacts per episode, 1.41 steps per contact sequence (so **not** a carry farm -- p9rel was 1.98), `Touch/Had Flipped` **0.0008**, i.e. the bot never flips into the ball. The guide's own words are "a slight push that barely changes the velocity of the ball will give almost no reward", which describes a **convex** function of dv; this project implemented it linear. **gamma bounds what the goal term can do.** At `gaeGamma` 0.99 and 15 steps/s the value horizon is 1/(1-g) = 100 steps = 6.7 s, so a goal is worth 10 x 0.99^390 ~ 0.2 at the start of a 26 s episode and 7.4 two seconds out: **Goal shapes the finish and nothing else**, and its 14.9% of |reward mass| is by construction zero-mean variance. Consistent: `Critic/V All` 3.32 -> 1.46 standardized while `GAE/Returns STD` 2.11 -> 3.94, i.e. raw V 7.0 -> 5.75 against much noisier returns. **Real gains, and they are the best this project has produced.** `Rating/1v1` **7.4 -> 108.1** (p11 6.1, p10 25.6); `Player/Ball Touch Ratio` 0.0248 -> **0.0411**; `Touch/Edge Rate` 0.0208 -> 0.0291; `Game/Goal Speed` 1653 -> **1947**; `Episode/Late/Ball Dist` 817; `Surface/Wrong Contact Rate` 0.0065; `Action/Handbrake` 0.140 -> 0.015; `Speed/Above Throttle Cap Share` 0.130 -> 0.389. **First run in which the bot plays a recognisable game of Rocket League**: it approaches, keeps possession, and scores about once every 26 s. Rating caveat stands -- it is against this run's own version pool, so it measures self-improvement, not absolute skill. **Nothing after ~175M was worth having.** `Policy Entropy` 0.309 (100M) -> 0.167 (150M) -> 0.146 (250M); `Rating/1v1` flat and noisy from 175M (117, 117, 91, 86, 98, 108). PPO stayed healthy the whole way (clip 0.068-0.149, KL 0.0074, `Policy Relative Entropy Loss` 1.01 -> 0.12, Critic Loss flat, `Obs/Non-Finite Rate` 0.000): **the run did not break, it converged.** The extra 150M bought a doubling of self-play rating between 100M and 175M and then nothing. **Latent farm shipped but never fired:** `AirTouchReward` pays on every contact STEP, not on the rising edge, unlike `TouchEdgeReward` which exists for exactly that reason. It stayed inert so nothing happened, but **it cannot be raised until it is edge-gated** -- at the budget the break-even analysis calls for, an air carry at ceiling height would pay ~200 touch-units per second |
 | 2026-08-19 | p11boost | Boost economy (`SaveBoost` 1.5 sqrt-of-tank, `PickupBoost` 0.5) + `strongTouch` 1.0 -> 3.0 re-derived from p10touch's `Touch/Strong Value` = 0.104. Two changes, declared as such. First attempt died at 29.8M to a NaN (see CLAUDE.md, fifth/sixth patches); rerun fresh to 97.7M | Does paying for boost fix the air game that p10touch found and could not sustain? | **FAILED, and the reason reframes the whole air problem.** Scorecard: **(1) `Player/Boost` >25 -- FAILED, 9.4** (from 7.4; the 25M kill criterion of >15 also failed at 6.4 and the run should have been stopped there). **(2) `Touch/Above 450` >0.15 -- FAILED, 0.081**, peaking 0.094 at 54M then declining. **(3) StrongTouch share 0.08-0.15 AND hit force stops falling -- HALF: share 0.105 in range, but `Touch/Hit Force` 878 -> 551, still falling.** That was the pre-registered tail-chasing failure and it fired. **(4) floor jumping <0.015 -- correct, 0.0044.** **The air game emerged and decayed AGAIN, and this time it is dated:** at 42-56M `Jump When Grounded Upright` 0.0058 -> **0.0116**, `Takeoff Was Jump` 0.0095 -> **0.069**, `In Air Ratio` 0.151 -> **0.257** -- then all three decayed back (0.0044 / 0.032 / 0.192). Second time this has happened (p10touch was the first). **Why the boost economy could not work: there is nothing to save boost FOR.** `Action/Boost When Grounded` **0.719 and rising** against `Action/Boost When Airborne` **0.287 and falling** (from 0.562). The bot spends boost on the ground because boosting there feeds `SpeedToBall`, which holds **57%** of reward mass against SaveBoost's **1.6%** -- spending is worth 36x saving, measured. SaveBoost asks the policy to hoard a resource with no privileged use. **Boost was never the constraint on air play; it was downstream of one.** Nothing in the stack paid more for an air touch than a ground touch, so a ground bot was genuinely optimal and the policy was playing it correctly. **The poke farm:** the rising edge stopped the CARRY farm (steps per contact 1.22, healthy) but not repeated brief weak contacts -- `RewardShare/TouchEdge` doubled 0.033 -> 0.068 while mean hit force fell to 551, i.e. **below StrongTouch's own 555.6 floor, so the average touch earned exactly zero from it.** Touching was paid; touching usefully was not. Real gains: `Player/Velocity Alignment` 0.542 -> **0.718**; touch edge rate 0.0077 -> 0.021; `Rating/1v1` -9.4 -> 6.1. `Obs/Non-Finite Rate` 0.000 throughout, so the NaN guard's counter stayed clean. **Process note: the metrics CSV had both runs concatenated** -- `--fresh` archived checkpoints but not the CSV -- and the first trend read off it showed a policy mysteriously resetting a third of the way through. Caught by an entropy jump 0.60 -> 0.71, which does not happen. Fixed; the files are now split |
 | 2026-08-18 | p10touch | **One variable vs p9rel:** flat per-step `TouchBallReward` (1.0) -> `StrongTouchReward` (1.0, |delta ball vel|, zero below 555.6 uu/s) + `TouchEdgeReward` (0.25, rising edge). Obs, dense budgets, spawns, mask, LR, entropy, tsPerItr all frozen | Kill the dribble farm and re-establish a sane ledger | **FARM DEAD, BEST RUN YET, AND MY JUMP METRIC WAS WRONG.** Scorecard: **(1) steps per contact sequence <1.3 -- CORRECT, 1.211** (p9rel 1.98, p8ref 1.16). **(2) `Episode/Mean Steps` <1500 -- FAILED: 1734 and still RISING** (823 -> 1191 -> 1734). Episode length is NOT purely downstream of the farm and needs its own cap. **(3) alignment >0.60 -- CORRECT and best ever: 0.7465** (p9rel 0.528, p8ref 0.593). The relative obs finally shows its value now that carrying the ball no longer pays. **(4) jump stays <0.008 -- technically correct (0.00790 Upright) BUT THE METRIC WAS HIDING THE ANSWER.** `upright` is `rotMat.up.z > 0.7`, so a car driving on a WALL is grounded-and-not-upright and its jumps were being logged to a bucket named 'Inverted' that I read as upside-down recovery and never quoted. That bucket reads **0.0615 = 15.4x the eps-floor and rising** (0.0135 -> 0.0601), with `Player/Takeoff Was Jump` **0.025 -> 0.264** and `Action/Jump When Airborne` 0.0152 -> 0.0726. **Jumping is not extinct; FLOOR jumping is.** Renamed to `Action/Jump When Grounded Tilted` with `Player/Grounded Tilted Ratio` published alongside it. **(5) `Touch/Strong Value` = 0.104**, against the 0.3-0.4 predicted -- so StrongTouch earned 0.104/touch against TouchEdge's 0.25, arriving paid 2.4x more than connecting, and `RewardShare/StrongTouch` sat at **0.037**, effectively inert. Budget re-derived to 3.0 per the pre-registered rule (move the budget, not the curve). **The air game is real and emerging on its own:** `Touch/Above 450` **0.051 -> 0.1095** (p9rel 0.00137, p8ref 0.035); `Player/Touch Height` 162 -> **220**; `Touch/Rate Airborne` 0.0046 -> 0.0154; `In Air Ratio` 0.24. Watched in RocketSimVis: air-dribbling off the wall when it has boost, never jumping from the floor -- which matches the Upright/Tilted split exactly. **The binding constraint is now boost: `Player/Boost` 7.3 out of 100 all run**, and nothing in the stack has ever paid for it. Aerial play is boost-gated in a way ground play is not. Secondary: `Rating/1v1` 3.5 -> **25.6**; `Game/Goal Speed` 1120 -> 1533; touch edge rate 0.0077 -> 0.021; PPO healthy throughout (entropy 0.753 -> 0.354, clip 0.107-0.136). Dense terms still hold 0.877 of reward mass, which is the early-stage shape and this bot is past it |
 | 2026-08-18 | p9rel | **One variable vs p8ref:** `TrainConfig::obs` Default -> `RelativeObs` (car-frame `dirToBall` unit vector, distance, offset and closing velocity per body; 89 -> 109 floats). Rewards, spawns, mask, LR, entropy, tsPerItr, `REFERENCE_EPISODE_STEPS` all frozen | Test whether representation cost is what keeps the bot playing a 2D game | **THE AERIAL HYPOTHESIS IS FALSIFIED, AND THE OBS UNLOCKED A DRIBBLE FARM.** Pre-registered scorecard: **(1) alignment >0.65 -- FAILED** at 98M (0.528), though it PEAKED at **0.649 at 18M vs p8ref's 0.486 at the same step count**, so the obs plainly worked before the farm buried it; carrying the ball drives closing speed to ~0, which is what the metric measures. **(2) touch ratio >0.018 -- passed 7x (0.128) and is meaningless.** **(3) jump stays <0.008 -- CORRECT: 0.00387, which is 0.97x the eps-floor**, even more extinct than p8ref's 1.11x. **(4) `Touch/Above 450` >0.05 -- FAILED, and INVERTED: 0.0525 -> 0.00137, a 38x collapse**, with `Touch Height` 166 -> 125 and `Touch/Above 200` 0.176 -> 0.015. **Conclusion: representation cost is NOT what kept the bot 2D. That was my hypothesis, it was labelled as one, and it is dead.** The air-touch reward is now the only untried lever. **The farm, measured:** steps per contact sequence (`Ball Touch Ratio` / `Touch/Edge Rate`) **1.16 -> 1.98**; `Player/Ball Touch Ratio` **0.129**, i.e. the car is in contact with the ball on 13% of ALL steps; `RewardShare/Touch` 0.145 -> **0.741**, three quarters of the budget. Causal story is clean: the relative obs made the bot competent enough to CARRY the ball, and a per-step touch reward pays for carrying. **This project had already solved this and the port removed the solution** -- `TouchEdgeReward` existed for exactly this, and roadmap D4 says 'no dribble/possession reward terms, ever'. Traded away for fidelity to the reference. In fairness the guide predicts it precisely: *'The default touch part of EventReward is not very good once your bot can touch the ball... ball touches can easily be farmed by constantly pushing the ball'*. **So this is the early->middle stage gate arriving on schedule: the early-stage stack succeeded and exhausted itself.** **Structural finding: episode length is now an unbounded free variable.** `Episode/Mean Steps` 812 -> **2956 = 197 seconds**. `NoTouchCondition(12s)` can never fire on a bot that is always touching, and the bot cannot score, so nothing ends an episode. Consequence beyond bookkeeping: **RandomState resets happen 17x less often than designed**, so the spawn diversity the whole reproduction rests on is largely gone and the bot lives in self-induced dribble states. `REFERENCE_EPISODE_STEPS = 171` is now 17x stale, so no rate budget means what it says. Left frozen deliberately -- re-deriving it is a reward change in disguise and would break comparability mid-sequence. Secondary: PPO healthy throughout (entropy 0.783 -> 0.368, clip 0.114-0.154, all kill criteria passed); `Player/Speed` 1046 -> 1302; `Episode/Late/Ball Dist` 1834 -> 613; `Rating/1v1` 2.4 -> 13.9; `Touch/Had Flipped` **0.00027**; `Player/Boost` 14.5 |
@@ -99,7 +100,285 @@ the other half: **when a metric is split by a condition, quote every branch and
 publish the branch's own denominator**, or the split silently becomes a filter.
 `Player/Grounded Tilted Ratio` now ships next to the jump rates for that reason.
 
-## PRE-REGISTERED: p12goal (not yet run)
+## PRE-REGISTERED: p13strike (not yet run)
+
+**Two concepts, declared as such, with separable instruments.** Budgets are
+SOLVED, not chosen -- `scripts/solve_budgets.py` against a target reward-share
+vector, calibrated on a 2M-step probe resumed from `p12goal/250006016` with the
+entropy controller off so the policy could not move.
+
+**1. Target-entropy controller** (5th and 6th external patches). `entropyScale`
+becomes a controlled variable, adjusted each iteration in log-space toward
+`entropyTarget = 0.40` -- SAC's automatic temperature tuning (Haarnoja et al.
+2018) applied to PPO's entropy bonus. A FIXED coefficient cannot hold an entropy
+floor, because the bonus is proportional to H and therefore weakens exactly as H
+falls: p12 ran `Policy Relative Entropy Loss` 1.01 -> 0.12 while entropy fell
+0.71 -> 0.146. Multiplied by log(90) that is an EFFECTIVE ACTION COUNT of 1.9 of
+90 -- near-deterministic. 0.40 is 6.0 effective actions; p7approach's 0.69, the
+run where "no reward conclusion is available from a policy that cannot move",
+was 22.3. The only framework-comparable external number this project has is a
+GigaLearn run reporting 0.4786 at 197M, which a peer called "a bit low".
+
+**2. Pay for what the ball does.** `TouchGoalAccel` goes convex (`sign(x)|x|^2`,
+exponent a config field) and the whole budget vector is re-solved. Targets:
+TouchGoalAccel 0.364, SpeedToBall 0.220, Goal 0.200 (anchor, weight frozen at
+10.0), TouchEdge 0.065, SaveBoost 0.050, FaceBall 0.045, AirTouch 0.030,
+PickupBoost 0.020, Air 0.006. **The proximity block goes 0.688 -> 0.330 and the
+ball block 0.247 -> 0.564.** That inversion is the run. Two supporting fixes
+that are not variables: `AirTouchReward` becomes a RISING EDGE (mandatory at the
+new budget -- the p12 per-contact-step form would pay ~170 touch-units/sec for a
+ceiling-height air carry), and `REFERENCE_EPISODE_SECONDS` 11.4 -> 26.0, which
+cancels out of a share solve and only makes the budget fields read honestly.
+
+**Why convex.** A linear touch term is indifferent to CONCENTRATION: the
+goal-directed delta-v needed to score is fixed by the length of the field, so
+five 400 uu/s pokes pay exactly what one 2000 uu/s strike pays, and the other
+84% of the stack broke that tie toward pokes. At exponent 2 an 80 kph strike is
+worth 16x a 20 kph poke rather than 4x. It is preferred to StrongTouch's hard
+555.6 uu/s floor because a floor has no gradient below it -- at the 80 kph a
+"strong touch" ought to mean, a floor would read identically zero today, since
+the mean touch is 15.2 kph.
+
+**Why AirTouch 12.89.** p12 measured the price of a takeoff: `Critic/TD Delta
+Jump` -0.2249 against `NoJump` -0.0199, and `gamma*V - V` is -0.015 at V ~ 1.5
+before anything happens, so the excess is -0.205 standardized = **-0.81
+touch-units** at `Returns STD` 3.939. ~91% of sampled jumps come from the
+exploration floor, which mixes uniformly over valid actions independently of
+state, so that comparison is close to a randomized trial. At budget 2.0 a
+realistic aerial (ball z 800, 1.0 s aloft, min = 0.391) paid 0.78 against 0.81 --
+**4% below break-even**, which is the exact signature of a behaviour that appears
+and decays rather than establishing or vanishing. At 12.89 it pays 5.04.
+
+**Calibration, and what it caught.** The analytic solve off p12's summary
+statistics was accurate to 5.6% for TouchGoalAccel (the one unknown was E[x^2],
+estimated as 2E[|x|]^2 on a heavy-tailed assumption) but **1.63x wrong for
+AirTouch** -- air contacts are more clustered than the average contact, so
+edge-gating cost more mass than the overall 1.41 steps-per-sequence implied. A
+verification probe with the final budgets returned every non-anchor term within
+10% of target (TouchGoalAccel 0.3603/0.364, SpeedToBall 0.2381/0.220, AirTouch
+0.0277/0.030). The residual is the anchor's own sampling noise -- goals are rare,
+`RewardShare/Goal` read 0.179 against 0.200 over 2M steps, and every other term
+is uniformly ~8% high as a consequence. Not chased further; that would be
+fitting noise.
+
+**Attempt 1 discarded at 8.4M steps (2026-08-19), controller windup.** The
+entropy controller shipped without anti-windup and it is broken on a fresh
+init. A new policy starts at `Policy Entropy` ~0.98, far ABOVE the 0.40 target,
+so the controller correctly wants no bonus -- but it integrates that large
+one-sided error for the whole transient. Measured: `Entropy Scale` 0.002 ->
+0.000835 (1.7M) -> 0.000161 (5.0M) -> **0.000055 (8.4M) and still falling**, on
+course for its floor by ~13M. Recovery afterwards would have needed 100M+ steps
+at gain 0.05, so the run would have been an `entropyScale ~ 0` run: LESS
+exploration than p12's fixed coefficient, which is the exact opposite of the
+intent, and it would have looked fine at the 10M gate. Fixed by engaging the
+controller only once entropy first REACHES the target, raising the gain 0.05 ->
+0.15, and making the floor a fraction of the engagement scale rather than an
+absolute 1e-5. `Entropy Controller Engaged` is now published so the handover is
+readable off the graph. **Lesson, and it is the run-log's own rule turned on
+itself: a controlled variable needs its controller's transient predicted in
+writing before the run, exactly like any other prediction.**
+
+**Attempt 2 discarded at 48.7M steps (2026-08-19), and the error was the
+calibration, not the design.** The budgets were solved against a probe RESUMED
+FROM p12goal's converged checkpoint -- a bot touching the ball 11.3 times per
+episode -- and then the run was started FRESH. Under a random policy the five
+EVENT terms have almost no events to pay for, so they collapse and the four RATE
+terms absorb everything. Measured against target: TouchGoalAccel **0.05x**,
+TouchEdge **0.02x**, AirTouch 0.15x, Goal 0.17x; Air **19.5x**, SaveBoost
+**6.6x**, FaceBall 3.5x, SpeedToBall 1.4x. Air 0.117 + SaveBoost 0.330 +
+FaceBall 0.156 = **60% of reward mass collectable without ever touching the
+ball**, which is p1air's do-nothing attractor rebuilt, and the policy found it
+correctly: `Player/In Air Ratio` **0.898** (p6budget's jump-and-hang to three
+digits), `Jump When Grounded Upright` **0.454** against a 0.20 null,
+`Player/Boost` **46.3** against 6-7 in every other run, `Episode/Mean Steps`
+**185** = the 12 s no-touch timeout, `Touch/Edge Rate` **0.0003** against
+p8ref's 0.0085 at the same step count, and `Player/Velocity Alignment`
+**0.3469 = 1.09x the 0.3183 planar null**, i.e. the bot never learned to drive
+at the ball at all. **The 10M share gate fired at ITERATION ONE and was not
+read** -- first-20-iteration shares were already 69x and 28x off target.
+
+**The general lesson, which outlasts this run: a target-share solve is only
+valid when the calibration policy IS the run policy.** Event-term share scales
+with event RATE, and the event rate is the thing a run is trying to change, so
+no single static share vector is correct at both ends of a fresh run. Share
+targeting is the right instrument for a RESUMED run and the wrong one for a
+cold start; a cold start has to be calibrated on a cold policy, and then only
+its early shares mean anything. `scripts/solve_budgets.py` now refuses a solve
+whose probe checkpoint does not match the run's starting checkpoint.
+
+**Attempt 3 therefore RESUMES `p12goal/250006016`,** which makes the existing
+calibration exactly valid from step 0 and tests the actual question -- what a
+bot that already reaches and controls the ball does once striking is what pays.
+The original objection to resuming (p12's policy sits at entropy 0.146 = 1.9
+effective actions and cannot respond) is precisely what the entropy controller
+removes: resuming BELOW target engages it on iteration 1. Predictions below are
+already written as deltas from p12's endpoint, so they carry over unchanged.
+
+**AMENDMENT filed at 11M steps of attempt 3, BEFORE the 25M gate it changes, so
+that it is an amendment and not a retro-fit.**
+
+`Critic/TD Delta Jump` was pre-registered as the primary air readout because it
+is entropy-robust. It is. **It is not SELECTIVITY-robust, and I did not
+anticipate that.** The metric averages `gamma*V(s') - V(s)` over ALL
+grounded-upright decision points, and ~91% of the jumps in it are eps-floor
+forced, i.e. uniformly random with respect to state. Once a policy learns to
+jump SELECTIVELY -- only when a jump is actually useful -- V(s) rises to include
+that option value while the forced random jumps still land in states where
+jumping is wrong. The gap therefore WIDENS as deliberate jumping gets better,
+which is the opposite of what the gate assumed.
+
+Measured at 11M: `Critic/TD Delta Jump` -0.2249 -> **-0.2677** (gate wanted
+> -0.15) while `Touch/Had Jumped` went 0.0564 -> **0.5268** and
+`Action/Jump When Grounded Upright` went 0.0039 -> **0.0172 = 4.3x the 0.0040
+eps-floor**. p12's read exactly 1.00x the floor -- total extinction. **Floor
+jumping has come off the floor for the first time since p1air, and the gate
+metric says it got worse.**
+
+So the 25M air gate is **replaced, not waived**: `Touch/Had Jumped` > 0.25 and
+`Action/Jump When Grounded Upright` > 2x the eps-floor. `Critic/TD Delta Jump`
+stays published and stays interesting, but as a measure of what a RANDOM jump
+costs, which is a different question from whether a chosen one pays.
+
+**Flip finding at 11M, with its null, and it reframes the whole air problem.**
+`DefaultAction`'s 18 jump actions are pitch x roll x boost = 3 x 3 x 2 (yaw is
+skipped when jump is set), and RocketSim computes dodge direction as
+`(-pitch, yaw + roll)` (`Car.cpp:688`), so roll supplies the sideways component
+and all eight dodge directions are representable. Only pitch == 0 AND roll == 0
+gives a non-dodging jump: **2 of 18, so the uniform null for
+`Flip/Neutral Share` is 0.111.** Measured: **0.856 = 7.7x the null.**
+
+**The bot is not failing to DISCOVER the flip. It is actively selecting the
+non-dodging jump, 7.7x above chance.** That kills the obvious remedy: Zealan's
+"add more jump actions to a discrete action parser" is aimed at a policy that
+does not sample the action, and 88.9% of our jump actions already dodge. Adding
+more cannot help something the policy is rejecting on merit.
+
+The merit is real, too. A neutral jump preserves BOTH the flip and full air
+control; a dodge commits ~1.25 s of rotation. Against a ball whose arrival you
+cannot yet time precisely, the adjustable option dominates -- and dodges only
+start paying once timing is good, while timing only improves by dodging. That is
+a bootstrap problem, not an incentive problem, and it is exactly what the
+`strike` curriculum entry was written for ("ball at jump height, car already
+rolling at it with pace, so the only open decisions are when to leave the ground
+and whether to flip"). It has been disabled since p8ref's reproduction.
+p2low's null -- curriculum cannot teach an action the policy never samples --
+does not apply any more: both of its premises (no exploration floor, P(jump) =
+0.0000) are now false.
+
+**The flip ledger, derived from RocketSim's own constants, so p14 does not have
+to argue about it.** A forward flip adds **exactly +500 uu/s**
+(`FLIP_INITIAL_VEL_SCALE = 500`, and the speed multiplier
+`((maxSpeedScaleX - 1) * forwardSpeedRatio) + 1` is exactly 1.0 for a forward
+dodge because `FLIP_FORWARD_IMPULSE_MAX_SPEED_SCALE = 1`). **There is NO
+flip-specific bonus in the ball collision** -- `BALL_CAR_EXTRA_IMPULSE_FACTOR_
+CURVE` (`Arena.cpp:315-326`) keys purely off `relSpeed = |ballVel - carVel|`, so
+a flip helps hit force only by raising relative speed at contact.
+
+That makes it arithmetic. A contact at ~700 uu/s relative gives extra impulse
+700 x 0.639 = 447; with the flip, 1200 x 0.611 = 733, i.e. **+64% ball speed**.
+Squared by the convex term that is **2.69x the touch reward**: at the measured
+`Touch/Goal Accel Value` 0.0195 and budget 62.14, **1.21 -> 3.26 touch-units per
+contact**, plus ~0.12 from the extra closing speed feeding SpeedToBall. So
+
+    flip pays iff P(connect | flip) / P(connect | no flip) > 1.35/3.40 = 0.40
+
+**A flip need only connect 40% as often as a normal approach to be worth
+taking.** Under p12's LINEAR term the same comparison was 1.64x and the
+break-even ratio 0.66, so convexity has already moved this a long way.
+
+**And the cheapest version is in the bot's hands already:** it jumps into the
+ball on 53% of touches and then spends the second jump on a NEUTRAL double jump
+(`Flip/Delay Seconds` 0.243). That is the same action slot -- the only
+difference from a forward dodge is `pitch = -1` -- and it is trading +500
+forward for +292 up (`JUMP_IMMEDIATE_FORCE`) at a touch height of 146, where the
+vertical is worth almost nothing.
+
+**Conclusion for p14: the incentive is not the problem and must not be
+"fixed".** The payoff is conditional on connecting, and the exploration floor
+samples dodges uniformly across states, so the good moments are a small fraction
+of flip samples, the MEAN advantage is ~0, and PPO -- which sees the mean --
+suppresses it. The policy has correctly learned that flipping at a random
+instant is bad. The lever is a state distribution concentrated on the moments
+where flipping is right, i.e. the `strike` scenario, not another reward term.
+Identified costs (`FLIP_PITCHLOCK_TIME` 1.0 s of no pitch control, ~0.04
+touch-units of forfeited FaceBall; and losing the jump so a miss recovers
+slowly) are nowhere near large enough to explain a 7.7x preference for neutral.
+
+**Speed-flips: `FLIP_SIDE_IMPULSE_MAX_SPEED_SCALE = 1.9` against forward's 1.0,
+and the side component DOES scale with `forwardSpeedRatio`** -- which is the
+mechanic. Representable here (diagonal pitch/roll combinations are 8 of the 18
+jump actions), but converting it to forward speed needs an air-roll correction
+mid-dodge. Not designed for.
+
+**Baseline, p12goal at 250M:** `Touch/Hit Force` 422, `Touch/Above 450` 0.037,
+`Player/Touch Height` 155, `Critic/TD Delta Jump` -0.2249, `Touch/Had Flipped`
+0.0008, `Touch/Edge Rate` 0.0291, `Episode/Mean Steps` 390, alignment 0.636,
+`Policy Entropy` 0.146.
+
+**Predictions:**
+
+1. **`Touch/Hit Force` > 700 at 100M** (from 422), reversing a three-run decline
+   of 878 -> 551 -> 422. PRIMARY. **Note the confound runs the RIGHT way:**
+   higher entropy means noisier control and a hard touch needs a precise
+   approach, so raising entropy pushes this metric DOWN. A pass is therefore
+   strong evidence; only a failure is ambiguous.
+2. **`Critic/TD Delta Jump` rises above -0.10** (from -0.2249). This REPLACES
+   `Jump When Grounded Upright` as the primary air readout, because raising
+   entropy moves every action-rate metric mechanically toward its null and the
+   nulls in `docs/metrics.md` assume a fixed exploration level. TD Delta Jump is
+   entropy-robust and in fact improves with entropy: ~100x more jump samples
+   fixes the critic's coverage of post-jump states, which is the one weakness in
+   the -0.81 estimate.
+3. **`Touch/Edge Rate` falls below 0.022** (from 0.0291) while steps per contact
+   sequence (`Ball Touch Ratio` / `Edge Rate`) stays under 1.6. Fewer and harder,
+   not a carry.
+4. **`Touch/Above 450` > 0.10 and `Player/Touch Height` > 200** (from 0.037/155).
+5. **`Policy Entropy` holds in [0.35, 0.45]** with `Entropy Scale` settling
+   rather than railing at a bound.
+
+**Kill criteria:**
+
+- **10M:** `Obs/Non-Finite Rate` = 0; `SB3 Clip Fraction` in [0.02, 0.25];
+  `Entropy Scale` strictly inside (1e-5, 0.2); `Policy Entropy` moving toward
+  0.40 rather than away; **and every `RewardShare/*` within 2x of its target.**
+  That last one is new and is the whole point of the solver -- three consecutive
+  runs shipped their headline term under 4% of reward mass and nobody found out
+  until the post-mortem.
+- **25M:** `Critic/TD Delta Jump` > -0.15. If the price of a takeoff has not
+  moved with AirTouch at 12.89 AND the proximity block halved, then air is not a
+  pricing problem and no further air budget will fix it -- which would send p14
+  at the action parser (the guide's own remedy: "add more jump actions... doubling
+  the jump actions seems to be enough to eliminate the need for air rewards")
+  rather than at the reward.
+- **50M:** `Touch/Hit Force` > 550, i.e. genuinely above p11's and not merely
+  falling more slowly.
+- **AT ANY TIME, the do-nothing ceilings**, added after attempt 2 measured what
+  they look like: `RewardShare/Air` > 0.05 or `RewardShare/SaveBoost` > 0.15.
+  Both terms are collectable while doing nothing -- floating, and not spending --
+  so both inflate the moment event rates fall, and together they are the
+  attractor that killed attempt 2.
+- **AT ANY TIME, the two farm ceilings.** `RewardShare/AirTouch` > 0.35 is the
+  float/air-carry farm. `RewardShare/TouchGoalAccel` > 0.60 **while
+  `Episode/Mean Steps` is rising** is the SHOT-SPAM farm -- blasting the ball
+  goalward without scoring, which convexity invites and which is already
+  rational, since scoring ends the episode and forfeits the rest of the stream.
+
+**Pre-committed tiebreak, filed BEFORE the run so it is a plan and not an
+excuse.** If prediction 1 fails, the run does not get to blame entropy. It
+triggers exactly one rerun at `--entropy-target 0 --entropy 0.002` with an
+identical reward stack, ~32 minutes, to separate the two changes.
+
+**Frozen:** gamma 0.99, policyLR/criticLR 2e-4, tsPerItr 50k, obs Relative,
+spawn Random, `maskActions` false, the action parser, `goal` 10.0,
+`infiniteBoostChance` 0. LR 1e-4 and tsPerItr 100k are both guide-prescribed for
+this stage and both now wrong; they are p14, deliberately not p13.
+
+**Stop at 100M** and extend only if `Rating/1v1` is still climbing. p12 ran to
+250M and bought a rating doubling between 100M and 175M and then nothing.
+`Rating/1v1` is measured against this run's OWN version pool, so it is not
+comparable to p12's 108.
+
+## p12goal: the pre-registration as filed (run 2026-08-19, outcome in the table above)
 
 **Three changes, one concept: the bot has never been told the net exists.**
 Declared as not-one-variable, with separable metrics.

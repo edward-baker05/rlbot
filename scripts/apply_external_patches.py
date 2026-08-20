@@ -138,6 +138,15 @@ RETURN_STD_BODY = """		float curReward;
 		if (std::isfinite(returnStd) && returnStd != 0) {"""
 
 
+ENTROPY_CONFIG_ANCHOR = '\t\tfloat entropyScale = 0.018f; // The scale of the normalized entropy loss'
+
+ENTROPY_CONFIG_BODY = '\t\tfloat entropyScale = 0.018f; // The scale of the normalized entropy loss\n\n\t\t// --- HIVE LOCAL PATCH: target-entropy controller -----------------------\n\t\t// entropyScale above is a FIXED coefficient on a quantity that shrinks.\n\t\t// The bonus is proportional to H, so as H falls the bonus weakens, which\n\t\t// is self-accelerating: p12goal at scale 0.002 ran `Policy Relative\n\t\t// Entropy Loss` 1.01 -> 0.12 while `Policy Entropy` fell 0.71 -> 0.146\n\t\t// (= 1.9 effective actions out of 90, i.e. near-deterministic). A fixed\n\t\t// coefficient cannot hold a floor; it only slows the descent.\n\t\t//\n\t\t// entropyTarget > 0 turns entropyScale into a controlled variable: it is\n\t\t// adjusted each iteration toward whatever value holds measured entropy at\n\t\t// the target. This is SAC\'s automatic temperature tuning (Haarnoja et al.\n\t\t// 2018, "Soft Actor-Critic Algorithms and Applications", sec. 5) applied\n\t\t// to PPO\'s entropy bonus: gradient descent on J(a) = a * (H - H_target),\n\t\t// done in log-space so the step is multiplicative and `a` stays positive.\n\t\t//\n\t\t// Entropy here is GigaLearn\'s NORMALIZED entropy in [0,1] (divided by\n\t\t// log(numActions)), so the target is a fraction of maximum, not nats.\n\t\t// 0 disables the controller and entropyScale stays fixed.\n\t\tfloat entropyTarget = 0.f;\n\n\t\t// Multiplicative gain, per iteration, in log-space.\n\t\t//\n\t\t// 0.05 shipped first and was too slow to be useful. p12 showed that\n\t\t// entropyScale 0.002 does NOT hold entropy at 0.40 -- it sails past and\n\t\t// keeps falling to 0.146 -- so the controller has to be able to RAISE\n\t\t// the scale by an order of magnitude or more. At 0.05 and a residual\n\t\t// error of 0.05, a 10x move takes ln(10)/0.0025 = 920 iterations = 46M\n\t\t// steps: half a run spent merely reaching the operating point.\n\t\t//\n\t\t// 0.15 makes that 15M steps while staying gentle per step (0.75% per\n\t\t// iteration at error 0.05), which matters: entropy responds to a scale\n\t\t// change with a lag of tens of iterations, and a controller that\n\t\t// outruns its own plant oscillates.\n\t\tfloat entropyAdjustRate = 0.15f;\n\n\t\t// --- ANTI-WINDUP ------------------------------------------------------\n\t\t// Without this the controller is BROKEN on a fresh run, and p13strike\'s\n\t\t// first attempt proved it in three minutes. A new policy starts at\n\t\t// entropy ~0.98, far ABOVE target, so the controller correctly wants no\n\t\t// bonus and winds the scale down -- but it keeps integrating that large\n\t\t// one-sided error for the whole transient. Measured: 0.002 -> 5.5e-5 by\n\t\t// 8.4M steps and still falling, heading for a floor from which recovery\n\t\t// would take longer than the run itself. The run silently becomes an\n\t\t// entropyScale ~ 0 run, i.e. LESS exploration than the fixed-coefficient\n\t\t// baseline it was built to improve on.\n\t\t//\n\t\t// Fix: hold the scale at its initial value until measured entropy first\n\t\t// REACHES the target, and only then start integrating. While the policy\n\t\t// is more random than asked for there is nothing to correct, and the\n\t\t// transient carries no information about the scale needed to hold the\n\t\t// target afterwards. On a resumed policy already below target this\n\t\t// engages on the first iteration, which is also correct.\n\t\t//\n\t\t// Runtime state, not settings. They live here because PPOLearner owns\n\t\t// its config by value and already mutates entropyScale through it.\n\t\tbool entropyControllerEngaged = false;\n\t\tfloat entropyScaleMin = 0.f; // set on engagement\n\n\t\t// The floor is a FRACTION of the scale at engagement, not an absolute.\n\t\t// An absolute 1e-5 sits 200x below nominal -- a hole deep enough that\n\t\t// falling in ends the experiment, which is exactly what happened. 0.2x\n\t\t// of nominal is a real correction without being a trap. The ceiling\n\t\t// stays generous, because raising the scale is the whole job.\n\t\tfloat entropyScaleMinFrac = 0.2f;\n\t\tfloat entropyScaleMax = 0.2f;\n\t\t// --- END HIVE LOCAL PATCH ---------------------------------------------'
+
+ENTROPY_CONTROLLER_ANCHOR = '\t// Assemble and return report\n\treport["Policy Entropy"] = avgEntropy.Get();'
+
+ENTROPY_CONTROLLER_BODY = '\t// --- HIVE LOCAL PATCH: target-entropy controller ------------------------\n\t// See PPOLearnerConfig.h for the derivation. Applied AFTER the epochs, on\n\t// the iteration\'s mean entropy, so one adjustment per iteration.\n\t//\n\t// Skipped on the first iteration, whose averages are not trustworthy, and\n\t// guarded on isfinite for the same reason the NaN patches exist: a NaN\n\t// entropy would otherwise turn entropyScale into NaN and poison every\n\t// subsequent loss.\n\tif (config.entropyTarget > 0 && !isFirstIteration) {\n\t\tconst float measured = avgEntropy.Get();\n\t\tif (std::isfinite(measured)) {\n\t\t\t// Anti-windup: there is nothing to correct while the policy is MORE\n\t\t\t// random than asked for. See PPOLearnerConfig.h -- integrating the\n\t\t\t// fresh-init transient buries the scale somewhere it cannot climb\n\t\t\t// back out of inside one run.\n\t\t\tif (!config.entropyControllerEngaged && measured <= config.entropyTarget) {\n\t\t\t\tconfig.entropyControllerEngaged = true;\n\t\t\t\tconfig.entropyScaleMin = config.entropyScale * config.entropyScaleMinFrac;\n\t\t\t}\n\n\t\t\tif (config.entropyControllerEngaged) {\n\t\t\t\tconst float err = config.entropyTarget - measured;\n\t\t\t\tconfig.entropyScale = std::clamp(\n\t\t\t\t\tconfig.entropyScale * std::exp(config.entropyAdjustRate * err),\n\t\t\t\t\tconfig.entropyScaleMin, config.entropyScaleMax);\n\t\t\t}\n\t\t}\n\t}\n\t// 0 until the controller takes over, so "is it driving yet" is readable off\n\t// the graph instead of inferred from the scale sitting still.\n\treport["Entropy Controller Engaged"] = config.entropyControllerEngaged ? 1.f : 0.f;\n\t// The scale is now a moving quantity, so it MUST be observable -- a\n\t// controlled variable that nobody can read is not controlled.\n\treport["Entropy Scale"] = config.entropyScale;\n\treport["Entropy Target"] = config.entropyTarget;\n\t// --- END HIVE LOCAL PATCH -----------------------------------------------\n\n\t// Assemble and return report\n\treport["Policy Entropy"] = avgEntropy.Get();'
+
+
 PATCHES = [
 	{
 		"name": "exploration-floor",
@@ -159,6 +168,20 @@ PATCHES = [
 		"marker": "HIVE LOCAL PATCH: finite guard",
 		"anchor": RETURN_STD_ANCHOR,
 		"body": RETURN_STD_BODY,
+	},
+	{
+		"name": "entropy-target-config",
+		"path": "external/GigaLearnCPP-Leak/GigaLearnCPP/src/public/GigaLearnCPP/PPO/PPOLearnerConfig.h",
+		"marker": "HIVE LOCAL PATCH: target-entropy controller",
+		"anchor": ENTROPY_CONFIG_ANCHOR,
+		"body": ENTROPY_CONFIG_BODY,
+	},
+	{
+		"name": "entropy-target-controller",
+		"path": "external/GigaLearnCPP-Leak/GigaLearnCPP/src/private/GigaLearnCPP/PPO/PPOLearner.cpp",
+		"marker": "HIVE LOCAL PATCH: target-entropy controller",
+		"anchor": ENTROPY_CONTROLLER_ANCHOR,
+		"body": ENTROPY_CONTROLLER_BODY,
 	},
 ]
 

@@ -117,6 +117,11 @@ int RunTrain(int argc, char* argv[]) {
 			cfg.runLabel = argv[++i];
 		} else if (arg == "--entropy" && i + 1 < argc) {
 			cfg.entropyScale = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--entropy-target" && i + 1 < argc) {
+			// 0 disables the controller and pins entropyScale to --entropy,
+			// which is what a calibration probe wants: the probe must not
+			// move the policy it is measuring.
+			cfg.entropyTarget = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--infinite-boost" && i + 1 < argc) {
 			cfg.infiniteBoostChance = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--fresh") {

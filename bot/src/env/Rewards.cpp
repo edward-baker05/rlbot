@@ -20,36 +20,13 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 	// occurs 0.16-2 times per episode and is read directly off
 	// `Touch/Edge Rate` and `Player/Ball Touch Ratio`, so the ledger can be
 	// checked against telemetry instead of reconstructed by hand.
-	//
-	// Eight terms. The early-stage stack from Zealan's RLGym-PPO-Guide
-	// (making_a_good_bot.md) with its touch term taken to the guide's
-	// MIDDLE-stage form, because p9rel hit the transition the guide describes:
-	// "The default touch part of EventReward is not very good once your bot can
-	// touch the ball. This is because ball touches can easily be farmed by
-	// constantly pushing the ball." It was -- 13% of all steps in contact and
-	// 74% of reward mass on a dribble.
-	//
-	// NOT PRESENT, and each absence is a decision:
-	//
-	//   * No Goal term. The guide: "Having these rewards before the bot is
-	//     capable of actually hitting the ball just adds lots of noise to the
-	//     overall reward and will slow learning." At a touch ratio of 0.001 the
-	//     bot cannot cause a goal, so the term is pure variance.
-	//   * No boost, no ball-to-goal, no tuning penalties. The guide's
-	//     troubleshooting section says to reduce or remove tuning rewards;
-	//     p7approach had `WrongSurface` holding 30% of reward mass.
-	//   * Nothing is ZeroSum-wrapped. Zealan's rule is that a reward should be
-	//     zero-sum only if it is useful for the OPPONENT to prevent it.
-	//     Approach and orientation are movement tuning. With no Goal term there
-	//     is no adversarial structure in the stack at all, which is correct for
-	//     a bot that cannot yet reach the ball.
 	return {
 		// THE UNIT: a maximal goal-directed strike. Signed, so putting the ball
 		// toward your own net costs. Touch-gated, so it measures only the ball
 		// motion this car caused -- the continuous VelocityBallToGoal form is
 		// known-bad here (p1probe-b: 67% of reward mass as passive ball noise).
 		{"TouchGoalAccel", b.touchGoalAccel,
-		 [] { return new TouchGoalAccelReward(); }},
+		 [e = b.touchAccelExponent] { return new TouchGoalAccelReward(e); }},
 
 		// The scoreboard. Already zero-sum: +1 scored, -1 conceded. Moderate on
 		// purpose -- see the budget comment; a huge goal reward scales variance,
@@ -75,12 +52,18 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 		// Per step, on the boost LEVEL: discourages wasting it.
 		{"SaveBoost", RateWeight(b.saveBoost), [] { return new SaveBoostReward(); }},
 
-		// Per pickup, on the boost INCREMENT: encourages collecting it.
-		{"PickupBoost", b.pickupBoost, [] { return new PickupBoostReward(); }},
+		// Per pickup, on the boost INCREMENT: encourages collecting it. Small
+		// pads carry a guaranteed baseline floor so routing over them stays attractive.
+		{"PickupBoost", b.pickupBoost, [] { return new TieredPickupBoostReward(); }},
+
+		// Forward flip closing acceleration towards the ball. Boost-neutral,
+		// supporting both ground flips and speed-flips to traverse and conserve boost.
+		{"FlipSpeed", b.flipSpeed, [] { return new FlipSpeedReward(); }},
 
 		// Pays for touching the ball high AFTER real air time. The min() makes a
 		// wall shot worth exactly zero, which is the farm this bot already runs.
-		{"AirTouch", b.airTouch, [] { return new AirTouchReward(); }},
+		{"AirTouch", b.airTouch,
+		 [e = b.airTouchHeightExponent] { return new AirTouchReward(e); }},
 
 		// Pays for being airborne at all. Measured ~50x too small to cover what
 		// a jump costs, and left that way on purpose: AirTouch is the term that
