@@ -100,6 +100,119 @@ the other half: **when a metric is split by a condition, quote every branch and
 publish the branch's own denominator**, or the split silently becomes a filter.
 `Player/Grounded Tilted Ratio` now ships next to the jump rates for that reason.
 
+## PRE-REGISTERED: p16 (seeded from `main-p15manual/1044744064`, 2026-08-20)
+
+**Two changes, one concept: stop paying for possession, start paying for the
+shot.** Declared as not-one-variable, with separable instruments.
+
+p15 ran 1044.7M steps under a config that changed at least fifteen times and
+was never logged. p16 draws a line under that: the stack is frozen from here
+and every subsequent change gets its own row.
+
+**Seeding.** `checkpoints/main-p15manual/1044744064` copied to
+`checkpoints/main-p16/1044744064` with `RUNNING_STATS.json`'s `run_id`
+DELETED, so wandb starts a new run instead of renaming p15's (`8l6ewpl5`).
+Verified: policy weights hash-identical to p15, p15's own `run_id` intact, and
+a dry run opened a fresh id rather than adopting p15's. `policy_versions` was
+copied too, so the 32-version opponent pool and `Rating/1v1` 316.5 carry over
+-- which makes the rating comparable across the p15/p16 boundary for the first
+~160M steps, until the pool rotates out.
+
+**`return_stat` was deliberately NOT reset** (count 2.87M, std 50.9). It is a
+whole-run cumulative Welford and it describes a reward stack that no longer
+exists, so it is stale by construction. Resetting it would hand the critic a
+50x target rescale for no benefit, because the advantage-standardization patch
+now makes the policy step independent of return scale. It is a known
+limitation, not an oversight: only a fresh run gets an honest one.
+
+**1. `ShotOnTarget` gains a strength factor.** `budget x
+clamp(dv_goalward/3611, 0, 1) x exp(-miss/892.755)`, budget 12 -> 35. The term
+shipped as a plateau in BOTH placement and force, so a ball rolling goalward on
+the car's hood paid exactly what a strike paid, on every contact rising edge --
+measured 4.16 touch-units per contact sequence, one sequence every ~50 steps,
+against a goal worth 25 once. Walking the ball to the line was strictly optimal
+and slower was strictly better, and the bot learned precisely that. Keyed on
+delta-v rather than ball speed because a carried ball travels at the CAR's
+speed (1309 uu/s), so a speed factor would still have paid a dribble ~40%.
+Linear, not convex: TouchGoalAccel already prices power convexly and doubling
+up would re-create the blast-it failure. Placement stays a plateau, so corner
+shots are untouched.
+
+**2. `airTouchHeightExponent` 2 -> 1, `airTouch` 20 -> 12.** At the measured
+touch height of 191 the term paid 0.175 against a takeoff cost of 0.68 --
+**3.9x BELOW break-even** -- and the convexity made the collapse
+self-reinforcing, because a falling touch height cut the payment
+quadratically. At exponent 1 it pays 1.12, or 1.65x break-even. This is the
+third time this project has found and lost the air game at a margin near 1.0
+(p12, p14, p15). The guard test that should have caught it asserted break-even
+at a ball height of 800 -- a height the bot reached when the test was written
+and does not reach now -- so it passed while the term was underwater in play.
+It now asserts at the MEASURED height.
+
+**Also carried, not variables:** `REFERENCE_EPISODE_SECONDS` 41.5 -> 26.1 with
+the four rate budgets rescaled to hold their per-step weights to within 0.7%
+(episodes shortened to 392 steps under gamma 0.99, so the old constant was
+silently delivering every rate budget at 1.59x its declared integral); and
+`Shot/Strength` / `Shot/Ball Speed` published so the one guessed constant in
+the budget arithmetic (`ASSUMED_SHOT_STRENGTH = 0.25`) can be replaced by a
+measurement.
+
+**Baseline, p15manual over its last 10M steps:** `Rating/1v1` 317.4,
+`Episode/Mean Steps` 404.6, `Touch/Hit Force` 708, `Touch/Goal Accel Raw`
+0.1064, `Player/Touch Height` 190.4, `Touch/Above 450` 0.0459,
+`Phase/AirDribble` 0.0107, `Phase/GroundDribble` 0.0564, `Phase/Aerial` 0.0354,
+`Shot/On Target Share` 0.569, `Shot/Miss Distance` 486,
+`AirTouch/Direction Factor` 0.781, `AirTouch/Backward Share` 0.171,
+`Player/Ball Touch Ratio` 0.0306, `Touch/Edge Rate` 0.0215, ledger 110.7
+touch-units/episode, goals/episode 1.038, V 14.2, continuation ceiling 17.1,
+`goal/ceiling` 1.46x. Realized shares: ShotOnTarget 32.8%, TouchGoalAccel
+26.6%, Goal 23.4%, AirTouch 1.9%.
+
+**Predictions:**
+
+1. **`Player/Touch Height` > 260 at 100M** (from 190.4), and
+   `Touch/Above 450` > 0.09 (from 0.0459). PRIMARY for change 2. If the air
+   game does not come back at 1.65x break-even, the problem is not pricing and
+   no further air budget will fix it.
+2. **`RewardMass/ShotOnTarget` share falls to 0.05-0.15** (from 0.328).
+   Outside that band the budget of 35 was mis-set, in a direction
+   `Shot/Strength` will name.
+3. **`Phase/GroundDribble` falls below 0.040** (from 0.0564) while
+   `Touch/Hit Force` rises above 850 (from 708). The dribble stops being an
+   end in itself and becomes a setup.
+4. **`Shot/On Target Share` holds above 0.50** (from 0.569). The strength
+   factor must not cost accuracy -- it only removes payment for touches that
+   were never shots.
+5. **`Rating/1v1` > 340 at 100M** (from 317.4), against a pool inherited from
+   p15 so the comparison is valid for that span.
+
+**Kill criteria:**
+
+- **10M:** `Obs/Non-Finite Rate` = 0; `SB3 Clip Fraction` in [0.02, 0.25];
+  `Mean KL Divergence` < 0.03; and `RewardMass/ShotOnTarget` share within 3x
+  of its 0.10 target. The last one is the lesson of three runs that shipped
+  their headline term at the wrong mass and found out in the post-mortem.
+- **25M:** `Player/Touch Height` rising rather than falling. Direction, not
+  level -- 25M is too early for the level.
+- **AT ANY TIME:** `RewardMass/AirTouch` share > 0.25 (the air-carry farm that
+  held p15 for 400M steps at 0.50), or `AirTouch/Backward Share` > 0.30
+  against its 0.5 chance value (the direction factor has stopped biting).
+- **AT ANY TIME:** `Episode/Mean Steps` rising above 500 while
+  `RewardMass/Goal` share falls (the possession farm returning in any form).
+
+**The standing drift to watch, which is maintenance rather than a kill.**
+`goal/ceiling` is 1.46x and falls as the bot improves, because the ceiling is
+`Average Step Reward x 100` and that rises with skill. Cutting the dribble farm
+should push it back toward 1.75x. **When it drops below 1.3x, raise `goal` or
+cut a dense term** -- below 1.0x, continuing beats scoring and the bot will
+correctly decline open nets, which is exactly what it did at 0.89x.
+
+**Frozen:** gamma 0.99, policyLR/criticLR 2e-4, tsPerItr 50k, obs Relative,
+spawn Random, `maskActions` false, the action parser, `infiniteBoostChance`
+0.1, `goal` 25, `touchGoalAccel` 45 at exponent 2, `airTouchDirectionExponent`
+1, `entropyTarget` 0.40, and all six external patches (verify with
+`scripts/apply_external_patches.py --check`).
+
 ## PRE-REGISTERED: p13strike (not yet run)
 
 **Two concepts, declared as such, with separable instruments.** Budgets are

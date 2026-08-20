@@ -19,6 +19,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 
 		{"Goal", b.goal, [] { return new GoalReward(); }},
 
+		{"ShotOnTarget", b.shotOnTarget, [] { return new ShotOnTargetReward(); }},
+
 		{"TouchEdge", b.touchEdge, [] { return new TouchEdgeReward(); }},
 
 		{"SpeedToBall", RateWeight(b.speedToBall),
@@ -34,9 +36,14 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 		{"FlipSpeed", b.flipSpeed, [] { return new FlipSpeedReward(); }},
 
 		{"AirTouch", b.airTouch,
-		 [e = b.airTouchHeightExponent] { return new AirTouchReward(e); }},
+		 [e = b.airTouchHeightExponent, d = b.airTouchDirectionExponent] {
+			return new AirTouchReward(e, d);
+		 }},
 
 		{"Air", RateWeight(b.air), [] { return new AirReward(); }},
+
+		{"WrongSurface", PerSecondWeight(b.wrongSurface),
+		 [] { return new WrongSurfaceReward(); }},
 	};
 }
 

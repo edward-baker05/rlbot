@@ -25,7 +25,7 @@ struct CurriculumWeights {
 };
 
 inline constexpr float STEPS_PER_SECOND = 15.f;
-inline constexpr float REFERENCE_EPISODE_SECONDS = 26.0f;
+inline constexpr float REFERENCE_EPISODE_SECONDS = 26.1f;
 inline constexpr float REFERENCE_EPISODE_STEPS =
 	STEPS_PER_SECOND * REFERENCE_EPISODE_SECONDS;
 
@@ -38,26 +38,28 @@ inline constexpr float PerSecondWeight(float budgetPerSecond) {
 }
 
 struct RewardBudget {
-	float touchGoalAccel = 62.14f;
+	float touchGoalAccel = 45.0f;
 	float touchAccelExponent = 2.0f;
 	float touchGoalAccelOpponentScale = 0.5f;
 	float touchGoalAccelTeamSpirit = 0.0f;
 
-	float goal = 40.0f;
+	float goal = 25.0f;
+	float shotOnTarget = 35.0f;
 	float touchEdge = 0.1394f;
 
-	float speedToBall = 14.51f;
-	float faceBall = 1.585f;
+	float speedToBall = 18.9f;
+	float faceBall = 1.59f;
 
-	float saveBoost = 0.785f;
+	float saveBoost = 0.79f;
 	float pickupBoost = 0.5067f;
 
-	float airTouch = 40.f;
-	float airTouchHeightExponent = 2.f;
-	float air = 0.8736f;
-	float flipSpeed = 0.5f;
+	float airTouch = 12.f;
+	float airTouchHeightExponent = 1.f;
+	float airTouchDirectionExponent = 1.f;
+	float air = 0.88f;
+	float flipSpeed = 2.5f;
+	float wrongSurface = 1.0f;
 };
-
 struct SelfPlayConfig {
 	bool trainAgainstOldVersions = true;
 	float trainAgainstOldChance = 0.2f;

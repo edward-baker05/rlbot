@@ -36,6 +36,7 @@ static std::vector<std::pair<std::string, float>> g_RewardLabels;
 static int g_MaxPlayersPerTeam = 1;
 static ObsMode g_ObsMode = ObsMode::Relative;
 static float g_TouchAccelExponent = 2.f;
+static float g_AirTouchDirectionExponent = 1.f;
 static std::vector<int> g_EpisodeAge;
 
 static void CriticValueMetrics(Learner *learner,
@@ -247,6 +248,9 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 								  RS_MAX(0.f, player.vel.Dot(dirToBall)) / sp);
 			}
 
+			report.AddAvg("Player/Ball Far Share",
+						  dist >= FlipSpeedReward::MIN_BALL_DIST ? 1.f : 0.f);
+
 			report.AddAvg("Touch/Edge Rate",
 						  (player.ballTouchedStep &&
 						   !(player.prev && player.prev->ballTouchedStep))
@@ -280,22 +284,66 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 					report.AddAvg("Touch/Had Flipped",
 								  player.hasFlipped ? 1.f : 0.f);
 
+					// The air-direction readout, gated on the same rising edge
+					// and airborne condition AirTouchReward pays on, and
+					// computed through the same helper so the metric cannot
+					// drift from the term it audits.
+					//
+					// Backward Share has a null: a policy indifferent to
+					// direction reads 0.5, and Direction Factor reads 0.5 with
+					// it. Anything at those values means the direction factor
+					// is buying nothing.
+					if (!(player.prev && player.prev->ballTouchedStep) &&
+						player.airTime > 0.f) {
+						const float goalward =
+							BallGoalwardCos(state, player.team);
+						report.AddAvg("AirTouch/Goalward Cos", goalward);
+						report.AddAvg(
+							"AirTouch/Direction Factor",
+							GoalwardFactor(goalward,
+										   g_AirTouchDirectionExponent));
+						report.AddAvg("AirTouch/Backward Share",
+									  goalward < 0.f ? 1.f : 0.f);
+					}
+
+					// The accuracy readout. Gated on the same rising edge as
+					// ShotOnTargetReward via the shared projection, so the
+					// metric cannot disagree with the reward it audits.
+					if (!(player.prev && player.prev->ballTouchedStep)) {
+						const ShotProjection shot =
+							ProjectShot(state, player.team);
+						report.AddAvg("Shot/Toward Net Rate",
+									  shot.valid ? 1.f : 0.f);
+						if (shot.valid) {
+							// What ShotOnTargetReward's strength factor is
+							// actually worth. The budget was sized against an
+							// ASSUMED mean strength of 0.25; this is the
+							// number that replaces the assumption.
+							report.AddAvg(
+								"Shot/Strength",
+								RS_MAX(0.f, GoalwardDeltaV(state, player.team)));
+							report.AddAvg("Shot/Ball Speed",
+										  state.ball.vel.Length());
+							report.AddAvg("Shot/On Target Share",
+										  shot.missDist <= 0.f ? 1.f : 0.f);
+							report.AddAvg("Shot/Miss Distance", shot.missDist);
+							// A post shot in the sense the bot is accused of:
+							// aimed at the frame, not the net.
+							report.AddAvg("Shot/Post Share",
+										  (shot.missDist > 0.f &&
+										   shot.missDist <= 200.f)
+											  ? 1.f
+											  : 0.f);
+						}
+					}
+
 					if (state.prev) {
 						const float hitForce =
 							(state.ball.vel - state.prev->ball.vel).Length();
 						report.AddAvg("Touch/Hit Force", hitForce);
 
 						{
-							const Vec target =
-								(player.team == Team::BLUE)
-									? CommonValues::ORANGE_GOAL_CENTER
-									: CommonValues::BLUE_GOAL_CENTER;
-							const Vec toGoal =
-								(target - state.ball.pos).Normalized();
-							const float dv = state.ball.vel.Dot(toGoal) -
-											 state.prev->ball.vel.Dot(toGoal);
-							const float x = RS_CLAMP(
-								dv / RLGC::Math::KPHToVel(130), -1.f, 1.f);
+							const float x = GoalwardDeltaV(state, player.team);
 							report.AddAvg("Touch/Goal Accel Raw", x);
 							report.AddAvg(
 								"Touch/Goal Accel Value",
@@ -358,6 +406,13 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				if (before.boost > 0.f)
 					report.AddAvg("Action/Boost When Available",
 								  player.prevAction.boost);
+			}
+
+			if (player.isFlipping && !before.isFlipping) {
+				const float ballDist = (state.ball.pos - player.pos).Length();
+				const bool travel = ballDist >= FlipSpeedReward::MIN_BALL_DIST;
+				report.AddAvg("Flip/Travel Share", travel ? 1.f : 0.f);
+				report.AddAvg("Flip/Ball Dist", ballDist);
 			}
 
 			if (player.prevAction.jump != 0.f) {
@@ -437,6 +492,18 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 			any = true;
 		}
 		if (any) {
+			// RewardShare normalizes BEFORE averaging, so it reports
+			// E[x/sum] rather than E[x]/E[sum]. For a spiky event term the
+			// same sample that raises the numerator raises the denominator,
+			// which truncates the spike and biases the share DOWN -- measured
+			// at up to 2.9x against the raw `Rewards/*` means on p15's event
+			// terms. The share is kept for continuity with the run log;
+			// RewardMass is the one to solve budgets against.
+			for (size_t j = 0; j < totals.size(); j++)
+				report.AddAvg("RewardMass/" + g_RewardLabels[j].first,
+							  totals[j] / static_cast<float>(
+											  envSet.state.lastRewards.size()));
+
 			auto shares = NormalizeShares(totals);
 			for (size_t j = 0; j < shares.size(); j++)
 				report.AddAvg("RewardShare/" + g_RewardLabels[j].first,
@@ -515,6 +582,7 @@ void RunTraining(const TrainConfig &cfg) {
 	g_MaxPlayersPerTeam = cfg.maxPlayersPerTeam;
 	g_ObsMode = cfg.obs;
 	g_TouchAccelExponent = cfg.rewards.touchAccelExponent;
+	g_AirTouchDirectionExponent = cfg.rewards.airTouchDirectionExponent;
 
 	g_RewardLabels.clear();
 	for (auto &s : GeneralRewardSpecs(cfg))

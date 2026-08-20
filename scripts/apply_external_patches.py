@@ -73,6 +73,47 @@ EXPLORATION_FLOOR_BODY = '''	auto result = torch::softmax(logits + ACTION_DISABL
 
 # ---------------------------------------------------------------------------
 
+ADV_STD_ANCHOR = """				auto advantages = batchAdvantages.slice(0, start, stop).to(device, true, true);"""
+
+ADV_STD_BODY = """				auto advantages = batchAdvantages.slice(0, start, stop).to(device, true, true);
+
+				// --- HIVE LOCAL PATCH: standardize advantages ---------------
+				// Upstream feeds RAW advantages into the clipped objective, so
+				// the size of the policy step scales with their absolute
+				// magnitude -- and that magnitude is not a free parameter, it
+				// is whatever the current reward scale happens to be divided by
+				// a running return normalizer.
+				//
+				// Two ways this bites, both measured in this project:
+				//
+				// 1. The step decays on its own as the critic improves, because
+				//    a better critic means smaller TD residuals. p1-validate
+				//    over 117M steps: GAE/Avg Advantage 0.151 -> 0.088, Mean KL
+				//    1.25e-3 -> 6.9e-4, SB3 Clip Fraction 6.1e-3 -> 4.1e-3
+				//    against a healthy 0.05-0.2. What looked like "learning
+				//    stops at ~40M" was an update size decaying to nothing.
+				//
+				// 2. Every reward-weight edit becomes a silent learning-rate
+				//    edit. Learner.cpp's returnStat is a CUMULATIVE Welford over
+				//    the whole run, so it barely moves after a few hundred
+				//    million steps; cutting reward weights shrinks the numerator
+				//    and leaves the divisor fossilized. p15manual at ~530M:
+				//    GAE/Avg Advantage 0.205 -> 0.028 and SB3 Clip Fraction
+				//    0.00098, i.e. ~30M steps of near-zero learning after what
+				//    was meant to be a reward rebalance. Across that whole run
+				//    log(KL) regressed on log(advantage) with slope 0.93,
+				//    r = 0.73 -- which is the signature this patch removes.
+				//
+				// Standardizing per minibatch makes the step size depend on the
+				// SHAPE of the advantages rather than their scale, which is what
+				// PPO's trust region assumes and what every reference
+				// implementation does.
+				advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8);
+				// --- END HIVE LOCAL PATCH -----------------------------------"""
+
+
+# ---------------------------------------------------------------------------
+
 SKIP_NONFINITE_ANCHOR = """			if (trainSharedHead)
 				nn::utils::clip_grad_norm_(models["shared_head"]->parameters(), 0.5f);
 
@@ -154,6 +195,13 @@ PATCHES = [
 		"marker": "HIVE LOCAL PATCH: exploration floor",
 		"anchor": EXPLORATION_FLOOR_ANCHOR,
 		"body": EXPLORATION_FLOOR_BODY,
+	},
+	{
+		"name": "standardize-advantages",
+		"path": "external/GigaLearnCPP-Leak/GigaLearnCPP/src/private/GigaLearnCPP/PPO/PPOLearner.cpp",
+		"marker": "HIVE LOCAL PATCH: standardize advantages",
+		"anchor": ADV_STD_ANCHOR,
+		"body": ADV_STD_BODY,
 	},
 	{
 		"name": "skip-non-finite-updates",

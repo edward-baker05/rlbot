@@ -127,6 +127,26 @@ foreach(TORCH_LIB "libc10.so" "libtorch_cpu.so")
 	endif()
 endforeach()
 
+# external/ carries six local patches that this repo's git cannot see, because
+# external/ is gitignored and each dependency is a nested repo. An unpatched
+# build does NOT fail -- it compiles fine and trains a measurably worse bot,
+# which is the whole reason scripts/apply_external_patches.py exists.
+#
+# build.sh reapplies them, but nothing else did: a direct `cmake --build`, an
+# IDE build or a bare `make` never ran the script, so any of those could
+# silently compile against a reverted external/. Hanging the check off HiveCore
+# makes EVERY build path enforce it.
+#
+# --check, not the applying form, on purpose: mutating sources partway through
+# a build confuses the dependency graph and can need two passes. Failing loudly
+# and pointing at build.sh is unambiguous.
+add_custom_target(check_external_patches
+	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/apply_external_patches.py" --check
+	COMMENT "Checking external/ local patches"
+	VERBATIM)
+
+add_dependencies(HiveCore check_external_patches)
+
 add_executable(HivemindBot src/main.cpp)
 target_link_libraries(HivemindBot PRIVATE HiveCore)
 

@@ -366,9 +366,12 @@ TEST_CASE("AirTouch pays nothing for a wall shot, however high") {
 	RLGC::Player p = {};
 	p.ballTouchedStep = true;
 
+	// Straight at the orange net, so the direction factor is exactly 1 and
+	// this case still isolates the min().
 	auto rewardFor = [&](float airTime, float ballZ) {
 		p.airTime = airTime;
 		s.ball.pos = {0, 0, ballZ};
+		s.ball.vel = {0, 1000, 0};
 		return r.GetReward(p, s, false);
 	};
 
@@ -398,10 +401,115 @@ TEST_CASE("AirTouch pays nothing for a wall shot, however high") {
 // air carry at ceiling height would have earned ~170 touch-units per second --
 // p9rel's dribble farm, relocated to the air. It stayed harmless only because
 // the budget was too small for anything to happen.
+// AirTouch was DIRECTION-BLIND, and at 19.1% of reward mass that made it the
+// largest term in the stack with no opinion about which net the ball was
+// heading for. Carrying the ball back into your own half paid exactly what
+// carrying it at their net paid.
+//
+// TouchGoalAccel could not supply the missing signal, because convexity
+// suppresses it quadratically and an air dribble is a sequence of very soft
+// touches: at x = 0.05 the direction term pays 0.11 touch-units against
+// AirTouch's 3.18 per contact.
+TEST_CASE("an air touch toward the wrong net pays nothing") {
+	AirTouchReward r(1.f);
+	RLGC::GameState s = {};
+	RLGC::Player p = {};
+	p.ballTouchedStep = true;
+	p.team = Team::BLUE;
+	p.airTime = 1.75f;
+	s.ball.pos = {0, 0, RLGC::CommonValues::CEILING_Z};
+
+	// Straight at the orange net: full value.
+	s.ball.vel = {0, 1500, 0};
+	CHECK(r.GetReward(p, s, false) == doctest::Approx(1.f).epsilon(1e-3));
+
+	// Straight back at its own net: nothing at all.
+	s.ball.vel = {0, -1500, 0};
+	CHECK(r.GetReward(p, s, false) == doctest::Approx(0.f).epsilon(1e-4));
+
+	// And the same touch is full value for the other team.
+	p.team = Team::ORANGE;
+	CHECK(r.GetReward(p, s, false) == doctest::Approx(1.f).epsilon(1e-3));
+}
+
+TEST_CASE("the air direction factor is smooth, so aerials are not a knife edge") {
+	AirTouchReward r(1.f);
+	RLGC::GameState s = {};
+	RLGC::Player p = {};
+	p.ballTouchedStep = true;
+	p.team = Team::BLUE;
+	p.airTime = 1.75f;
+	s.ball.pos = {0, 0, RLGC::CommonValues::CEILING_Z};
+
+	// Sideways: half. There is gradient everywhere between 0 and 1, so a
+	// slightly misaimed aerial is worth slightly less rather than nothing --
+	// the aerial game has to survive this change.
+	s.ball.vel = {1500, 0, 0};
+	CHECK(r.GetReward(p, s, false) == doctest::Approx(0.5f).epsilon(1e-3));
+
+	// 60 degrees off: 0.5 + 0.5*cos(60) = 0.75.
+	s.ball.vel = {1500.f * 0.8660254f, 1500.f * 0.5f, 0};
+	CHECK(r.GetReward(p, s, false) == doctest::Approx(0.75f).epsilon(1e-3));
+
+	// Monotone in the angle.
+	s.ball.vel = {0, 1500, 0};
+	const float straight = r.GetReward(p, s, false);
+	s.ball.vel = {600, 1500, 0};
+	const float slight = r.GetReward(p, s, false);
+	s.ball.vel = {1500, 600, 0};
+	const float wide = r.GetReward(p, s, false);
+	CHECK(straight > slight);
+	CHECK(slight > wide);
+	CHECK(wide > 0.f);
+}
+
+// The direction curve is a config field so it can be sharpened on evidence
+// rather than argued about. At exponent 1 a purely SIDEWAYS carry still keeps
+// half its payment, which may well be too generous -- but that is a question
+// for AirTouch/Direction Factor to answer, not for a guess to settle.
+TEST_CASE("the air direction exponent sharpens the curve without moving its ends") {
+	RLGC::GameState s = {};
+	RLGC::Player p = {};
+	p.ballTouchedStep = true;
+	p.team = Team::BLUE;
+	p.airTime = AirTouchReward::MAX_AIR_TIME;
+	s.ball.pos = {0, 0, RLGC::CommonValues::CEILING_Z};
+
+	AirTouchReward soft(1.f, 1.f);
+	AirTouchReward sharp(1.f, 3.f);
+
+	// The ends are fixed by construction: straight at the net is always full
+	// value, straight backwards is always nothing, whatever the exponent.
+	s.ball.vel = {0, 1500, 0};
+	CHECK(soft.GetReward(p, s, false) == doctest::Approx(1.f).epsilon(1e-3));
+	CHECK(sharp.GetReward(p, s, false) == doctest::Approx(1.f).epsilon(1e-3));
+
+	s.ball.vel = {0, -1500, 0};
+	CHECK(soft.GetReward(p, s, false) == doctest::Approx(0.f).epsilon(1e-4));
+	CHECK(sharp.GetReward(p, s, false) == doctest::Approx(0.f).epsilon(1e-4));
+
+	// Sideways is where the exponent does its work: 0.5 against 0.125.
+	s.ball.vel = {1500, 0, 0};
+	CHECK(soft.GetReward(p, s, false) == doctest::Approx(0.5f).epsilon(1e-3));
+	CHECK(sharp.GetReward(p, s, false) == doctest::Approx(0.125f).epsilon(1e-3));
+
+	// And it stays monotone, so there is still a gradient to turn toward the
+	// net from anywhere.
+	s.ball.vel = {1500, 600, 0};
+	const float wide = sharp.GetReward(p, s, false);
+	s.ball.vel = {600, 1500, 0};
+	const float near = sharp.GetReward(p, s, false);
+	CHECK(near > wide);
+	CHECK(wide > 0.f);
+}
+
 TEST_CASE("an air CARRY pays once, not once per step") {
+	// Carried at the opponent's net, so the direction factor is 1 and this
+	// case still isolates the rising edge.
 	AirTouchReward r(1.f);
 	RLGC::GameState s = {};
 	s.ball.pos = {0, 0, RLGC::CommonValues::CEILING_Z};
+	s.ball.vel = {0, 1000, 0};
 
 	RLGC::Player prev = {};
 	prev.ballTouchedStep = true;
@@ -435,8 +543,10 @@ TEST_CASE("AirTouch height is convex, so higher pays disproportionately") {
 	p.ballTouchedStep = true;
 	p.airTime = AirTouchReward::MAX_AIR_TIME; // never let air time bind
 
+	// Goal-ward, so the direction factor is 1 and this case isolates height.
 	auto pay = [&](AirTouchReward& r, float z) {
 		s.ball.pos = {0, 0, z};
+		s.ball.vel = {0, 1000, 0};
 		return r.GetReward(p, s, false);
 	};
 
@@ -530,131 +640,266 @@ TEST_CASE("connecting outranks arriving") {
 // strikes that essentially never occur. Everything below is therefore checked
 // in REALIZED terms, against p12goal's measured rates.
 namespace {
-// p12goal, last 20 iterations at 250M steps. These are the rates p13's budgets
-// were solved against, so they are the only honest denominators.
-constexpr float P12_EPISODE_STEPS = 390.f;
-constexpr float P12_EDGE_RATE = 0.0291f;     // Touch/Edge Rate
-constexpr float P12_SPEED_TO_BALL = 0.3755f; // Rewards/SpeedToBall, raw mean
-constexpr float P12_FACE_BALL = 0.6530f;     // Rewards/FaceBall, raw mean
+// p15manual, last 60 iterations at 690M steps. p12's rates are three runs
+// stale and every one of them moved: the mean touch is 6.7x more
+// goal-directed, episodes are 1.6x longer and contact is half as frequent.
+// Sizing a budget against them would be sizing it for a bot that no longer
+// exists, which is the mistake this block was written to prevent.
+//
+// All of these are RAW per-step means from `Rewards/*`, not `RewardShare/*`.
+// The share column averages an already-normalized ratio, so it is biased low
+// for spiky terms -- it disagrees with the raw means by up to 2.9x on exactly
+// the event terms these budgets turn on. See RewardMass/* in Train.cpp.
+// Re-measured 2026-08-20 from RewardMass/* over 831-839M, which is the FIRST
+// unbiased read this project has had. The previous goal rate here (3.05e-4)
+// came from RewardShare/Goal and was wrong by 5.3x -- goals arrive 1.07 times
+// per episode, not 0.19 -- which is how `goal` came to be sized at 50 and ended
+// up holding 36% of all reward mass.
+constexpr float P15_EPISODE_STEPS = 392.f;
+constexpr float P15_EDGE_RATE = 0.02018f;         // Touch/Edge Rate
+constexpr float P15_SPEED_TO_BALL = 0.34250f;     // raw mean
+constexpr float P15_FACE_BALL = 0.58290f;         // raw mean
+constexpr float P15_TOUCH_GOAL_ACCEL = 1.661e-3f;
+constexpr float P15_TOUCH_EDGE = 0.019330f;
+constexpr float P15_PICKUP_BOOST = 4.5721e-3f;
+constexpr float P15_SAVE_BOOST = 0.33200f;
+constexpr float P15_AIR = 0.38818f;
+constexpr float P15_FLIP_SPEED = 5.885e-3f;
+constexpr float P15_WRONG_SURFACE_RATE = 0.01300f;
+
+// Goals per step from RewardMass/Goal: 1.04 per episode.
+constexpr float P15_GOAL_RATE = 2.648e-3f;
+
+// AirTouch's raw mean depends on the HEIGHT EXPONENT, so this is projected for
+// exponent 1 from the exponent-2 rate measured at 1025M, scaled by
+// heightFrac^1 / heightFrac^2 = 1/heightFrac at the measured touch height.
+constexpr float P15_AIR_TOUCH = 2.99e-3f;
+
+// ShotOnTarget's realized rate was measured while the term was a FLAT plateau.
+// The strength factor multiplies it by the mean strength of an on-target
+// touch, which nothing has measured yet -- Shot/Strength is published for
+// exactly this, and this constant should be replaced by it after one run.
+// Named rather than folded in, so the guess stays visible.
+constexpr float P15_SHOT_ON_TARGET_FLAT = 2.0067e-3f;
+constexpr float ASSUMED_SHOT_STRENGTH = 0.25f;
+constexpr float P15_SHOT_ON_TARGET = P15_SHOT_ON_TARGET_FLAT * ASSUMED_SHOT_STRENGTH;
+
+// Where the bot ACTUALLY touches the ball, measured at 1025M. The aerial
+// budget has to pay for itself here, not at the height we wish it played at.
+constexpr float P15_TOUCH_HEIGHT = 191.f;
+
+// What continuing is worth, which is the only quantity the goal budget has to
+// beat: Critic/V All 0.259 x GAE/Returns STD 51.66, at gamma 0.99.
+constexpr float P15_STATE_VALUE = 13.4f;
 
 // The measured price of leaving the ground, in touch-units: Critic/TD Delta
-// Jump -0.2249 against NoJump -0.0199, so -0.205 standardized, times
-// GAE/Returns STD 3.939.
-constexpr float TAKEOFF_COST = 0.81f;
-
-// A realistic air dribble touch: ball at z 800 (heightFrac 0.391) after 1.0 s
-// aloft (airTimeFrac 0.571). min() takes the height.
-constexpr float REALISTIC_AERIAL = 0.391f * 0.391f; // 0.153, height now squared
+// Jump -0.01119 against NoJump 0.00027, so -0.01146 standardized, times
+// GAE/Returns STD 59.2. p12 measured 0.81 against a stack an order of
+// magnitude smaller, so in relative terms a takeoff has gone from expensive to
+// very nearly free. That is what p15's air and flip numbers are made of.
+constexpr float TAKEOFF_COST = 0.68f;
 
 // A touch worth calling strong, per the 80 kph target, scored convexly. This
 // is what ONE GOOD HIT is worth, and it is 27x the mean -- which is the whole
 // reason the two must never be confused when sizing a budget.
 constexpr float STRONG_TOUCH_VALUE = (80.f / 130.f) * (80.f / 130.f); // 0.379
 
-// What the AVERAGE touch is worth, which is what sets the reward SHARE.
-// p12 measured RewardShare/TouchGoalAccel 0.098 at weight 3.0; back-solved,
-// E[|x|] = 0.0705 per contact step (255 uu/s = 9.2 kph). Squared under the
-// convex form and multiplied by the 1.41 contact steps per sequence:
-constexpr float P12_MEAN_TOUCH_VALUE = 2.f * 0.0705f * 0.0705f * 1.41f; // 0.0140
+// Per-episode realized mass, in touch-units, for the blocks the budgets are
+// balanced between. Rate terms integrate their raw mean over the episode;
+// event terms are already per-step rates.
+float RatePerEp(float budget, float rawMean) {
+	return RateWeight(budget) * rawMean * P15_EPISODE_STEPS;
+}
+
+float EventPerEp(float budget, float rawRate) {
+	return budget * rawRate * P15_EPISODE_STEPS;
+}
+
+// The whole realized ledger at measured rates. AirTouch is counted UNDIRECTED,
+// which over-counts it now that the direction factor is in -- deliberately, so
+// every share bound below is conservative.
+float LedgerPerEp(const RewardBudget& b) {
+	return EventPerEp(b.touchGoalAccel, P15_TOUCH_GOAL_ACCEL) +
+		   EventPerEp(b.goal, P15_GOAL_RATE) +
+		   EventPerEp(b.shotOnTarget, P15_SHOT_ON_TARGET) +
+		   EventPerEp(b.touchEdge, P15_TOUCH_EDGE) +
+		   EventPerEp(b.pickupBoost, P15_PICKUP_BOOST) +
+		   EventPerEp(b.flipSpeed, P15_FLIP_SPEED) +
+		   EventPerEp(b.airTouch, P15_AIR_TOUCH) +
+		   RatePerEp(b.speedToBall, P15_SPEED_TO_BALL) +
+		   RatePerEp(b.faceBall, P15_FACE_BALL) +
+		   RatePerEp(b.saveBoost, P15_SAVE_BOOST) +
+		   RatePerEp(b.air, P15_AIR) +
+		   PerSecondWeight(b.wrongSurface) * P15_WRONG_SURFACE_RATE * P15_EPISODE_STEPS;
+}
 } // namespace
 
 TEST_CASE("the goal reward is decisive but not dominant") {
 	const RewardBudget b = {};
 
-	const float touches = P12_EDGE_RATE * P12_EPISODE_STEPS; // 11.35
-	const float shapingPerEp =
-		(b.speedToBall * P12_SPEED_TO_BALL + b.faceBall * P12_FACE_BALL) /
-			REFERENCE_EPISODE_STEPS * P12_EPISODE_STEPS +
-		touches * (b.touchEdge + b.touchGoalAccel * P12_MEAN_TOUCH_VALUE);
+	// THE MARGINAL CONDITION, and the only one that decides whether the bot
+	// shoots at an open net: scoring pays `goal` and ENDS the episode,
+	// forfeiting the remaining stream. So the comparison is against the
+	// measured continuation value, not against a whole episode's touches.
+	//
+	// The earlier form of this test compared `goal` to the whole-episode touch
+	// stream, which was written when goals were believed to arrive 0.19 times
+	// per episode. They arrive 1.07 times. At roughly one goal per episode the
+	// undiscounted whole-episode comparison is the wrong question entirely.
+	CHECK(b.goal > P15_STATE_VALUE);
 
-	// Not so large that it drowns the shaping it exists to break ties between.
-	// That is the guide's warning, and it is the reason this budget was not
-	// scaled up alongside everything else.
-	CHECK(b.goal < 3.f * shapingPerEp);
-
-	// But decisive: a goal must beat a whole episode's worth of ordinary
-	// contact, or scoring is not what the bot is optimizing.
-	CHECK(b.goal > touches * b.touchGoalAccel * P12_MEAN_TOUCH_VALUE);
+	// And not so large that it drowns the shaping it exists to break ties
+	// between. In self-play a goal is +1 for one car and -1 for the other, so
+	// its mean is exactly zero and its whole contribution is variance the
+	// critic cannot predict -- scaling it scales noise, not signal. At 50 it
+	// held 36% of reward mass, which is the guide's named failure.
+	CHECK(EventPerEp(b.goal, P15_GOAL_RATE) < 0.30f * LedgerPerEp(b));
 
 	// THE SHOT-FARM GUARD. Convexity pays a lot for one good hit, and the
 	// failure mode it invites is blasting the ball goalward over and over
-	// without scoring -- especially since scoring ENDS the episode and forfeits
-	// the rest of the stream. One strong touch must not out-earn a goal by
-	// enough to make that trade attractive. Watched at runtime too: hit force
-	// rising while `Episode/Mean Steps` also rises is the pre-registered kill.
+	// without scoring. One strong touch must not out-earn a goal by enough to
+	// make that trade attractive.
 	CHECK(b.touchGoalAccel * STRONG_TOUCH_VALUE < 3.f * b.goal);
+}
+
+// The accuracy half of the finishing block. TouchGoalAccel projects onto the
+// direction to the goal CENTRE, so a shot from 4000 uu that misses the goal
+// ENTIRELY still earns 83% of a perfect one -- less than the 19% it loses from
+// a 10% drop in power. Power had a gradient and accuracy had none, which is
+// the whole reason shots go near the post.
+TEST_CASE("aiming is worth about as much as hitting hard") {
+	const RewardBudget b = {};
+
+	const float meanTouch = b.touchGoalAccel * (P15_TOUCH_GOAL_ACCEL / P15_EDGE_RATE);
+
+	// On target against half a goal-width wide, per contact sequence. This has
+	// to be a real fraction of what the touch itself pays or the accuracy
+	// gradient is again lost in the power gradient.
+	const float halfWide = std::exp(-0.5f);
+	const float aimingDelta = b.shotOnTarget * ASSUMED_SHOT_STRENGTH * (1.f - halfWide);
+	CHECK(aimingDelta > 0.25f * meanTouch);
+
+	// An on-target shot is a better outcome than an average touch, so it
+	// should pay more than one. But it must not out-earn a genuine strike,
+	// which is both powerful AND usually on target -- the two stack, and
+	// placement must not replace power.
+	// Compared at REALIZED value: the budget is no longer what a shot pays,
+	// because the strength factor scales it.
+	const float shotPays = b.shotOnTarget * ASSUMED_SHOT_STRENGTH;
+	CHECK(shotPays > meanTouch);
+	CHECK(shotPays < b.touchGoalAccel * STRONG_TOUCH_VALUE);
+
+	// The farm bound: every contact turning into an on-target shot is the
+	// objective, not an exploit, but the term still must not become the
+	// stack's argmax at the rate actually measured.
+	CHECK(EventPerEp(b.shotOnTarget, P15_SHOT_ON_TARGET) < 0.20f * LedgerPerEp(b));
 }
 
 // THE INVERSION, and it is the point of p13strike. Every previous run in this
 // project paid more for BEING NEAR the ball than for what the ball did:
 // RewardShare SpeedToBall + FaceBall was 0.761 (p8ref), 0.876 (p10), 0.778
-// (p11), 0.606 (p12), and no run ever tested reducing it. p12's realized
-// ledger was 84.5% proximity against 9.3% ball.
-//
-// The guide's middle-stage instruction, once the bot can hit the ball: the
-// ball-to-goal term should be "a fair bit stronger than SpeedTowardBallReward".
-// It can hit the ball -- 11.3 contacts per episode.
+// (p11), 0.606 (p12), and no run ever tested reducing it.
 TEST_CASE("the ball now outranks the chase") {
 	const RewardBudget b = {};
 
-	const float proximityPerEp =
-		(b.speedToBall * P12_SPEED_TO_BALL + b.faceBall * P12_FACE_BALL) /
-			REFERENCE_EPISODE_STEPS * P12_EPISODE_STEPS +
-		P12_EDGE_RATE * P12_EPISODE_STEPS * b.touchEdge;
+	const float proximityPerEp = RatePerEp(b.speedToBall, P15_SPEED_TO_BALL) +
+								 RatePerEp(b.faceBall, P15_FACE_BALL) +
+								 EventPerEp(b.touchEdge, P15_EDGE_RATE);
 
-	// Realized, at p12's OWN touch strengths -- not at the strength the run is
+	// Realized, at p15's OWN touch strengths -- not at the strength the run is
 	// trying to buy. Sizing a budget off the outcome you want rather than the
 	// one you have is precisely how p12's AirTouch shipped at 0.008 share.
-	const float ballPerEp =
-		P12_EDGE_RATE * P12_EPISODE_STEPS * b.touchGoalAccel * P12_MEAN_TOUCH_VALUE;
+	const float ballPerEp = EventPerEp(b.touchGoalAccel, P15_TOUCH_GOAL_ACCEL);
 
 	CHECK(ballPerEp > proximityPerEp);
 
-	// But approach is not deleted: the bot took eight runs to learn to drive at
-	// the ball at all (Velocity Alignment left its 1/pi null for the first time
-	// in p8ref) and that must survive. Proximity keeps at least a quarter.
-	CHECK(proximityPerEp > 0.25f * ballPerEp);
+	// Approach is not deleted, but the floor is 0.15 rather than p13's 0.25.
+	// That floor existed to protect a capability that was days old and
+	// fragile: Velocity Alignment had only just left its 1/pi null. It is not
+	// fragile now -- p15 measures alignment 0.563 against the 0.318 null,
+	// FaceBall/Mean Cos 0.52, and the bot ends episodes CLOSER to the ball
+	// than it starts (Late Ball Dist 1537 against Early 3992), having ended
+	// them farther away in every run up to p14. Holding 0.25 now would force
+	// the approach budget up for no behavioural reason.
+	CHECK(proximityPerEp > 0.15f * ballPerEp);
 }
 
 // p12 measured the price of a takeoff directly, under something close to a
 // randomized trial: ~91% of sampled jumps come from the exploration floor,
-// which mixes uniformly over valid actions independently of state. AirTouch at
-// 2.0 paid a realistic aerial 0.78 against a cost of 0.81 -- 4% BELOW
-// break-even, which is why the behaviour appeared and decayed twice rather
-// than establishing or vanishing.
+// which mixes uniformly over valid actions independently of state.
 TEST_CASE("an aerial pays for itself, with margin") {
 	const RewardBudget b = {};
 
-	const float paid = b.airTouch * REALISTIC_AERIAL;
-	CHECK(paid > TAKEOFF_COST);
+	// AT THE MEASURED TOUCH HEIGHT, which is the whole point. The earlier form
+	// of this test asserted break-even at a ball height of 800 -- a height the
+	// bot reached when the test was written and does not reach now -- so it
+	// passed while the term was 3.9x BELOW break-even in play, and the air
+	// game duly switched itself off. That is exactly the error
+	// scripts/solve_budgets.py exists to prevent: sizing a budget against the
+	// outcome you want rather than the one you have.
+	const float heightFrac = P15_TOUCH_HEIGHT / RLGC::CommonValues::CEILING_Z;
+	const float paidNow = b.airTouch * std::pow(heightFrac, b.airTouchHeightExponent);
+	CHECK(paidNow > TAKEOFF_COST);
 
-	// Deliberate over-payment: two runs have already found this behaviour and
-	// lost it at margins near 1.0.
-	CHECK(paid > 2.f * TAKEOFF_COST);
+	// Deliberate over-payment: this behaviour has now been found and lost
+	// THREE times (p12 at 4% below break-even, p14, and again at 1025M), each
+	// time at a margin near or below 1.0.
+	CHECK(paidNow > 1.5f * TAKEOFF_COST);
 
-	// The old bound here was a fixed multiple of the takeoff cost, and it is
-	// the WRONG instrument once the term is convex in height: a rarer event
-	// necessarily carries a larger per-event payment for the same aggregate
-	// mass, so a per-event cap silently caps the RATE instead. Floating is
-	// guarded by the min() with air time (a wall shot is worth zero, asserted
-	// above) and by the AGGREGATE share -- target 0.060 against a
-	// pre-registered RewardShare/AirTouch kill ceiling of 0.35. Bound restated
-	// against the quantity that is actually controlled.
-	constexpr float TARGET_SHARE = 0.060f;
-	constexpr float SHARE_CEILING = 0.35f;
-	CHECK(TARGET_SHARE < SHARE_CEILING / 3.f);
+	// The convexity is what made the collapse self-reinforcing: at exponent 2
+	// a falling touch height cuts the payment QUADRATICALLY, so the term
+	// weakens faster than the behaviour does and there is no way back.
+	// Learnability at the current operating point, same instrument as the
+	// touch exponent below.
+	const float target = 800.f / RLGC::CommonValues::CEILING_Z;
+	const float gradientFrac =
+		std::pow(heightFrac / target, b.airTouchHeightExponent - 1.f);
+	CHECK(gradientFrac > 0.5f);
 
 	// And it still cannot be collected from a wall, which is what makes the
-	// budget safe to raise at all. Asserted behaviourally above.
+	// budget safe at all. Asserted behaviourally above.
 	CHECK(b.airTouch > b.touchEdge);
+
+	// Below the FINISHING block, so "get it high" is never the stack's
+	// loudest opinion again.
+	const float airPerEp = EventPerEp(b.airTouch, P15_AIR_TOUCH);
+	const float finishPerEp = EventPerEp(b.goal, P15_GOAL_RATE) +
+							  EventPerEp(b.shotOnTarget, P15_SHOT_ON_TARGET);
+	CHECK(airPerEp < finishPerEp);
+}
+
+// A flip is a TRAVEL primitive worth +500 uu/s. The v1 term measured closing
+// speed on the ball at the dodge's rising edge, which pays a forward dodge
+// aimed at the ball and pays a side dodge zero, so it could only reinforce the
+// contact flips the bot already had. v2 measures the car's own speed across
+// the dodge and is blind inside MIN_BALL_DIST.
+TEST_CASE("a travel flip is worth taking but cannot become the run's argmax") {
+	const RewardBudget b = {};
+
+	// A flip must clear what a takeoff costs, or the bot is right to refuse.
+	CHECK(b.flipSpeed > TAKEOFF_COST);
+
+	// The dodge commits FLIP_PITCHLOCK_TIME (1.0 s) of no pitch control and
+	// the jump until landing. Over that second a perfect approach earns this,
+	// and the flip has to beat it to be the better use of the time.
+	const float approachPerSecond =
+		RateWeight(b.speedToBall) * P15_SPEED_TO_BALL * STEPS_PER_SECOND;
+	CHECK(b.flipSpeed > approachPerSecond);
+
+	// The ceiling, against the MEASURED flip rate rather than a speculative
+	// cycle time. p15 realizes 0.0096 flips-worth per step at 780-790M, which
+	// is the rate AFTER the behaviour established -- so this is what the term
+	// actually spends, not what it could spend in the worst case.
+	const float flipPerEp = EventPerEp(b.flipSpeed, P15_FLIP_SPEED);
+	CHECK(flipPerEp < 0.5f * EventPerEp(b.touchGoalAccel, P15_TOUCH_GOAL_ACCEL));
 }
 
 // The dense terms are still the guide's shape relative to each other, but the
 // BLOCK is smaller. What has to be true is that the per-step weight actually
-// fell -- the budget NUMBER barely moved (17.1 -> 14.51) only because
-// REFERENCE_EPISODE_SECONDS was corrected 11.4 -> 26.0 in the same change, and
-// reading the number instead of the weight is exactly how this project spent
-// four runs over-delivering every rate budget by 2.28x.
+// fell -- the budget NUMBER moving is meaningless on its own, because
+// REFERENCE_EPISODE_SECONDS moves with the measured episode, and reading the
+// number instead of the weight is exactly how this project spent four runs
+// over-delivering every rate budget by 2.28x.
 TEST_CASE("the approach budget really was cut, in per-step terms") {
 	const RewardBudget b = {};
 
@@ -667,20 +912,19 @@ TEST_CASE("the approach budget really was cut, in per-step terms") {
 	CHECK(RateWeight(b.faceBall) < 0.5f * P12_FACE_WEIGHT);
 
 	// Air is NOT part of the cut: its target share is unchanged, so its weight
-	// should be within a factor of two of p12's. The budget number tripling is
+	// should be within a factor of two of p12's. The budget number moving is
 	// the reference-length correction and nothing else.
 	CHECK(RateWeight(b.air) > 0.5f * P12_AIR_WEIGHT);
 	CHECK(RateWeight(b.air) < 2.0f * P12_AIR_WEIGHT);
 
-	// The reference episode is the measured one now, not a stale constant.
-	CHECK(REFERENCE_EPISODE_STEPS == doctest::Approx(P12_EPISODE_STEPS));
+	// The reference episode is the MEASURED one. p15 ran 622-step episodes
+	// against a constant that still said 390, so every rate budget was
+	// silently delivering 1.6x its declared integral.
+	// Within 5%, not 1%: episode length drifts every run and demanding an
+	// exact match would force a rate-budget churn each time.
+	CHECK(REFERENCE_EPISODE_STEPS == doctest::Approx(P15_EPISODE_STEPS).epsilon(0.05));
 }
 
-// The convexity is a config field so it can be raised on evidence rather than
-// on a schedule, but it must ship at a value that is learnable NOW. The
-// constraint is the gradient available at the current operating point relative
-// to the target one: (x_now / x_target)^(p-1). At p12's mean 15.2 kph against
-// an 80 kph target that is 19% for p=2, 3.6% for p=3, 0.7% for p=4.
 TEST_CASE("the touch exponent is convex but still learnable") {
 	const RewardBudget b = {};
 
@@ -691,7 +935,7 @@ TEST_CASE("the touch exponent is convex but still learnable") {
 	CHECK(gradientFrac > 0.10f);
 }
 
-TEST_CASE("the spec list is the ten designed terms, with positive weights") {
+TEST_CASE("the spec list is the twelve designed terms, with positive weights") {
 	auto specs = GeneralRewardSpecs(TrainConfig{});
 
 	std::vector<std::string> names;
@@ -700,9 +944,10 @@ TEST_CASE("the spec list is the ten designed terms, with positive weights") {
 		CHECK(s.weight > 0.f);
 	}
 
-	const std::vector<std::string> expected = {"TouchGoalAccel", "Goal", "TouchEdge",
-	                                           "SpeedToBall", "FaceBall", "SaveBoost",
-	                                           "PickupBoost", "FlipSpeed", "AirTouch", "Air"};
+	const std::vector<std::string> expected = {"TouchGoalAccel", "Goal", "ShotOnTarget",
+	                                           "TouchEdge", "SpeedToBall", "FaceBall",
+	                                           "SaveBoost", "PickupBoost", "FlipSpeed",
+	                                           "AirTouch", "Air", "WrongSurface"};
 	CHECK(names == expected);
 }
 
@@ -717,7 +962,13 @@ TEST_CASE("the spec list is the ten designed terms, with positive weights") {
 TEST_CASE("no continuous ball-to-goal or tuning terms are in the stack") {
 	auto specs = GeneralRewardSpecs(TrainConfig{});
 	for (auto& s : specs) {
-		CHECK(s.name != "WrongSurface");
+		// WrongSurface came OFF this list on 2026-08-20. The ban was never
+		// about the term, it was about p7approach's 0.292 share -- and that
+		// share was a symptom of a starved stack, not a large weight. p7 ran
+		// PerSecondWeight(0.10) against a bot that could not touch the ball,
+		// so every event term was near zero and a tiny penalty was 29% of
+		// almost nothing. At p15's rates the same weight would be 0.05% of the
+		// ledger. The share is now bounded by a test rather than by exclusion.
 		CHECK(s.name != "CleanLanding");
 		CHECK(s.name != "HarshSpeedLoss");
 		CHECK(s.name != "VelBallToGoal");
@@ -726,6 +977,73 @@ TEST_CASE("no continuous ball-to-goal or tuning terms are in the stack") {
 
 // The boost economy, added in p11 after p10touch measured `Player/Boost` at
 // 7.3 out of 100 while the bot was trying to air dribble.
+// Wheels-up against a surface: the recovery tax. Deliberately surface-blind
+// rather than orientation-based -- `isOnGround` is >=3 wheels on ANY surface,
+// so driving up a wall is on-wheels and pays nothing, while sitting on the
+// roof or scraping the chassis pays every step.
+TEST_CASE("a car wheels-up against a surface is punished every step it stays there") {
+	WrongSurfaceReward r;
+	RLGC::GameState s = {};
+	RLGC::Player p = {};
+
+	p.worldContact.hasContact = true;
+	p.isOnGround = false;
+	CHECK(r.GetReward(p, s, false) == -1.f);
+
+	// Still on its roof next step: this is a RATE, so dawdling costs more.
+	CHECK(r.GetReward(p, s, false) == -1.f);
+}
+
+TEST_CASE("a car on its wheels pays nothing, on any surface") {
+	WrongSurfaceReward r;
+	RLGC::GameState s = {};
+	RLGC::Player p = {};
+
+	p.worldContact.hasContact = true;
+	p.isOnGround = true;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+}
+
+// The failure mode that would matter most: p15 spends 29% of its steps
+// airborne and has only just learned to flip for speed. A term that taxed air
+// time would undo both.
+TEST_CASE("free flight is not punished, this is not an air tax") {
+	WrongSurfaceReward r;
+	RLGC::GameState s = {};
+	RLGC::Player p = {};
+
+	p.worldContact.hasContact = false;
+	p.isOnGround = false;
+	CHECK(r.GetReward(p, s, false) == 0.f);
+
+	// Measured, not assumed: p6budget found this firing on 2.3% of airborne
+	// steps, because free flight makes no chassis contact.
+}
+
+TEST_CASE("the recovery tax bites per event but cannot matter in aggregate") {
+	const RewardBudget b = {};
+
+	const float perSecond = PerSecondWeight(b.wrongSurface) * STEPS_PER_SECOND;
+
+	// It has to beat the takeoff that put the car there, or landing badly is
+	// cheaper than the jump and the term changes nothing.
+	CHECK(perSecond > TAKEOFF_COST);
+
+	// But a second of it must not out-price the thing the bot is here to do.
+	const float meanTouch = b.touchGoalAccel * (P15_TOUCH_GOAL_ACCEL / P15_EDGE_RATE);
+	CHECK(perSecond < meanTouch);
+
+	// THE p7approach GUARD, and the reason this term is allowed back. p7 ran
+	// it at 0.292 of reward mass. At p15's measured wrong-contact rate this
+	// budget is under 3% of what the ball itself is worth, and if
+	// RewardShare/WrongSurface is ever seen above 0.05 at runtime the term
+	// goes straight back out.
+	const float wrongPerEp = PerSecondWeight(b.wrongSurface) *
+							 P15_WRONG_SURFACE_RATE * P15_EPISODE_STEPS;
+	const float ballPerEp = EventPerEp(b.touchGoalAccel, P15_TOUCH_GOAL_ACCEL);
+	CHECK(wrongPerEp < 0.03f * ballPerEp);
+}
+
 TEST_CASE("SaveBoost pays sqrt of the tank, so the first drops are worth most") {
 	RLGC::SaveBoostReward r;
 	RLGC::GameState s = {};
@@ -770,47 +1088,473 @@ TEST_CASE("TieredPickupBoostReward guarantees a base floor for small pads and fu
 	CHECK(gain(50.f, 50.f) == 0.f);
 }
 
-TEST_CASE("FlipSpeedReward rewards forward impulse toward the ball on flip rising edge") {
+// A flip is worth +500 uu/s (FLIP_INITIAL_VEL_SCALE) whatever direction it is
+// aimed, and that is a TRAVEL primitive, not a shooting one. The first version
+// of this term measured the change in CLOSING SPEED ON THE BALL at the flip's
+// rising edge, which pays a plain forward dodge and pays a side dodge exactly
+// zero -- the side impulse only becomes forward speed after the air-roll
+// correction, part-way through FLIP_TORQUE_TIME. It therefore could only ever
+// reinforce flips already aimed at the ball, which is the behaviour that needs
+// no help.
+//
+// v2 measures the car's own horizontal speed across the whole dodge and gates
+// on the ball being far away, so the only thing it can pay for is using a flip
+// to cross the field.
+TEST_CASE("a forward dodge far from the ball pays for the speed it built") {
 	FlipSpeedReward r;
-	RLGC::GameState sPrev = {};
 	RLGC::GameState s = {};
-	s.prev = &sPrev;
-
-	// Ball straight ahead along +Y
-	s.ball.pos = {0, 2000, 93};
-	sPrev.ball.pos = {0, 2000, 93};
+	s.ball.pos = {0, 6000, 93};
 
 	RLGC::Player prev = {};
 	RLGC::Player cur = {};
 	cur.prev = &prev;
-	prev.pos = {0, 0, 17};
-	cur.pos = {0, 50, 17};
+	cur.index = prev.index = 0;
+	prev.pos = cur.pos = {0, 0, 17};
 
-	// 1. Clean forward dodge (+500 uu/s toward ball)
+	// Rising edge: nothing is paid yet, the dodge has not finished.
 	prev.vel = {0, 1400, 0};
-	prev.isFlipping = false;
-	prev.hasFlipped = false;
+	prev.isOnGround = false;
 	cur.vel = {0, 1900, 0};
 	cur.isFlipping = true;
 	cur.hasFlipped = true;
+	cur.isOnGround = false;
+	CHECK(r.GetReward(cur, s, false) == 0.f);
 
+	// Falling edge of isFlipping: the dodge is over, pay for the gain.
+	prev = cur;
+	cur.isFlipping = false;
+	cur.pos = {0, 400, 17};
 	CHECK(r.GetReward(cur, s, false) == doctest::Approx(1.0f).epsilon(1e-3));
+}
 
-	// 2. Not a rising edge (already flipping) -> 0
-	prev.isFlipping = true;
-	CHECK(r.GetReward(cur, s, false) == 0.f);
-	prev.isFlipping = false;
+TEST_CASE("a side dodge converted into speed pays, where the v1 term paid zero") {
+	FlipSpeedReward r;
+	RLGC::GameState s = {};
+	s.ball.pos = {0, 6000, 93};
 
-	// 3. Sideways dodge (0 forward gain towards ball) -> 0
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.index = prev.index = 0;
+	prev.pos = cur.pos = {0, 0, 17};
+	prev.isOnGround = cur.isOnGround = false;
+
+	// Rising edge at 1400 forward.
+	prev.vel = {0, 1400, 0};
 	cur.vel = {500, 1400, 0};
+	cur.isFlipping = true;
+	cur.hasFlipped = true;
 	CHECK(r.GetReward(cur, s, false) == 0.f);
 
-	// 4. Supersonic before flip (v >= 2200 uu/s) -> 0
-	prev.vel = {0, 2200, 0};
-	cur.vel = {0, 2300, 0};
+	// Mid-dodge the impulse is still mostly sideways: |v| has barely moved,
+	// which is exactly the moment v1 sampled and scored zero.
+	prev = cur;
+	cur.vel = {450, 1500, 0};
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+
+	// The air-roll correction lands it forward before the dodge ends.
+	prev = cur;
+	cur.vel = {0, 1900, 0};
+	cur.isFlipping = false;
+	CHECK(r.GetReward(cur, s, false) == doctest::Approx(1.0f).epsilon(1e-3));
+}
+
+TEST_CASE("the peak speed during the dodge counts, not the speed after landing scrub") {
+	FlipSpeedReward r;
+	RLGC::GameState s = {};
+	s.ball.pos = {0, 6000, 93};
+
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.index = prev.index = 0;
+	prev.pos = cur.pos = {0, 0, 17};
+
+	prev.vel = {0, 1400, 0};
+	prev.isOnGround = false;
+	cur.vel = {0, 1900, 0};
+	cur.isFlipping = true;
+	cur.hasFlipped = true;
+	cur.isOnGround = false;
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+
+	// isFlipping also clears when the car lands mid-dodge (Car.cpp:114), and
+	// the wheels scrub speed on contact. Paying the landed value would price
+	// the flip below what it actually produced.
+	prev = cur;
+	cur.vel = {0, 1750, 0};
+	cur.isFlipping = false;
+	cur.isOnGround = true;
+	CHECK(r.GetReward(cur, s, false) == doctest::Approx(1.0f).epsilon(1e-3));
+}
+
+TEST_CASE("a flip taken at the ball pays nothing, because contact flips already pay") {
+	FlipSpeedReward r;
+	RLGC::GameState s = {};
+	// Inside FlipSpeedReward::MIN_BALL_DIST.
+	s.ball.pos = {0, 800, 93};
+
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.index = prev.index = 0;
+	prev.pos = cur.pos = {0, 0, 17};
+	prev.isOnGround = cur.isOnGround = false;
+
+	prev.vel = {0, 1400, 0};
+	cur.vel = {0, 1900, 0};
+	cur.isFlipping = true;
+	cur.hasFlipped = true;
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+
+	prev = cur;
+	cur.isFlipping = false;
 	CHECK(r.GetReward(cur, s, false) == 0.f);
 }
 
+TEST_CASE("a flip that builds speed away from play pays nothing") {
+	FlipSpeedReward r;
+	RLGC::GameState s = {};
+	s.ball.pos = {0, 6000, 93};
 
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.index = prev.index = 0;
+	prev.pos = cur.pos = {0, 0, 17};
+	prev.isOnGround = cur.isOnGround = false;
 
+	prev.vel = {0, 1400, 0};
+	cur.vel = {500, 1400, 0};
+	cur.isFlipping = true;
+	cur.hasFlipped = true;
+	CHECK(r.GetReward(cur, s, false) == 0.f);
 
+	// Ends the dodge faster, but travelling away from the ball down -Y.
+	prev = cur;
+	cur.vel = {0, -1900, 0};
+	cur.isFlipping = false;
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+}
+
+TEST_CASE("a flip taken at supersonic pays nothing, there is no headroom") {
+	FlipSpeedReward r;
+	RLGC::GameState s = {};
+	s.ball.pos = {0, 6000, 93};
+
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.index = prev.index = 0;
+	prev.pos = cur.pos = {0, 0, 17};
+	prev.isOnGround = cur.isOnGround = false;
+
+	prev.vel = {0, RLGC::CommonValues::SUPERSONIC_THRESHOLD, 0};
+	cur.vel = {0, 2300, 0};
+	cur.isFlipping = true;
+	cur.hasFlipped = true;
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+
+	prev = cur;
+	cur.isFlipping = false;
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+}
+
+// The accuracy term. TouchGoalAccel projects onto the direction to the goal
+// CENTRE, so aim enters only through a cosine and a shot from 4000 uu that
+// misses the goal entirely still earns 83% of a perfect one -- less than the
+// 19% it loses from a 10% drop in power. That is a term with a power gradient
+// and no accuracy gradient, and this is the missing half.
+//
+// It is a PLATEAU across the whole mouth on purpose. Corner shots are usually
+// the right shot, so paying for centrality would teach the wrong thing; what
+// is being paid for is the difference between on and off target, and `Goal` is
+// left to decide where within the mouth is best.
+TEST_CASE("a shot anywhere inside the mouth pays the same") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+
+	// 2.56 s to the orange goal plane.
+	s.ball.pos = {0, 0, 93};
+
+	// The ball was stationary before the touch, so the whole of its velocity
+	// is the change this touch caused.
+	sPrev.ball.pos = s.ball.pos;
+	sPrev.ball.vel = {0, 0, 0};
+
+	// Dead centre. Strength is (v . toGoal) / 3611, and toGoal has no x
+	// component from here, so every case below shares the same strength and
+	// the test still isolates PLACEMENT.
+	s.ball.vel = {0, 2000, 0};
+	const float centre = r.GetReward(cur, s, false);
+	CHECK(centre > 0.f);
+	CHECK(centre < 1.f);
+
+	// Just inside the right post: 850 of a 892.755 half-width.
+	s.ball.vel = {850.f / 2.56f, 2000, 0};
+	CHECK(r.GetReward(cur, s, false) == doctest::Approx(centre).epsilon(1e-4));
+
+	// Just inside the left post.
+	s.ball.vel = {-850.f / 2.56f, 2000, 0};
+	CHECK(r.GetReward(cur, s, false) == doctest::Approx(centre).epsilon(1e-4));
+}
+
+// THE DRIBBLE FARM, and it was a hole in this term's first design. Placement
+// was a plateau on purpose -- corner shots are usually the right shot -- but
+// nothing depended on how hard the ball was hit, so a ball rolling goalward on
+// the car's hood paid EXACTLY what a 2000 uu/s strike paid, on every contact
+// rising edge. Measured at 1025M: 4.16 touch-units per contact sequence, one
+// sequence every ~50 steps, against a goal worth 25 once. Walking the ball to
+// the line was strictly optimal and slower was strictly better.
+//
+// The discriminator is the CHANGE the touch made, not the ball's speed: a
+// dribbled ball travels at the car's speed (Player/Grounded Speed 1309), so an
+// absolute-speed factor would still have paid a dribble ~40%. A carried ball
+// moves WITH the car, so its delta-v is ~0; a struck ball leaves it.
+TEST_CASE("a ball carried on the hood is not a shot, however well aimed") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+
+	s.ball.pos = {0, 3000, 93};
+	sPrev.ball.pos = {0, 2900, 93};
+
+	// Dead on target and arriving in under a second -- but the touch changed
+	// the ball's velocity by nothing at all, because it is being carried.
+	sPrev.ball.vel = {0, 1500, 0};
+	s.ball.vel = {0, 1500, 0};
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+
+	// A nudge of the kind a dribble actually imparts: 40 uu/s.
+	s.ball.vel = {0, 1540, 0};
+	const float nudge = r.GetReward(cur, s, false);
+
+	// The same contact, but struck.
+	s.ball.vel = {0, 3300, 0};
+	const float strike = r.GetReward(cur, s, false);
+
+	CHECK(nudge > 0.f);
+	CHECK(strike > 40.f * nudge);
+}
+
+TEST_CASE("shot strength is LINEAR, because TouchGoalAccel already pays for power") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+
+	// Close enough that even the slow case clears MAX_TIME.
+	s.ball.pos = {0, 3000, 93};
+	sPrev.ball.pos = s.ball.pos;
+	sPrev.ball.vel = {0, 0, 0};
+
+	// Doubling the change doubles the payment. Making this convex too would
+	// double-count power against TouchGoalAccel and re-create the blast-it
+	// failure that convexity already invites once.
+	s.ball.vel = {0, 900, 0};
+	const float half = r.GetReward(cur, s, false);
+	s.ball.vel = {0, 1800, 0};
+	const float full = r.GetReward(cur, s, false);
+	CHECK(full == doctest::Approx(2.f * half).epsilon(0.02));
+
+	// Saturates at the same 130 kph TouchGoalAccel uses, so the currency is
+	// unchanged: past it, more speed buys nothing.
+	s.ball.vel = {0, RLGC::Math::KPHToVel(260), 0};
+	const float sat = r.GetReward(cur, s, false);
+	s.ball.vel = {0, RLGC::Math::KPHToVel(520), 0};
+	CHECK(r.GetReward(cur, s, false) == doctest::Approx(sat).epsilon(1e-4));
+	CHECK(sat > full);
+}
+
+TEST_CASE("a touch that knocks the ball backwards is not a shot") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+
+	// Ball still ends up travelling at the net, but this touch SLOWED it.
+	s.ball.pos = {0, 0, 93};
+	sPrev.ball.pos = s.ball.pos;
+	sPrev.ball.vel = {0, 2500, 0};
+	s.ball.vel = {0, 2000, 0};
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+}
+
+TEST_CASE("a shot wide of the post falls off smoothly, so wide shots have a gradient") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+	s.ball.pos = {0, 0, 93};
+
+	const float halfWidth = RLGC::CommonValues::GOAL_WIDTH_FROM_CENTER;
+	sPrev.ball.pos = s.ball.pos;
+	sPrev.ball.vel = {0, 0, 0};
+
+	s.ball.vel = {0, 2000, 0};
+	const float onTarget = r.GetReward(cur, s, false);
+
+	// One half-width outside the post: exp(-1) of the on-target value.
+	s.ball.vel = {(halfWidth * 2.f) / 2.56f, 2000, 0};
+	CHECK(r.GetReward(cur, s, false) ==
+		  doctest::Approx(onTarget * std::exp(-1.f)).epsilon(1e-2));
+
+	// Two half-widths outside: exp(-2). Monotone, never zero, so there is
+	// always a gradient pulling a wide shot back in.
+	s.ball.vel = {(halfWidth * 3.f) / 2.56f, 2000, 0};
+	CHECK(r.GetReward(cur, s, false) ==
+		  doctest::Approx(onTarget * std::exp(-2.f)).epsilon(1e-2));
+}
+
+TEST_CASE("a shot over the crossbar falls off like a wide one") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+
+	// 0.56 s to the plane, arriving one half-width above the crossbar.
+	s.ball.pos = {0, 4000, 93};
+	const float t = 0.56f;
+	const float wantZ = RLGC::CommonValues::GOAL_HEIGHT +
+						RLGC::CommonValues::GOAL_WIDTH_FROM_CENTER;
+	const float vz = (wantZ - 93.f + 0.5f * 650.f * t * t) / t;
+	sPrev.ball.pos = s.ball.pos;
+	sPrev.ball.vel = {0, 2000, vz};
+
+	// Same outgoing ball, but the touch changed nothing about it, so it is not
+	// a shot at all.
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+
+	sPrev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, 2000, vz};
+	const float over = r.GetReward(cur, s, false);
+	s.ball.vel = {0, 2000, 0};
+	CHECK(over == doctest::Approx(r.GetReward(cur, s, false) * std::exp(-1.f)).epsilon(0.05));
+}
+
+TEST_CASE("a ground shot that would fall below the floor still counts") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+
+	// Ballistically this arrives 2000 uu underground; a real ball rolls in.
+	s.ball.pos = {0, 0, 93};
+	sPrev.ball.pos = s.ball.pos;
+	sPrev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, 2000, 0};
+	CHECK(r.GetReward(cur, s, false) > 0.f);
+}
+
+TEST_CASE("a shot at the wrong net pays nothing") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+
+	s.ball.pos = {0, 0, 93};
+	sPrev.ball.pos = s.ball.pos;
+	sPrev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, -2000, 0};
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+
+	// The same shot is a real shot for the orange car.
+	cur.team = Team::ORANGE;
+	CHECK(r.GetReward(cur, s, false) > 0.f);
+}
+
+TEST_CASE("a poke too slow to reach the goal is not a shot") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+
+	// 5120 uu at 1000 uu/s is 5.12 s, past MAX_TIME.
+	s.ball.pos = {0, 0, 93};
+	sPrev.ball.pos = s.ball.pos;
+	sPrev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, 1000, 0};
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+}
+
+TEST_CASE("a carry pays the shot term once, not once per step") {
+	ShotOnTargetReward r;
+	RLGC::GameState sPrev = {};
+	RLGC::GameState s = {};
+	s.prev = &sPrev;
+	RLGC::Player prev = {};
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	s.ball.pos = {0, 0, 93};
+	sPrev.ball.pos = s.ball.pos;
+	sPrev.ball.vel = {0, 0, 0};
+	s.ball.vel = {0, 2000, 0};
+
+	cur.ballTouchedStep = true;
+	prev.ballTouchedStep = false;
+	CHECK(r.GetReward(cur, s, false) > 0.f);
+
+	prev.ballTouchedStep = true;
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+
+	cur.ballTouchedStep = false;
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+}
