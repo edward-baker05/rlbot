@@ -19,7 +19,15 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 
 		{"Goal", b.goal, [] { return new GoalReward(); }},
 
-		{"ShotOnTarget", b.shotOnTarget, [] { return new ShotOnTargetReward(); }},
+		{"ShotOnTarget", b.shotOnTarget,
+		 [s = b.shotOnTargetOpponentScale] {
+			return new ZeroSumReward(new ShotOnTargetReward(), 0.f, s);
+		 }},
+
+		{"Save", b.save,
+		 [s = b.saveOpponentScale] {
+			return new ZeroSumReward(new SaveReward(), 0.f, s);
+		 }},
 
 		{"TouchEdge", b.touchEdge, [] { return new TouchEdgeReward(); }},
 

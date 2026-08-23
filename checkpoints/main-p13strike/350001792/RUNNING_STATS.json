@@ -1,0 +1,13 @@
+{
+    "return_stat": {
+        "count": 1031700,
+        "mean": 6.616676851544266,
+        "var": 52858812.978712864
+    },
+    "run_id": "vqokgmvr",
+    "skill_ratings": {
+        "1v1": 111.73765563964844
+    },
+    "total_iterations": 6878,
+    "total_timesteps": 350001792
+}

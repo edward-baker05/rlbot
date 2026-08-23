@@ -542,6 +542,19 @@ This document contains all design notes, derivations, empirical measurements, an
 
 // Stream to RocketSimVis instead of training fast
 
+## p17 reward budgets
+
+`save` is SaveReward's budget. Solved at 28.05 by `scripts/solve_budgets.py` for a 0.10 target share, then capped at `shotOnTarget * E[Shot/Strength]` = 32 * 0.5247 = 16.79, so it ships at 16.5 and realizes ~0.061 rather than the 0.10 target. The cap exists so that a saved on-target shot is never net-negative for the shooter: without it the bot learns that a savable shot is not worth taking, which prices out rebound pressure, the pattern where consecutive saves progressively pull a defender out of position. The shortfall is recorded rather than papered over -- 0.061 is still above the ~0.05 floor below which p5goalpot's potential was inert.
+
+`saveOpponentScale` and `shotOnTargetOpponentScale` are both exactly 1.0, and this is not a matter of taste. At 1v1 a term wrapped at opponentScale k pays the actor `+S` and the opponent `-kS`, so the population nets `S(1-k)` per event, and self-play samples both roles from one policy. Any k < 1 therefore pays the policy for the event OCCURRING rather than for winning it. On the save term that funds a "let them shoot so I can save it" farm. On ShotOnTarget at the old 0.8 it was paying `+0.2S` for an on-target shot merely existing, whoever took it and whatever became of it -- a direct subsidy for the shot spam p17 exists to remove.
+
+`touchGoalAccelOpponentScale` stays at 0.8, which is the same leak. It prices ball movement rather than shot selection and has ~1B steps behind it, so it is a p18 candidate rather than a p17 change.
+
+`shotOnTarget` 22 -> 32 is forced by the save cap, not chosen. At 22 the cap is 11.5 and the save term realizes 0.043, i.e. inert. 32 is the ceiling: at 35 a shot on target out-pays a strong touch and the ordering guard in `test_rewards.cpp` fires.
+
+`goal` 34, `airTouch` 55 and `air` 1.9 are not from HEAD and not from anyone's memory. They are back-solved from the p17cal probe against p16's own final iterations, where 8 of 12 terms reproduce within 2%, which is what validates the other four. The live p16 build was never recorded; `CONFIG_HISTORY.json` now exists so this cannot recur.
+
+
 
 # Verify.cpp
 
@@ -838,6 +851,11 @@ This document contains all design notes, derivations, empirical measurements, an
 // a jump costs, and left that way on purpose: AirTouch is the term that
 // pays for air now, and it pays for PRODUCTIVE air.
 
+## The Save spec (p17)
+
+`Save` sits adjacent to `ShotOnTarget` in the spec list because the two are one mechanism, and the pair is only coherent while both run at opponentScale 1.0.
+
+
 
 # env/Rewards.h
 
@@ -1030,6 +1048,58 @@ This document contains all design notes, derivations, empirical measurements, an
 // envSet->state.lastRewards[arena]; the reward-share metrics index by it.
 
 // Materializes the specs, same order.
+
+## SaveReward (p17)
+
+The mirror of `ShotOnTargetReward`. ShotOnTarget pays for putting the ball on their net; until p17 nothing in the stack priced what happened next. A ball rolling goalward from 6,700 uu out -- `MAX_TIME` 3 s at the measured `Shot/Ball Speed` of 2392 -- paid exactly what a strike from the edge of the box paid, so throwing a possession away on a hopeless shot was free.
+
+Keyed on the change in threat at the player's own net across their touch, through the same projection and the same `MISS_SCALE` ShotOnTarget uses, so the two read as one mechanism: an on-target shot is paid if and only if it is not saved.
+
+Deliberately not graded by how imminent the incoming shot was. That would pay more for the harder save and therefore penalise the shooter more for taking the better shot. The expected value already carries the grading, since P(saved) is high for a hopeless shot and low for a good one.
+
+Signed on purpose: removing a threat is a save, creating one is a botched clearance, and one expression prices both. A partial deflection that leaves the ball still on target pays only the difference, so batting the ball around in front of your own net earns nothing.
+
+`ThreatAtOwnNet` passes the OPPONENT to `ProjectShot`, because ProjectShot aims at the net the given team attacks.
+
+## Shared helpers (the single-source-of-truth rule)
+
+`GoalwardDeltaV` is the ONLY place "how much did this touch move the ball at their net" is computed. TouchGoalAccelReward, ShotOnTargetReward and the `Touch/Goal Accel` telemetry all go through it. Signed and normalized to the same 130 kph (3611 uu/s) saturation everywhere, so the currency is unchanged whichever term consumes it.
+
+`BallGoalwardCos` is the ONLY place "is the ball heading for their half" is computed. AirTouchReward and the `AirTouch/*` telemetry both go through it, for the same reason ProjectShot exists: a metric that disagrees with the reward it audits is worse than no metric. Measured in the GROUND PLANE -- the goal centre sits at z = 321 while this question is asked about balls near the ceiling, so a 3D direction would dock a legitimate high carry for not diving at the net. A ball going straight up has no horizontal opinion, so zero cos maps to a neutral factor rather than to a penalty.
+
+`GoalwardFactor`: exponent 1 is the shipped curve. Raising it leaves both ends fixed -- straight at the net is 1, straight back is 0 -- and only pulls the middle down, so a sideways carry can be made worth less without touching the aerial game at either extreme.
+
+`ProjectShot` is the ONLY place a shot is projected. Both ShotOnTargetReward and the `Shot/*` telemetry go through it, for the same reason MakeActionParser is the only construction site. Drag is left out: BALL_DRAG costs a few percent over a sub-3-second flight and does not move a shot across the post. The floor clamp is not an approximation but a correction -- a ballistic projection puts a ground shot underground, and a ground shot scores.
+
+## AirTouchReward's direction factor
+
+Added 2026-08-20. Without it the term is blind to which net the ball is heading for, and at 19.1% of reward mass that made carrying the ball back into your own half pay exactly what carrying it at the opponent's net pays. TouchGoalAccel cannot supply the missing signal on its own: it is convex, so a 10x softer touch gives a 100x weaker direction signal, and an air dribble is by definition a sequence of very soft touches. SMOOTH rather than a gate -- a hard cutoff at cos = 0 would have no gradient either side of it and would make a marginally misaimed aerial worthless; this pays 1.0 straight at the net, 0.5 sideways and 0 straight backwards, with gradient throughout.
+
+## FlipSpeedReward
+
+`MIN_BALL_DIST`: contact flips are already paid by TouchGoalAccel, so this term exists only to price a flip used as TRAVEL and is blind inside that radius.
+
+`FULL_GAIN` is `RLConst::FLIP_INITIAL_VEL_SCALE`: a dodge is worth +500 uu/s whatever direction it is aimed, so a full-value flip is one that keeps all of it.
+
+`TOWARD_BALL_COS` is broadly ball-ward, not precisely. A travel flip is aimed at where play is, and demanding better would re-create the v1 term's mistake of paying only for flips already lined up on the ball.
+
+`isFlipping` also clears on landing (`Car.cpp:114`) and the wheels scrub speed on contact, so the peak over the dodge is what the flip produced; the value after landing is not.
+
+`FlatSpeed` ignores z because the jump itself adds JUMP_IMMEDIATE_FORCE straight up, which is not travel.
+
+## ShotOnTargetReward
+
+`MISS_SCALE` is one goal half-width, so a shot that misses by a full goal keeps e^-2 of the payout. It never reaches zero: a wide shot must always have a gradient pulling it back toward the mouth.
+
+STRENGTH, added 2026-08-20. Without it the term was indifferent to how hard the ball was hit, so a ball rolling goalward on the car's hood paid exactly what a strike paid, on every contact rising edge. Walking the ball to the line was therefore strictly optimal and slower was strictly better, which is what the bot learned. Keyed on the CHANGE this touch made, not the ball's speed: a carried ball travels at the car's speed, so a speed factor would still have paid a dribble handsomely, while its delta-v is ~0. LINEAR on purpose -- TouchGoalAccel already pays for power convexly, and making this convex too would double-count it and re-create the blast-it-goalward failure convexity invites.
+
+PLACEMENT stays a plateau inside the mouth, so the corners pay exactly what the centre pays. Corner shots are usually the right shot; what is priced here is on-target against off-target, and `Goal` is left to decide where within the mouth is best.
+
+## WrongSurfaceReward
+
+`isOnGround` is >=3 wheels on ANY surface, so this is surface-relative for free: a car driving up a wall is on its wheels and pays nothing, while a car on its roof or scraping its chassis pays every step. Free flight makes no world contact, so it is not an air tax.
+
+
 
 
 # env/StateSetters.cpp
@@ -1319,6 +1389,9 @@ This document contains all design notes, derivations, empirical measurements, an
 
 // MPPI Lookahead search in ticks (0 = disabled)
 
+Watch a checkpoint play, live, in RocketSimVis. This is deliberately NOT a learner. `train --render` builds a full Learner and collects experience; running it alongside a real run wastes CPU and competes for the run's checkpoint folder. This loads a checkpoint, plays it against itself in one arena at wall-clock speed, and streams the gamestate. It never writes anything.
+
+
 
 # main.cpp
 
@@ -1365,6 +1438,12 @@ This document contains all design notes, derivations, empirical measurements, an
 // Take a label, not a path: the point of this command is to
 // watch a run, and the caller should not have to know how
 // checkpoint folders are named.
+
+`--lr 0` freezes the policy outright, which is what a calibration probe needs: `solve_budgets.py` assumes the per-term realized means it is given were measured under a fixed policy.
+
+`spectate` takes a label, not a path: the point of the command is to watch a run, and the caller should not have to know how checkpoint folders are named.
+
+
 
 
 # policy/Policy.cpp
@@ -2001,6 +2080,34 @@ This document contains all design notes, derivations, empirical measurements, an
 
 // Installed after the Learner (and its embedded Python interpreter) is
 // constructed, since Python init can otherwise install its own handler.
+
+## ShotWatch and the p17 instruments
+
+`ShotWatch` resolves whether an on-target shot was SAVED, which no stateless metric can see: the shot and its outcome are ~42 steps apart. It is tracked per arena and outside the 25% metric sample, because a sampled tracker would miss the touch that resolves it. `Shot/Saved Share`'s denominator is RESOLVED on-target shots only -- a shot the shooter recovers itself leaves the denominator rather than counting as a success.
+
+`OwnHalf/Touch Rate` is the guard on SaveReward's negative side: the risk of charging for a touch that creates a threat is that the bot stops touching the ball near its own net at all. It publishes its denominator (`OwnHalf/Ball Share`, which reads 0.5000 by symmetry and is the check that the geometry is not inverted), per the p10touch lesson that a split metric without one is a filter.
+
+`Save/Converted` has no analytic null. A ball aimed at a 1786-uu mouth is deflected off target by almost any contact, so chance is high, not 0.5; it measured 0.789 on the p17cal probe with the policy frozen. See `docs/metrics.md`.
+
+`Shot/Time` and `Shot/Distance` are the instruments the "it shoots from too far out" complaint never had -- `ProjectShot` has computed `time` all along and nothing read it.
+
+The realized save metrics go through the same `ThreatAtOwnNet` the reward uses, so the metric cannot drift from the term it audits.
+
+## Config provenance (RecordConfig)
+
+A GigaLearn checkpoint records `total_timesteps`, a wandb run id and the return normalizer, and nothing whatsoever about the reward stack, the budgets or the PPO settings it was trained under. p16 accumulated at least four unlogged config changes across 1.24B steps, and reconstructing them afterwards took telemetry forensics.
+
+A config change requires a rebuild and a restart, so run start is the only hook needed: every entry is keyed to the step count the changed config began at. That count is the newest checkpoint's, so it is exact at a clean restart and at worst `tsPerSave` (1M steps) stale if the process died between saves.
+
+## Metric/reward parity, and the RewardShare bias
+
+The air-direction readout is gated on the same rising edge and airborne condition AirTouchReward pays on, and computed through the same helper, so the metric cannot drift from the term it audits. `AirTouch/Backward Share` has a null: a policy indifferent to direction reads 0.5, and `Direction Factor` reads 0.5 with it. Anything at those values means the direction factor is buying nothing.
+
+The accuracy readout is gated on the same rising edge as ShotOnTargetReward via the shared projection, for the same reason. `Shot/Strength` is what ShotOnTargetReward's strength factor is actually worth -- the budget was sized against an ASSUMED mean strength of 0.25, and this is the number that replaces the assumption (measured 0.5247 on the p17cal probe). `Shot/Post Share` is a post shot in the sense the bot is accused of: aimed at the frame, not the net.
+
+`RewardShare` normalizes BEFORE averaging, so it reports `E[x/sum]` rather than `E[x]/E[sum]`. For a spiky event term the same sample that raises the numerator raises the denominator, which truncates the spike and biases the share DOWN -- measured at up to 2.9x against the raw `Rewards/*` means on p15's event terms. The share is kept for continuity with the run log; `RewardMass` is the one to solve budgets against.
+
+
 
 
 # train/Train.h

@@ -1,0 +1,13 @@
+{
+    "return_stat": {
+        "count": 168150,
+        "mean": 0.6074518813991192,
+        "var": 371180.2253611056
+    },
+    "run_id": "tmg07bsx",
+    "skill_ratings": {
+        "1v1": -0.07091927528381348
+    },
+    "total_iterations": 1121,
+    "total_timesteps": 56463488
+}

@@ -121,6 +121,14 @@ TARGETS = {
                  "SaveBoost", "FaceBall", "PickupBoost", "Air"],
         "shares": {"AirTouch": 0.060},
     },
+    # One new term, all else held; capped again in Config.h. See docs/comments.md.
+    "p17save": {
+        "anchor": None,
+        "hold": ["TouchGoalAccel", "Goal", "ShotOnTarget", "TouchEdge",
+                 "SpeedToBall", "FaceBall", "SaveBoost", "PickupBoost",
+                 "FlipSpeed", "AirTouch", "Air", "WrongSurface"],
+        "shares": {"Save": 0.10},
+    },
 }
 
 # Terms whose budget is a per-EPISODE integral (RateWeight divides by

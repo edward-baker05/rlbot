@@ -1,0 +1,13 @@
+{
+    "return_stat": {
+        "count": 60000,
+        "mean": 4.5775548525965855,
+        "var": 27768507.02259452
+    },
+    "run_id": "pmcvb872",
+    "skill_ratings": {
+        "1v1": 4.996004581451416
+    },
+    "total_iterations": 400,
+    "total_timesteps": 100190848
+}

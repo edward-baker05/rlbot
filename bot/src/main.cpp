@@ -44,6 +44,8 @@ void PrintUsage(const char* argv0) {
 		"  --max-steps N        Stop after N timesteps (default: run until Q)\n"
 		"  --label NAME         Suffix run and checkpoint names, to keep runs apart\n"
 		"  --entropy X          Entropy bonus scale (default 0.002)\n"
+		"  --lr X               Policy and critic learning rate; 0 freezes the\n"
+		"                       policy, for calibration probes\n"
 		"\n"
 		"Self-play options:\n"
 		"  --self-play          Train against saved old versions, and track skill\n"
@@ -79,17 +81,14 @@ int RunPlay(int argc, char* argv[]) {
 	}
 
 	try {
-		// Load models before connecting. RLBot has a connection timeout, and
-		// loading a policy onto the GPU is slow enough to trip it if done
-		// lazily on the first packet.
+		// RLBot has a connection timeout that lazy GPU loading would trip.
 		Hive::Context().Initialize(Hive::BotSettings::FromEnvironment());
 	} catch (const std::exception& e) {
 		std::fprintf(stderr, "Failed to initialize: %s\n", e.what());
 		return EXIT_FAILURE;
 	}
 
-	// batchHivemind = true asks RLBot to deliver all our cars in one update()
-	// call, which is what lets us run a single batched inference pass.
+	// batchHivemind = true delivers all our cars in one update(), for one batch.
 	rlbot::BotManager<Hive::HivemindBot> manager{true};
 
 	if (!manager.connect(host, port, agentId, /*ballPrediction=*/false)) {
@@ -118,27 +117,27 @@ int RunTrain(int argc, char* argv[]) {
 		} else if (arg == "--entropy" && i + 1 < argc) {
 			cfg.entropyScale = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--entropy-target" && i + 1 < argc) {
-			// 0 disables the controller and pins entropyScale to --entropy,
-			// which is what a calibration probe wants: the probe must not
-			// move the policy it is measuring.
+			// 0 disables the controller and pins entropyScale to --entropy.
 			cfg.entropyTarget = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--lr" && i + 1 < argc) {
+			// 0 freezes the policy, which is what a calibration probe needs.
+			const float lr = static_cast<float>(std::atof(argv[++i]));
+			cfg.policyLR = lr;
+			cfg.criticLR = lr;
 		} else if (arg == "--infinite-boost" && i + 1 < argc) {
 			cfg.infiniteBoostChance = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--fresh") {
 			fresh = true;
 		} else if (arg == "--self-play") {
 			cfg.selfPlay.trainAgainstOldVersions = true;
-			// Skill tracking is what makes the result readable, so turn it on
-			// with self-play unless it was already requested.
+			// Skill tracking is what makes the result readable.
 			cfg.selfPlay.trackSkill = true;
 		} else if (arg == "--track-skill") {
 			cfg.selfPlay.trackSkill = true;
 		} else if (arg == "--ts-per-version" && i + 1 < argc) {
 			cfg.selfPlay.tsPerVersion = std::atoll(argv[++i]);
 		} else if (arg == "--render") {
-			// Rendering runs the sim at wall-clock speed so you can watch it in
-			// RocketSimVis. Useful for sanity-checking state setters and
-			// rewards; useless for actually training.
+			// Wall-clock speed for RocketSimVis; useless for actually training.
 			cfg.renderMode = true;
 			cfg.numGames = 1;
 			cfg.sendMetrics = false;
@@ -157,20 +156,14 @@ int RunTrain(int argc, char* argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	// The learner silently loads the newest checkpoint in the run folder, so
-	// reusing a label continues that run instead of starting one. Config.h has
-	// warned about this since the label was introduced and it still cost a run:
-	// every threshold in runs/RUNLOG.md is stated as "X at 100M against the
-	// previous run's X at 100M", and a resumed run has no such baseline.
+	// Reusing a label CONTINUES that run, which voids every RUNLOG baseline.
 	const std::filesystem::path checkpoints = cfg.CheckpointFolder();
 	const bool hasExisting =
 		std::filesystem::exists(checkpoints) && !std::filesystem::is_empty(checkpoints);
 
 	if (hasExisting) {
 		if (fresh) {
-			// Renamed, never deleted. A crashed run's checkpoints are often the
-			// most interesting thing on disk -- p11boost's last save turned out
-			// to predate the NaN and verified clean.
+			// Renamed, never deleted: a crashed run's last save is often worth keeping.
 			std::filesystem::path archived = checkpoints;
 			archived += "-archived";
 			for (int n = 2; std::filesystem::exists(archived); n++)
@@ -186,13 +179,7 @@ int RunTrain(int argc, char* argv[]) {
 			std::printf("--fresh: moved existing checkpoints to %s\n",
 			            archived.string().c_str());
 
-			// The metrics receiver RELOADS an existing CSV and appends to it,
-			// deliberately, so that a resumed run keeps one continuous file and
-			// late-arriving columns (Rating/*) are not lost. That is right for a
-			// resume and wrong here: leaving it would concatenate two runs into
-			// one file with no marker, and a trend read off it shows a policy
-			// that mysteriously resets partway through. It did exactly that once
-			// already.
+			// The receiver appends to an existing CSV, which would merge two runs silently.
 			const char* metricsEnv = std::getenv("HIVE_METRICS_DIR");
 			const std::filesystem::path metricsCsv =
 				std::filesystem::path(metricsEnv ? metricsEnv : "metrics") /
@@ -275,13 +262,17 @@ int main(int argc, char* argv[]) {
 				ecfg.seed = std::atoll(argv[++i]);
 			} else if (arg == "--cpu") {
 				ecfg.useGPU = false;
+			} else if (arg == "--deterministic") {
+				ecfg.deterministic = true;
+			} else if (arg == "--random-spawn") {
+				ecfg.randomSpawn = true;
 			} else {
 				std::fprintf(stderr, "Unknown option: %s\n", arg.c_str());
 				return EXIT_FAILURE;
 			}
 		}
 		if (ecfg.blueModel.empty() || ecfg.orangeModel.empty()) {
-			std::fprintf(stderr, "Usage: %s eval --blue <ckpt> --orange <ckpt> [--games N] [--seconds S] [--cpu]\n", argv[0]);
+			std::fprintf(stderr, "Usage: %s eval --blue <ckpt> --orange <ckpt> [--games N] [--seconds S] [--cpu] [--deterministic] [--random-spawn]\n", argv[0]);
 			return EXIT_FAILURE;
 		}
 		try {
@@ -299,9 +290,7 @@ int main(int argc, char* argv[]) {
 		for (int i = 2; i < argc; i++) {
 			const std::string arg = argv[i];
 			if (arg == "--follow" && i + 1 < argc) {
-				// Take a label, not a path: the point of this command is to
-				// watch a run, and the caller should not have to know how
-				// checkpoint folders are named.
+				// A label, not a path: the caller should not know how folders are named.
 				defaults.runLabel = argv[++i];
 				scfg.followRun = defaults.CheckpointFolder();
 			} else if (arg == "--model" && i + 1 < argc) {

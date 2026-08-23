@@ -108,6 +108,8 @@ target_include_directories(HiveCore PUBLIC src)
 # two libtorch include roots are named directly.
 target_include_directories(HiveCore PRIVATE
 	"${HIVE_EXTERNAL}/GigaLearnCPP-Leak/GigaLearnCPP/src/private"
+	# Train.cpp writes CONFIG_HISTORY.json; nlohmann is already vendored.
+	"${HIVE_EXTERNAL}/GigaLearnCPP-Leak/GigaLearnCPP/libsrc/json"
 	"${HIVE_LIBS}/libtorch/include"
 	"${HIVE_LIBS}/libtorch/include/torch/csrc/api/include"
 )

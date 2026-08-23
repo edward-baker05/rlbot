@@ -45,7 +45,36 @@ moved off random.
 | `Action/Steer Nonzero` | **0.3810** masked, **0.5333** unmasked | steering actions / available, sampled on grounded upright steps only |
 | `Player/In Air Ratio` | **~0.87** masked, **~0.75** unmasked (estimate) | air stint ~15 steps against ground dwell `1/p_jump`; not exact, but p1advnorm measured 0.886 at jump rate 0.43 |
 
-Every figure above except the last is asserted in `bot/tests/test_actionspace.cpp`,
+### p17 instruments, and the null that had to be measured
+
+`Save/Converted` is the standing example of why the null rule exists in the
+form it does. The obvious guess for "share of own-net threats a touch clears"
+is 0.5. It is **0.775**, because a ball aimed at a mouth 1786 uu wide is
+usually deflected off target by almost any contact. A run reading 0.75 against
+an assumed 0.5 null would have been scored a triumph while the bot had learned
+nothing at all.
+
+It has **no analytic null**: it depends on the policy's touch distribution, so
+it was measured on the `p17cal` probe with the policy frozen (`--lr 0`,
+`Policy Update Magnitude` and `Mean KL Divergence` both exactly 0). It is a
+baseline, not a chance value, and it must be re-measured whenever the starting
+policy changes.
+
+| Metric | Null / baseline | Where it comes from |
+|---|---|---|
+| `Save/Converted` | **0.775** | measured, p17cal, frozen p16 policy. Not analytic |
+| `Save/Threat Faced Rate` | 0.158 | state statistic — share of steps under an on-target threat |
+| `Save/Threat Created` | 0.028 | the negative side's baseline rate |
+| `Save/Delta Threat` | 0.064 | realized per-touch value of SaveReward at weight 1 |
+| `Shot/Saved Share` | 0.312 | **denominator is RESOLVED on-target shots only** — those the opponent touched or that were scored. A shot the shooter recovers itself leaves the denominator |
+| `OwnHalf/Ball Share` | **0.500 exactly** | symmetry over both teams; it reads 0.5000, which is the check that the own-half geometry is not inverted |
+| `OwnHalf/Touch Rate` | 0.0173 | compare against `Player/Ball Touch Ratio` (0.0152), never in isolation |
+| `Shot/Time`, `Shot/Distance` | 1.63 s, 4083 uu | continuous physical quantities; no null, but these are the two instruments the "it shoots from too far out" complaint never had |
+
+`Shot/Saved Share` follows the p10touch lesson: it is a **conditional**, so its
+denominator is published beside it rather than left implicit.
+
+Every figure in the previous table except the last is asserted in `bot/tests/test_actionspace.cpp`,
 so an upstream change to the action table breaks a test instead of quietly
 invalidating this page.
 

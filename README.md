@@ -32,7 +32,8 @@ external/
   RocketSimVis/         Live viewer
 libs/                   libtorch, NCCL, NVSHMEM (gitignored; scripts/setup_libs.sh)
 tools/                  Collision mesh dumper and the meshes it produced
-scripts/                build / train / watch / vis / play / match / throughput
+scripts/                build / train / watch / vis / play / match / throughput / sync
+checkpoints/            Latest checkpoint of each test, alongside CONFIG.json and CONFIG_HISTORY.json
 runs/                   RUNLOG.md: one line per run that matters
 docs/                   Architecture, metrics guide, specs and plans
 ```

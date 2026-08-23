@@ -14,8 +14,11 @@
 #include <RLGymCPP/EnvSet/EnvSet.h>
 #include <RLGymCPP/Math.h>
 
+#include <nlohmann/json.hpp>
+
 #include <cmath>
 #include <csignal>
+#include <fstream>
 #include <cstdlib>
 #include <iostream>
 #include <map>
@@ -38,6 +41,17 @@ static ObsMode g_ObsMode = ObsMode::Relative;
 static float g_TouchAccelExponent = 2.f;
 static float g_AirTouchDirectionExponent = 1.f;
 static std::vector<int> g_EpisodeAge;
+
+// Per arena, and outside the 25% metric sample so no resolving touch is missed.
+struct ShotWatch {
+	bool pending = false;
+	Team shooter = Team::BLUE;
+};
+static std::vector<ShotWatch> g_ShotWatch;
+
+static Team OtherTeam(Team t) {
+	return t == Team::BLUE ? Team::ORANGE : Team::BLUE;
+}
 
 static void CriticValueMetrics(Learner *learner,
 							   const std::vector<GameState> &states,
@@ -160,6 +174,48 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				g_EpisodeAge[a] = 0;
 			}
 		}
+
+		if (g_ShotWatch.size() != states.size())
+			g_ShotWatch.assign(states.size(), ShotWatch());
+
+		for (size_t a = 0; a < states.size(); a++) {
+			const GameState &st = states[a];
+			ShotWatch &w = g_ShotWatch[a];
+
+			// Blue attacks +y, so a ball past the wall at +y means blue scored.
+			if (st.goalScored) {
+				const Team scorer =
+					st.ball.pos.y > 0 ? Team::BLUE : Team::ORANGE;
+				if (w.pending && scorer == w.shooter)
+					report.AddAvg("Shot/Saved Share", 0.f);
+				w.pending = false;
+			}
+
+			for (const Player &pl : st.players) {
+				const bool rising =
+					pl.ballTouchedStep &&
+					!(pl.prev && pl.prev->ballTouchedStep);
+				if (!rising)
+					continue;
+
+				if (w.pending && pl.team != w.shooter) {
+					report.AddAvg("Shot/Saved Share", 1.f);
+					w.pending = false;
+				} else if (w.pending) {
+					// Shooter recovered it: leaves the denominator, not a save.
+					w.pending = false;
+				}
+
+				const ShotProjection shot = ProjectShot(st, pl.team);
+				if (shot.valid && shot.missDist <= 0.f) {
+					w.pending = true;
+					w.shooter = pl.team;
+				}
+			}
+
+			if (a < es.terminals.size() && es.terminals[a])
+				w.pending = false;
+		}
 	}
 
 	const bool sample = (rand() % 4) == 0;
@@ -182,6 +238,18 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 
 			report.AddAvg("Player/In Air Ratio", !player.isOnGround);
 			report.AddAvg("Player/Ball Touch Ratio", player.ballTouchedStep);
+
+			const float ownThreat =
+				SaveReward::ThreatAtOwnNet(state, player.team);
+			report.AddAvg("Save/Threat Level", ownThreat);
+			report.AddAvg("Save/Threat Faced Rate", ownThreat > 0.f ? 1.f : 0.f);
+
+			const bool ballOwnHalf = (player.team == Team::BLUE)
+										 ? state.ball.pos.y < 0.f
+										 : state.ball.pos.y > 0.f;
+			report.AddAvg("OwnHalf/Ball Share", ballOwnHalf ? 1.f : 0.f);
+			if (ballOwnHalf)
+				report.AddAvg("OwnHalf/Touch Rate", player.ballTouchedStep);
 			report.AddAvg("Player/Demoed Ratio", player.isDemoed);
 			report.AddAvg("Player/Speed", player.vel.Length());
 			report.AddAvg("Player/Boost", player.boost);
@@ -284,15 +352,7 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 					report.AddAvg("Touch/Had Flipped",
 								  player.hasFlipped ? 1.f : 0.f);
 
-					// The air-direction readout, gated on the same rising edge
-					// and airborne condition AirTouchReward pays on, and
-					// computed through the same helper so the metric cannot
-					// drift from the term it audits.
-					//
-					// Backward Share has a null: a policy indifferent to
-					// direction reads 0.5, and Direction Factor reads 0.5 with
-					// it. Anything at those values means the direction factor
-					// is buying nothing.
+					// Same rising edge and helper as AirTouchReward, so they cannot drift apart.
 					if (!(player.prev && player.prev->ballTouchedStep) &&
 						player.airTime > 0.f) {
 						const float goalward =
@@ -306,19 +366,14 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 									  goalward < 0.f ? 1.f : 0.f);
 					}
 
-					// The accuracy readout. Gated on the same rising edge as
-					// ShotOnTargetReward via the shared projection, so the
-					// metric cannot disagree with the reward it audits.
+					// Same rising edge and projection as ShotOnTargetReward.
 					if (!(player.prev && player.prev->ballTouchedStep)) {
 						const ShotProjection shot =
 							ProjectShot(state, player.team);
 						report.AddAvg("Shot/Toward Net Rate",
 									  shot.valid ? 1.f : 0.f);
 						if (shot.valid) {
-							// What ShotOnTargetReward's strength factor is
-							// actually worth. The budget was sized against an
-							// ASSUMED mean strength of 0.25; this is the
-							// number that replaces the assumption.
+							// Replaces the ASSUMED mean strength of 0.25 the budget was sized against.
 							report.AddAvg(
 								"Shot/Strength",
 								RS_MAX(0.f, GoalwardDeltaV(state, player.team)));
@@ -327,14 +382,37 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 							report.AddAvg("Shot/On Target Share",
 										  shot.missDist <= 0.f ? 1.f : 0.f);
 							report.AddAvg("Shot/Miss Distance", shot.missDist);
-							// A post shot in the sense the bot is accused of:
-							// aimed at the frame, not the net.
+							report.AddAvg("Shot/Time", shot.time);
+							report.AddAvg(
+								"Shot/Distance",
+								(((player.team == Team::BLUE)
+									  ? CommonValues::ORANGE_GOAL_CENTER
+									  : CommonValues::BLUE_GOAL_CENTER) -
+								 state.ball.pos)
+									.Length());
+							// A post shot as the bot is accused of it: aimed at the frame, not the net.
 							report.AddAvg("Shot/Post Share",
 										  (shot.missDist > 0.f &&
 										   shot.missDist <= 200.f)
 											  ? 1.f
 											  : 0.f);
 						}
+					}
+
+					// Same ThreatAtOwnNet as the reward, so they cannot drift apart.
+					if (!(player.prev && player.prev->ballTouchedStep) &&
+						state.prev) {
+						const float before = SaveReward::ThreatAtOwnNet(
+							*state.prev, player.team);
+						const float after =
+							SaveReward::ThreatAtOwnNet(state, player.team);
+
+						report.AddAvg("Save/Delta Threat", before - after);
+						report.AddAvg("Save/Threat Created",
+									  after > before ? 1.f : 0.f);
+						if (before > 0.f)
+							report.AddAvg("Save/Converted",
+										  after <= 0.f ? 1.f : 0.f);
 					}
 
 					if (state.prev) {
@@ -492,13 +570,7 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 			any = true;
 		}
 		if (any) {
-			// RewardShare normalizes BEFORE averaging, so it reports
-			// E[x/sum] rather than E[x]/E[sum]. For a spiky event term the
-			// same sample that raises the numerator raises the denominator,
-			// which truncates the spike and biases the share DOWN -- measured
-			// at up to 2.9x against the raw `Rewards/*` means on p15's event
-			// terms. The share is kept for continuity with the run log;
-			// RewardMass is the one to solve budgets against.
+			// Normalizes before averaging, so the share biases DOWN; solve on RewardMass.
 			for (size_t j = 0; j < totals.size(); j++)
 				report.AddAvg("RewardMass/" + g_RewardLabels[j].first,
 							  totals[j] / static_cast<float>(
@@ -552,6 +624,163 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 	CriticValueMetrics(learner, states, report);
 }
 
+static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
+	const RewardBudget &b = cfg.rewards;
+	nlohmann::json j;
+
+	j["rewards"] = {
+		{"touchGoalAccel", b.touchGoalAccel},
+		{"touchAccelExponent", b.touchAccelExponent},
+		{"touchGoalAccelOpponentScale", b.touchGoalAccelOpponentScale},
+		{"touchGoalAccelTeamSpirit", b.touchGoalAccelTeamSpirit},
+		{"goal", b.goal},
+		{"shotOnTarget", b.shotOnTarget},
+		{"shotOnTargetOpponentScale", b.shotOnTargetOpponentScale},
+		{"touchEdge", b.touchEdge},
+		{"save", b.save},
+		{"saveOpponentScale", b.saveOpponentScale},
+		{"speedToBall", b.speedToBall},
+		{"faceBall", b.faceBall},
+		{"saveBoost", b.saveBoost},
+		{"pickupBoost", b.pickupBoost},
+		{"airTouch", b.airTouch},
+		{"airTouchHeightExponent", b.airTouchHeightExponent},
+		{"airTouchDirectionExponent", b.airTouchDirectionExponent},
+		{"air", b.air},
+		{"flipSpeed", b.flipSpeed},
+		{"wrongSurface", b.wrongSurface},
+	};
+
+	j["ppo"] = {
+		{"tsPerItr", cfg.tsPerItr},
+		{"miniBatchSize", cfg.miniBatchSize},
+		{"epochs", cfg.epochs},
+		{"entropyScale", cfg.entropyScale},
+		{"entropyTarget", cfg.entropyTarget},
+		{"entropyAdjustRate", cfg.entropyAdjustRate},
+		{"gaeGamma", cfg.gaeGamma},
+		{"policyLR", cfg.policyLR},
+		{"criticLR", cfg.criticLR},
+	};
+
+	j["env"] = {
+		{"maxPlayersPerTeam", cfg.maxPlayersPerTeam},
+		{"spawn", cfg.spawn == TrainConfig::SpawnMode::Random ? "Random"
+															  : "Curriculum"},
+		{"maskActions", cfg.maskActions},
+		{"obs", cfg.obs == ObsMode::Relative ? "Relative" : "Default"},
+		{"infiniteBoostChance", cfg.infiniteBoostChance},
+		{"teamSpirit", cfg.teamSpirit},
+		{"noTouchTimeoutSeconds", cfg.noTouchTimeoutSeconds},
+		{"numGames", cfg.numGames},
+		{"tickSkip", cfg.tickSkip},
+		{"actionDelay", cfg.actionDelay},
+	};
+
+	j["model"] = {
+		{"sharedHeadLayers", cfg.modelShape.sharedHeadLayers},
+		{"policyLayers", cfg.modelShape.policyLayers},
+		{"addLayerNorm", cfg.modelShape.addLayerNorm},
+	};
+
+	j["selfPlay"] = {
+		{"trainAgainstOldVersions", cfg.selfPlay.trainAgainstOldVersions},
+		{"trainAgainstOldChance", cfg.selfPlay.trainAgainstOldChance},
+		{"tsPerVersion", cfg.selfPlay.tsPerVersion},
+		{"maxOldVersions", cfg.selfPlay.maxOldVersions},
+		{"trackSkill", cfg.selfPlay.trackSkill},
+	};
+
+	return j;
+}
+
+// Flattens to "section.field" so a diff names the exact knob that moved.
+static void FlattenConfig(const nlohmann::json &j,
+						  std::map<std::string, std::string> &out) {
+	for (auto &section : j.items())
+		for (auto &field : section.value().items())
+			out[section.key() + "." + field.key()] = field.value().dump();
+}
+
+static int64_t NewestCheckpointSteps(const std::filesystem::path &folder) {
+	int64_t newest = 0;
+	std::error_code ec;
+	for (const auto &e : std::filesystem::directory_iterator(folder, ec)) {
+		if (!e.is_directory())
+			continue;
+		const std::string name = e.path().filename().string();
+		if (name.empty() ||
+			name.find_first_not_of("0123456789") != std::string::npos)
+			continue;
+		newest = RS_MAX(newest, std::stoll(name));
+	}
+	return newest;
+}
+
+static void RecordConfig(const TrainConfig &cfg) {
+	const std::filesystem::path folder = cfg.CheckpointFolder();
+	std::error_code ec;
+	std::filesystem::create_directories(folder, ec);
+
+	const nlohmann::json current = ConfigToJson(cfg);
+	const std::filesystem::path historyPath = folder / "CONFIG_HISTORY.json";
+
+	nlohmann::json history = nlohmann::json::array();
+	if (std::filesystem::exists(historyPath)) {
+		std::ifstream in(historyPath);
+		try {
+			in >> history;
+		} catch (const std::exception &e) {
+			std::cerr << "CONFIG_HISTORY.json unreadable (" << e.what()
+					  << "); starting a new one.\n";
+			history = nlohmann::json::array();
+		}
+	}
+
+	std::map<std::string, std::string> now, before;
+	FlattenConfig(current, now);
+	if (!history.empty() && history.back().contains("config"))
+		FlattenConfig(history.back()["config"], before);
+
+	nlohmann::json changed = nlohmann::json::object();
+	for (const auto &[k, v] : now) {
+		auto it = before.find(k);
+		if (it == before.end()) {
+			if (!before.empty())
+				changed[k] = {nullptr, v};
+		} else if (it->second != v) {
+			changed[k] = {it->second, v};
+		}
+	}
+
+	// Written every run so the folder is self-describing; history only on change.
+	{
+		std::ofstream out(folder / "CONFIG.json");
+		out << current.dump(2) << "\n";
+	}
+
+	if (!history.empty() && changed.empty())
+		return;
+
+	nlohmann::json entry;
+	entry["total_timesteps_at_start"] = NewestCheckpointSteps(folder);
+	entry["changed"] = changed;
+	entry["config"] = current;
+	history.push_back(entry);
+
+	std::ofstream out(historyPath);
+	out << history.dump(2) << "\n";
+
+	if (!changed.empty()) {
+		std::cout << "Config change recorded at "
+				  << entry["total_timesteps_at_start"].get<int64_t>()
+				  << " steps:\n";
+		for (auto &c : changed.items())
+			std::cout << "  " << c.key() << ": " << c.value()[0] << " -> "
+					  << c.value()[1] << "\n";
+	}
+}
+
 void RunTraining(const TrainConfig &cfg) {
 	const char *meshEnv = std::getenv("HIVE_COLLISION_MESHES");
 	const std::string meshPath = meshEnv ? meshEnv : "collision_meshes";
@@ -577,6 +806,8 @@ void RunTraining(const TrainConfig &cfg) {
 			  << (cfg.selfPlay.trackSkill ? "on" : "off") << "\n";
 	if (cfg.maxSteps > 0)
 		std::cout << "Step budget:      " << cfg.maxSteps << "\n";
+
+	RecordConfig(cfg);
 
 	g_MaxSteps = cfg.maxSteps;
 	g_MaxPlayersPerTeam = cfg.maxPlayersPerTeam;

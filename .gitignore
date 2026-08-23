@@ -3,9 +3,10 @@ bot/build/
 build/
 
 # Training artifacts
-checkpoints/
 wandb/
 *.lt
+!checkpoints/**/*.lt
+!dist/**/*.lt
 
 # Large third-party binaries. These are installed by scripts/setup_libs.sh
 # rather than committed -- libtorch alone is ~1 GB.

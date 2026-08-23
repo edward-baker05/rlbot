@@ -133,6 +133,8 @@ selects it, `Hive::MakeActionParser` is the only construction site, and it is a
   has its own git history; do not commit changes here without noting them.
 - `libs/` — libtorch, NCCL, NVSHMEM. Gitignored; `scripts/setup_libs.sh`
   reinstalls them.
+- `checkpoints/` — the latest checkpoint of each test, alongside its `CONFIG.json` and `CONFIG_HISTORY.json`.
+- `scripts/` — build, train, evaluate, and sync scripts (`scripts/sync_checkpoints.py`).
 
 ## Build
 
@@ -238,8 +240,15 @@ the check** — run it before every deployment session.
 
 ## Conventions
 
-- Comments explain *why*, especially where a choice looks arbitrary or where a
-  bug would be silent. The packet conversion carries the most of this.
+- **Source comments are ONE LINE. Prose goes in `docs/comments.md`.** A comment
+  in a code file resolves an ambiguity a reader hits *at that line* — why this
+  team is passed and not that one, why this bound and not the obvious one. It
+  is never a derivation, a measurement, a justification of a number, or an
+  explanation of a technique. All of that belongs in `docs/comments.md`, under
+  the heading for that file, and the source keeps at most a one-line pointer.
+  `Config.h` has **zero** comments and should stay that way: it is a wall of
+  tuned constants and every one of them has a story that is not in it.
+  If you are writing a third line, you are writing the wrong document.
 - `Hive::` namespace for our code; `RLGC::` is RLGymCPP, `GGL::` is GigaLearn.
 - Tabs, matching the surrounding GigaLearn/RLGymCPP style.
 - Every run gets a `--label`; record runs that matter in `runs/RUNLOG.md`.

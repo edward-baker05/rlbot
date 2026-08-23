@@ -20,10 +20,16 @@ fi
 # --- Model selection -------------------------------------------------------
 # Point HIVE_MODEL at a GigaLearn checkpoint folder -- the numbered
 # subdirectory holding the .lt files, not the parent. Override by exporting it
-# before launching RLBot; the default picks the newest checkpoint. Only
-# numbered step folders count -- the same level also holds policy_versions
-# (the self-play snapshot pool), which is not a loadable checkpoint.
-: "${HIVE_MODEL:=$(ls -d "$BUILD_DIR"/checkpoints/main*/[0-9]*/ 2>/dev/null | sort -V | tail -1)}"
+# before launching RLBot; the default picks the most recently written
+# checkpoint. Only numbered step folders count -- the same level also holds
+# policy_versions (the self-play snapshot pool), which is not a loadable
+# checkpoint.
+#
+# Sort by MTIME, not by name. `sort -V` compares the whole path, so the label
+# dominates the step number and any label sorting late in the alphabet wins
+# outright: a 250k-step main-smoke-rewards folder beat every main-p1x run,
+# and being trained under the old 89-float obs it failed to load at all.
+: "${HIVE_MODEL:=$(ls -dt "$BUILD_DIR"/checkpoints/main*/[0-9]*/ "$REPO"/checkpoints/main*/[0-9]*/ 2>/dev/null | head -1)}"
 
 if [[ -z "${HIVE_MODEL:-}" || ! -d "${HIVE_MODEL}" ]]; then
 	echo "No model found. Train one first, or set HIVE_MODEL to a checkpoint folder." >&2

@@ -5,8 +5,76 @@ runs recorded here. Append newest at the top.
 
 Format: `date | label | config delta from previous entry | why | outcome`
 
+## RECONSTRUCTED 2026-08-23: what p15manual and p16 actually changed
+
+Their `CONFIG_HISTORY.json` files are `sync_checkpoints.py` reconstructions with
+an empty `changed` map, and the originals were never written. The weights were
+recovered from the metrics CSVs instead: **`RewardMass/<term>` / |`Rewards/<class>`|
+returns the budget directly for event terms and after multiplying by
+`REFERENCE_EPISODE_STEPS` (391.5) for rate terms.** Calibrated against p18, where
+the true weights are known: AirTouch 1.00x, TouchEdge 0.99x, ShotOnTarget 1.01x,
+PickupBoost 1.00x, SpeedToBall 1.00x, SaveBoost 0.99x, Air 1.01x. Signed
+near-zero-mean terms do not recover (`Goal` is 327x out) and `Save` reads ~1.37x
+high, so treat those two as indicative only.
+
+**`p15manual` was a FRESH run** -- its CSV starts at timestep 0. p12goal,
+p13strike and p14aerial are therefore an **abandoned lineage**, not ancestors:
+the current bot descends from p15manual. The ladder's "+478 Elo over p12goal" is
+a comparison between two trees, not an increment along one.
+
+| boundary | change |
+|---|---|
+| within p15manual (from 842M, when the metric first appears) | `AirTouch` 31 -> 20, `ShotOnTarget` 5.1 -> 12.1, `FlipSpeed` 1.8 -> 2.5 |
+| **p15manual -> p16** | **`ShotOnTarget` 12 -> 35 (2.9x)**, `AirTouch` 20 -> 12 |
+| **mid-p16, ~1735M** | **`AirTouch` 12 -> 75 (6.3x)**, `ShotOnTarget` 35 -> 20, `Air` 0.88 -> 1.88 |
+| p16 -> p17 | `AirTouch` 75 -> 55, `ShotOnTarget` 20 -> 32, `Save` added at ~22 |
+
+p15manual also shows the manual tweaking directly: `Entropy Scale` was moved
+0.0021 -> 0.0040 -> 0.0050 -> 0.0040 -> 0.0020 -> 0.0088 across the run, and
+`Episode/Mean Steps` ballooned 622 -> 1023 -> 1846 -> **2813** before collapsing
+back to 462, i.e. a farm appeared and was killed mid-run.
+
+### The reframe: the policy was never frozen, and the instruments could not see it
+
+Converting the ladder to a rate against the steps each run actually took:
+
+| interval | steps | Elo gained | rate |
+|---|---|---|---|
+| p15manual -> p16 | 1237M | +273 | **22 Elo / 100M** |
+| p16 -> p17 | 310M | +13 | **4.2 Elo / 100M** |
+| p17 -> p18 | 483M | +29 | **6.0 Elo / 100M** |
+
+**p18entropy's 483M gained +29 Elo against a ladder noise floor of ~13, so the
+run that produced "behaviour did not move on any axis" was in fact improving the
+whole time, at about 5 Elo per 100M steps.** The behavioural metric set cannot
+resolve that; a calibrated ladder can. The standing p17/p18 conclusion -- "PPO
+has converged on its objective" -- is **too strong**, and so is the version of it
+written into the p18entropy-extended row above. What actually happened is a
+deceleration from 22 to ~5 Elo/100M, which is the ordinary shape of a learning
+curve, not a stop. **This does not retire the opponent-symmetry hypothesis; it
+changes what a p19pool null result would mean**, since ~5 Elo/100M is the
+baseline any intervention now has to beat rather than zero.
+
+**Four of the seven ladder rungs are not in this table.** p13strike, p14aerial,
+p15manual and p16 have no row, and the 2026-08-23 ladder measures p15manual and
+p16 as **the two largest gains in the project's history (+174 and +273 Elo)**.
+Their `CONFIG_HISTORY.json` files carry a single entry with an empty `changed`
+map, so what they altered is not recorded anywhere. The log documents its
+failures in extraordinary detail and omits its successes; reconstructing those
+two runs is now a prerequisite for understanding where the gains came from.
+
+**Deferred work lives in `.scratch/run-backlog/`** -- eleven tickets covering the
+possession term, the air game, the zero-sum k=1 question, gamma, and the
+positioning blind spot. **Read `PLAN-post-p18.md` first**: p18entropy ran to
+483M and unblocked them, so the ordering in `spec.md` is superseded. Nothing is
+readable until the anchored ladder in Run 0 exists.
+
 | Date | Label | Config delta | Why | Outcome |
 |---|---|---|---|---|
+| 2026-08-23 | **LADDER** (no training) | Not a run. `scripts/ladder.py` + a repaired `HivemindBot eval`: p18 vs six frozen ancestors, 400 games per side per rung, both sides swapped, stochastic inference, run under BOTH the training spawn (`RandomState`) and kickoffs. 187 h of simulation | `Rating/1v1` is an unanchored Elo (random-walk sigma 42.8 vs an observed 29.8 drift), so no run conclusion has ever been anchored to anything outside itself. Frozen opponents cannot move to meet the challenger, so goal share has a real null of 0.5 | **The lineage works, and the plateau is precisely dated to p16.** Match scores and Elo gaps (p18 minus rung, in-distribution): p13strike **+593**, p14aerial **+526**, p12goal **+478**, p15manual **+304**, p16 **+31**, p17 **+18**, SELF-control **-11**. Per-run increments: p12goal->p15manual **+174**, p15manual->p16 **+273**, p16->p17 **+13**, p17->p18 **+29**. **SELF-control reads 49.3% / 50.5% goal share across the two spawn modes (truth 50%), so the apparatus is calibrated and the noise floor is about +-13 Elo.** Kickoff and in-distribution ladders agree throughout (p12goal 89.2% vs 92.2%, p16 53.9% vs 55.6%), so the out-of-distribution kickoff start is NOT what the earlier confusion was about. **Three things this settles.** (1) The operator's judgement that the bot improved enormously since p12goal is **confirmed and quantified: +478 Elo**, and the branch in `PLAN-post-p18.md` that would have justified a restart-on-stagnation is dead. (2) **The plateau is real but recent**: p17 and p18 together are ~800M steps and ~9.5 h of compute for **+42 Elo**, against p16's +273 alone, and p17's +13 is at the noise floor. (3) **The ladder independently recovers a known fact, which is the best evidence it works**: p13strike and p14aerial score BELOW p12goal (+593 and +526 against p18, versus p12goal's +478), i.e. both were regressions -- exactly what `RUNLOG` says of p13strike, whose steer channel went extinct at 0.0006. Nobody told the ladder that. **Process, and it is the uncomfortable part: `eval` had been broken since it was written, in two independent ways, and produced plausible scorelines throughout.** (a) `GameState::UpdateFromArena` orders players by `arena->_cars`, which is NOT `AddCar` order -- `players[0]` is the ORANGE car -- and `Eval.cpp` indexed positionally while holding `blueCar`/`orangeCar` pointers, so **each car was driven by the action computed for the other car**. An `assert` guarded exactly this and `scripts/build.sh` builds `Release`, so `NDEBUG` removed it. (b) `RelativeObs.cpp:63` puts `prevAction` in the observation and `Eval.cpp` rebuilt `GameState` from the arena every step, zeroing those 8 of 109 floats. **CLAUDE.md's claim that "RelativeObs is stateless for exactly this reason" is false.** Validation that now gates the tool, against training telemetry: `Ball Touch Ratio` **0.0001 -> 0.0136** (training 0.0157), episode length **13.7 s -> 25.8 s** (training 24.1 s), goals per episode **0.08 -> 1.00** (training ~0.99). **Training, the skill tracker, `spectate` and the RLBot deployment path were all checked and are unaffected** -- each stays inside one index space or walks `_cars` in lockstep; `eval` was the only code mixing the two. No prior RUNLOG conclusion used `eval`. **Also measured: the training goal rate is ~1 per 24 s and ~99% of episodes end in a goal**, derived from `RewardMass/Goal` 0.09316 / weight 34, and confirmed independently by the repaired eval |
+| 2026-08-23 | p18entropy (extended) | **NOT one variable, and not intended: the resume dropped the command-line flags.** `--entropy-target 0 --entropy 0.002` were CLI-only on 2026-08-21; the 08-23 resume omitted them, so `Config.h` defaults (`entropyTarget 0.40`, `entropyScale 0.003`) silently reapplied and the entropy controller came back on. Recorded in `CONFIG_HISTORY.json` entry 1 at ts 2,641,746,944. Reward stack, obs, spawns, mask, LR, gamma, tsPerItr all still frozen at p17 values. 433M further steps, taking the label to **483M total (2592M -> 3075M cumulative)** | Spare compute. Not designed as an experiment; it became the longest single stretch this project has run, and by accident it tests the freeze at a SECOND entropy level | **The strongest plateau evidence this project has, and it did not need the confound to be clean.** The dropped flags mean the freeze is now measured at entropy **0.285 (controller off, 50M)** and at **0.400 (controller on, 433M)** -- 26% below and 26% above p17's operating point -- with **identical behaviour in both**. Segment-matched: `Touch/Above 450` +10.1% (off) vs +10.6% (on), `Phase/Aerial` +6.2% vs +4.7%, `Shot/Distance` +0.2% vs -0.6%, `Shot/Saved Share` -3.4% vs -0.4%. **Split into nine ~54M chunks, exactly ONE metric trends monotonically across all nine, and it is not behavioural: `GAE/Returns STD` 41.62 -> 40.89** (-1.8%, 153 sigma, the largest trend-to-noise in the entire metric set). `Critic/V All` +2.8% and `Critic/V Airborne` +8.0% follow it. **Every behavioural metric's net change is smaller than its own within-run oscillation**: `Touch/Above 450` net +10.6% against a 14.2% swing, `Player/Ball Touch Ratio` -1.2% against 7.4%, `Save/Converted` -1.5% against 2.0%, `Shot/Distance` +0.2% against 1.6%. **The decisive new fact: `Average Step Reward` is flat too -- 0.1090 -> 0.1098, +0.7% net against a 2.6% swing.** p17 could be read as "the reward is being optimised but the behaviour it buys is wrong"; at 483M that reading is dead. PPO is not stuck, it has **converged on its objective**: clip 0.0342-0.0375, KL 0.0037-0.0040, update magnitude 0.068-0.072, `Obs/Non-Finite Rate` 0.000, constant to 3 s.f. throughout. **The one axis with residual movement is the one large NON-zero-sum term.** `RewardMass/AirTouch` +5.9% (5.4 sigma) with `Touch/Above 450` +10.6%, `Player/Touch Height` +2.6%, `Phase/AirDribble` +4.6%. By the k-arithmetic, `Goal` (17.4%) + `ShotOnTarget` (11.2%) + `Save` (4.4%) + 0.8x`TouchGoalAccel` (24.6%) = **57.6% of reward mass has zero expected population advantage in symmetric self-play**. The policy is still climbing the ~42% that behaves like a solo objective, and `AirTouch` at 13.3% is its largest component -- the same term `.scratch/run-backlog/issues/05` says pays 1.33x the entire finishing block per episode. **`Rating/1v1` 424 -> 394 is NOT evidence of decline**: 41 samples, per-sample sigma 6.77, random-walk sigma over 40 updates = **42.8**, so a 29.8 drift is well inside chance for an unanchored Elo whose pool inherits the current rating. Item 11 predicted exactly this -- the instrument cannot answer the question it is being asked. **Throughput: 64,112 steps/s mean WITH `--track-skill`**, so CLAUDE.md's 52k planning figure is 23% stale; 483M steps took 3.4 h wall-clock. **Process:** the resume also forked wandb (a new run `ciygwkg4` alongside the original `hp16vami`) and the CSV lost its first 496 iterations; both repaired by the new `scripts/merge_wandb_runs.py`, see below |
+| 2026-08-21 | p18entropy | **One variable.** Reward stack byte-identical to p17; `--entropy-target 0 --entropy 0.002`, disabling the controller and pinning `entropyScale` ~7x below the 0.0144 it had drifted to. Seeded from `main-p17/2591724288`, 50M steps | Discriminator, not a reward run: p17 proved a converged policy stays converged but not WHY. Either the entropy target was pinning it, or it is a genuine local optimum | **The pathology was real and fixing it changed nothing. 0 of 3 predictions on the letter; the mechanism confirmed, the conclusion inverted.** Entropy 0.389 -> 0.285 (-26.7%, 5.76 -> 3.61 effective actions of 90), crossing 0.30 at +27.8M against a predicted 25M. `Policy Relative Entropy Loss` **±940/±42 -> 0.37-0.92**: the entropy bonus was genuinely drowning the policy gradient and no longer is. `SB3 Clip Fraction` 0.0361 -> 0.0438 (+21.2%), the largest steps since p16 mid-life. **And behaviour still did not move**: `Shot/Distance` +0.2%, `Shot/Saved Share` -4.1% (continuing a drift already present in p17), `Save/Converted` 0.797 -> 0.796. No kill criterion fired. Entropy is ASYMPTOTING (per-decile drop -0.031 -> -0.004, a 7x deceleration), so this is a new equilibrium, not an unfinished transient |
+| 2026-08-21 | p17 | **One concept, three coupled changes**: new signed `SaveReward` (change in threat at own net across a touch, same `ProjectShot` and `MISS_SCALE` as `ShotOnTarget`), zero-sum at k=1.0, budget 16.5 solved-then-capped; `shotOnTargetOpponentScale` 0.8 -> 1.0; `shotOnTarget` 22 -> 32 (forced by the cap). Seeded from `main-p16/2281639168`. Baseline budgets BACK-SOLVED from telemetry, not taken from HEAD | Stop paying for the shot attempt; pay for whether it survives. Aimed at possessions thrown away on hopeless long shots and clearances fed straight back | **CLEAN NEGATIVE, and the term was never tested. 0 of 5 predictions, 0 kill criteria fired, and the POLICY DID NOT MOVE.** Over 300M steps the largest behavioural change was `Flip/Neutral Share` 0.009 -> 0.020; `Shot/Distance` moved **0.0%** (4007 -> 4009), `Player/Velocity Alignment` 0.1%, `Shot/Toward Net Rate` 0.2%. `Shot/Saved Share` 0.313 -> 0.289, `Save/Converted` 0.789 -> 0.793, `Rating/1v1` 432 -> 425. PPO was in perfect steady state, not broken: clip 0.0354, KL 0.0038, update magnitude 0.0696, `GAE/Avg Advantage` 0.153, all constant to 3 s.f. across 300M. **The save term carried 4.4% of mass into a policy not responding to the other 96% either, so it is UNFALSIFIED, not falsified** -- as is the k=1 choice |
 | 2026-08-19 | p12goal | **Three changes, one concept** (declared as not-one-variable): `StrongTouch` -> `TouchGoalAccel` (budget 3.0 carried over, signed goal-directed change in ball speed at contact); `Goal` 10.0 symmetric; `AirTouch` 2.0 = `min(airTimeFrac, heightFrac)`. Boost budgets, obs, spawns, mask, LR, entropy, tsPerItr, gamma all frozen. `infiniteBoostChance` stayed 0 (no `Infinite Boost Share` column; `Player/Boost` reads 5.5 at 10M). **Run to 250M, not 100M** -- deliberate overnight extension, stopped by hand | The guide's middle-stage gate: the bot can hit the ball, so tell it the net exists and pay for productive air | **2 of 5 predictions, BOTH kill criteria missed, and the best bot this project has made.** Scorecard: **(1) `Touch/Hit Force` > 700 -- FAILED, 801 -> 489 (100M) -> 422 (250M).** Third consecutive falling run: 878 (p10 peak) -> 551 (p11) -> 422. **(2) `Episode/Mean Steps` < 1200 -- CORRECT, 1788 -> 390 = 26.0 s.** Goals now end episodes; mean gap between contacts is 1/0.0291 = 34 steps = 2.3 s so `NoTouchCondition` almost never fires. **(3) `Touch/Above 450` > 0.15 and `Touch Height` > 260 -- FAILED AND INVERTED: 0.081 -> 0.037, 195 -> 155**, `Touch/Above 200` 0.195 -> 0.078. **(4) `Player/Boost` > 15 -- passed on the number (9.4 -> 25.3) and the mechanism is the OPPOSITE of the hypothesis.** `Action/Boost When Grounded` 0.72 -> 0.356 and `Boost When Airborne` 0.27 -> 0.197: the tank filled because the bot stopped SPENDING, and episodes are 4.6x shorter so mean boost is sampled far closer to spawn. **The p11 diagnosis is not confirmed, it is untested** -- it predicted boost rising *because* air touches did, and air touches fell. **(5) `Jump When Grounded Upright` > 0.02 -- FAILED, 0.0107 -> 0.00400, which is the eps-floor to three figures** (0.02 x 18/90 = 0.00400). Measured/floor = **1.00**: the cleanest extinction this project has recorded. **Both pre-registered kill criteria fired and the run continued anyway:** 25M wanted `RewardShare/AirTouch` > 0.02 and it read **0.0018** (11x below); 50M wanted `Touch/Hit Force` > 620 and it read **609.7**. **THE DECISIVE MEASUREMENT: the critic has priced the takeoff, under something close to a randomized trial.** `Critic/TD Delta Jump` -0.070 -> **-0.2249** against `NoJump` -0.0199, the gap widening monotonically. Read it carefully. (a) The metric is `gamma*V(s') - V(s)`, **not** a full TD residual -- `Train.cpp:139` omits the step reward -- so it is the critic's opinion of where the jump leads, not realized return. (b) At V ~ 1.5 and gamma 0.99, `gamma*V - V` is **-0.015 even with no value change**, and `NoJump` reads -0.0199, i.e. essentially that drift. The excess attributable to jumping is therefore **-0.205 standardized = -0.81 touch-units** at `GAE/Returns STD` 3.939. (c) **The comparison is near-causal**: the policy's own P(jump) is 0.0004 against an eps-floor of 0.0040, so ~91% of sampled jumps are floor-assigned, and the floor mixes uniformly over valid actions **independent of state** -- the fourth external patch doubles as random treatment assignment on the jump action. `Critic/V Grounded` 1.495 vs `V Airborne` 1.258 (0.93 raw) points the same way but is a **marginal, non-causal** comparison, confounded by which states are airborne (launch recovery, walls); it corroborates the direction, it does not independently measure the price. **AirTouch pays 0.37 against that 0.81.** Raw mean 0.000461/step / `Ball Touch Ratio` 0.0411 = 0.0112 per contact step = 0.0224 touch-units per touch; airborne touches are 6.1% of touches (In Air 0.181 x `Touch/Rate Airborne` 0.0138 against 0.819 x `Rate Grounded` 0.0471), so an airborne touch averages 0.184 x 2.0 = **0.37**. Even a textbook air dribble (ball z 800, 1.0 s aloft) pays 2.0 x min(0.571, 0.391) = **0.78 against a cost of 0.81.** **`airTouch = 2.0` was set 15-20% BELOW the indifference point**, which is exactly the signature of a behaviour that appears and decays rather than establishing or vanishing -- p10touch, p11 at 42-56M, and here not at all. **Third consecutive inert term.** RewardShare of the term the run was built around: p10 StrongTouch **0.037**, p11 SaveBoost **0.016**, p12 AirTouch **0.008**. The budget framework converts a *maximal* payout; the policy responds to *realized mass* = budget x mean realized value x rate, and nothing in the framework estimates the rate. **The possession equilibrium, with the ledger.** Per episode at 250M (390 steps), from `Rewards/<class>` x weight, reconciling to `Average Step Reward` 0.0714 within 4.5%: SpeedToBall **14.64 (55.0%)**, FaceBall 5.09 (19.1%), TouchEdge 2.76 (10.4%), TouchGoalAccel 2.47 (9.3%), SaveBoost 1.19 (4.5%), PickupBoost 0.41 (1.5%), AirTouch 0.36 (1.35%), Air 0.20 (0.8%); net ~26.6. **84.5% of the ledger pays for being near, pointed at and in contact with the ball; 9.3% pays for what the ball does.** SpeedToBall + FaceBall has held 0.61-0.88 of reward mass in **every run this project has ever done** (p8ref 0.761, p10 0.876, p11 0.778, p12 0.606; only the p9rel farm displaced it) and has **never once been reduced**. **Why the touches are soft, and it is not a bug.** `TouchGoalAccel` is LINEAR in goal-directed dv, and the total goal-directed dv required to score is fixed by the length of the field, so a linear term is **indifferent between one 2000 uu/s strike and five 400 uu/s pokes** -- it pays the same. The other 84% is not indifferent: a poke leaves the ball inside re-contact range and a strike does not. Measured: 11.3 contacts per episode, 1.41 steps per contact sequence (so **not** a carry farm -- p9rel was 1.98), `Touch/Had Flipped` **0.0008**, i.e. the bot never flips into the ball. The guide's own words are "a slight push that barely changes the velocity of the ball will give almost no reward", which describes a **convex** function of dv; this project implemented it linear. **gamma bounds what the goal term can do.** At `gaeGamma` 0.99 and 15 steps/s the value horizon is 1/(1-g) = 100 steps = 6.7 s, so a goal is worth 10 x 0.99^390 ~ 0.2 at the start of a 26 s episode and 7.4 two seconds out: **Goal shapes the finish and nothing else**, and its 14.9% of |reward mass| is by construction zero-mean variance. Consistent: `Critic/V All` 3.32 -> 1.46 standardized while `GAE/Returns STD` 2.11 -> 3.94, i.e. raw V 7.0 -> 5.75 against much noisier returns. **Real gains, and they are the best this project has produced.** `Rating/1v1` **7.4 -> 108.1** (p11 6.1, p10 25.6); `Player/Ball Touch Ratio` 0.0248 -> **0.0411**; `Touch/Edge Rate` 0.0208 -> 0.0291; `Game/Goal Speed` 1653 -> **1947**; `Episode/Late/Ball Dist` 817; `Surface/Wrong Contact Rate` 0.0065; `Action/Handbrake` 0.140 -> 0.015; `Speed/Above Throttle Cap Share` 0.130 -> 0.389. **First run in which the bot plays a recognisable game of Rocket League**: it approaches, keeps possession, and scores about once every 26 s. Rating caveat stands -- it is against this run's own version pool, so it measures self-improvement, not absolute skill. **Nothing after ~175M was worth having.** `Policy Entropy` 0.309 (100M) -> 0.167 (150M) -> 0.146 (250M); `Rating/1v1` flat and noisy from 175M (117, 117, 91, 86, 98, 108). PPO stayed healthy the whole way (clip 0.068-0.149, KL 0.0074, `Policy Relative Entropy Loss` 1.01 -> 0.12, Critic Loss flat, `Obs/Non-Finite Rate` 0.000): **the run did not break, it converged.** The extra 150M bought a doubling of self-play rating between 100M and 175M and then nothing. **Latent farm shipped but never fired:** `AirTouchReward` pays on every contact STEP, not on the rising edge, unlike `TouchEdgeReward` which exists for exactly that reason. It stayed inert so nothing happened, but **it cannot be raised until it is edge-gated** -- at the budget the break-even analysis calls for, an air carry at ceiling height would pay ~200 touch-units per second |
 | 2026-08-19 | p11boost | Boost economy (`SaveBoost` 1.5 sqrt-of-tank, `PickupBoost` 0.5) + `strongTouch` 1.0 -> 3.0 re-derived from p10touch's `Touch/Strong Value` = 0.104. Two changes, declared as such. First attempt died at 29.8M to a NaN (see CLAUDE.md, fifth/sixth patches); rerun fresh to 97.7M | Does paying for boost fix the air game that p10touch found and could not sustain? | **FAILED, and the reason reframes the whole air problem.** Scorecard: **(1) `Player/Boost` >25 -- FAILED, 9.4** (from 7.4; the 25M kill criterion of >15 also failed at 6.4 and the run should have been stopped there). **(2) `Touch/Above 450` >0.15 -- FAILED, 0.081**, peaking 0.094 at 54M then declining. **(3) StrongTouch share 0.08-0.15 AND hit force stops falling -- HALF: share 0.105 in range, but `Touch/Hit Force` 878 -> 551, still falling.** That was the pre-registered tail-chasing failure and it fired. **(4) floor jumping <0.015 -- correct, 0.0044.** **The air game emerged and decayed AGAIN, and this time it is dated:** at 42-56M `Jump When Grounded Upright` 0.0058 -> **0.0116**, `Takeoff Was Jump` 0.0095 -> **0.069**, `In Air Ratio` 0.151 -> **0.257** -- then all three decayed back (0.0044 / 0.032 / 0.192). Second time this has happened (p10touch was the first). **Why the boost economy could not work: there is nothing to save boost FOR.** `Action/Boost When Grounded` **0.719 and rising** against `Action/Boost When Airborne` **0.287 and falling** (from 0.562). The bot spends boost on the ground because boosting there feeds `SpeedToBall`, which holds **57%** of reward mass against SaveBoost's **1.6%** -- spending is worth 36x saving, measured. SaveBoost asks the policy to hoard a resource with no privileged use. **Boost was never the constraint on air play; it was downstream of one.** Nothing in the stack paid more for an air touch than a ground touch, so a ground bot was genuinely optimal and the policy was playing it correctly. **The poke farm:** the rising edge stopped the CARRY farm (steps per contact 1.22, healthy) but not repeated brief weak contacts -- `RewardShare/TouchEdge` doubled 0.033 -> 0.068 while mean hit force fell to 551, i.e. **below StrongTouch's own 555.6 floor, so the average touch earned exactly zero from it.** Touching was paid; touching usefully was not. Real gains: `Player/Velocity Alignment` 0.542 -> **0.718**; touch edge rate 0.0077 -> 0.021; `Rating/1v1` -9.4 -> 6.1. `Obs/Non-Finite Rate` 0.000 throughout, so the NaN guard's counter stayed clean. **Process note: the metrics CSV had both runs concatenated** -- `--fresh` archived checkpoints but not the CSV -- and the first trend read off it showed a policy mysteriously resetting a third of the way through. Caught by an entropy jump 0.60 -> 0.71, which does not happen. Fixed; the files are now split |
 | 2026-08-18 | p10touch | **One variable vs p9rel:** flat per-step `TouchBallReward` (1.0) -> `StrongTouchReward` (1.0, |delta ball vel|, zero below 555.6 uu/s) + `TouchEdgeReward` (0.25, rising edge). Obs, dense budgets, spawns, mask, LR, entropy, tsPerItr all frozen | Kill the dribble farm and re-establish a sane ledger | **FARM DEAD, BEST RUN YET, AND MY JUMP METRIC WAS WRONG.** Scorecard: **(1) steps per contact sequence <1.3 -- CORRECT, 1.211** (p9rel 1.98, p8ref 1.16). **(2) `Episode/Mean Steps` <1500 -- FAILED: 1734 and still RISING** (823 -> 1191 -> 1734). Episode length is NOT purely downstream of the farm and needs its own cap. **(3) alignment >0.60 -- CORRECT and best ever: 0.7465** (p9rel 0.528, p8ref 0.593). The relative obs finally shows its value now that carrying the ball no longer pays. **(4) jump stays <0.008 -- technically correct (0.00790 Upright) BUT THE METRIC WAS HIDING THE ANSWER.** `upright` is `rotMat.up.z > 0.7`, so a car driving on a WALL is grounded-and-not-upright and its jumps were being logged to a bucket named 'Inverted' that I read as upside-down recovery and never quoted. That bucket reads **0.0615 = 15.4x the eps-floor and rising** (0.0135 -> 0.0601), with `Player/Takeoff Was Jump` **0.025 -> 0.264** and `Action/Jump When Airborne` 0.0152 -> 0.0726. **Jumping is not extinct; FLOOR jumping is.** Renamed to `Action/Jump When Grounded Tilted` with `Player/Grounded Tilted Ratio` published alongside it. **(5) `Touch/Strong Value` = 0.104**, against the 0.3-0.4 predicted -- so StrongTouch earned 0.104/touch against TouchEdge's 0.25, arriving paid 2.4x more than connecting, and `RewardShare/StrongTouch` sat at **0.037**, effectively inert. Budget re-derived to 3.0 per the pre-registered rule (move the budget, not the curve). **The air game is real and emerging on its own:** `Touch/Above 450` **0.051 -> 0.1095** (p9rel 0.00137, p8ref 0.035); `Player/Touch Height` 162 -> **220**; `Touch/Rate Airborne` 0.0046 -> 0.0154; `In Air Ratio` 0.24. Watched in RocketSimVis: air-dribbling off the wall when it has boost, never jumping from the floor -- which matches the Upright/Tilted split exactly. **The binding constraint is now boost: `Player/Boost` 7.3 out of 100 all run**, and nothing in the stack has ever paid for it. Aerial play is boost-gated in a way ground play is not. Secondary: `Rating/1v1` 3.5 -> **25.6**; `Game/Goal Speed` 1120 -> 1533; touch edge rate 0.0077 -> 0.021; PPO healthy throughout (entropy 0.753 -> 0.354, clip 0.107-0.136). Dense terms still hold 0.877 of reward mass, which is the early-stage shape and this bot is past it |
@@ -99,6 +167,447 @@ The null discipline from p7approach says compute the chance value. This adds
 the other half: **when a metric is split by a condition, quote every branch and
 publish the branch's own denominator**, or the split silently becomes a filter.
 `Player/Grounded Tilted Ratio` now ships next to the jump rates for that reason.
+
+## PRE-REGISTERED: p19pool (seeded from `main-p18entropy/3075056128`, 2026-08-23)
+
+**One concept -- "the opponent spans a real skill range" -- three coupled
+changes, declared as such.** Reward stack, obs, spawns, mask, LR, gamma,
+entropy and `tsPerItr` all frozen at p18 values.
+
+1. **The version pool is curated, not rolling.** It held 32 versions at 5M
+   spacing: a 160M window which the ladder measures as spanning ~10 Elo, i.e.
+   near-clones. It now holds **5: p12goal, p15manual, p16, p17 and p18, spanning
+   478 Elo.** `Learner.cpp:536` draws the opponent **uniformly from the pool per
+   iteration**, so composition is the lever -- injecting 4 ancestors among 32
+   clones would have picked them 2.2% of iterations.
+2. `trainAgainstOldChance` **0.2 -> 0.5**. 80% of training was against a current
+   copy of the same network, where a k=1 term has zero expected advantage.
+3. `tsPerVersion` **5M -> 200M**, so a 400M run adds ~2 versions instead of 80
+   and the curated pool is not re-diluted mid-run.
+
+**Why now.** The 483M p18entropy run showed `Average Step Reward` flat to +0.7%,
+so PPO has converged on its objective, and 57.6% of reward mass
+(`Goal` + `ShotOnTarget` + `Save` + 0.8x`TouchGoalAccel`) has zero expected
+population advantage against a copy of itself. This is the cheapest available
+test of whether that symmetry is what the plateau is made of.
+
+**Bonus: `Rating/1v1` becomes anchored for the first time.** Pool ratings are
+seeded from the 2026-08-23 ladder's measured Elo gaps below p18's 394
+(p12goal -84, p15manual +90, p16 +363, p17 +376, p18 +394), and with
+`tsPerVersion` at 200M the anchors barely move during the run.
+
+**Predictions, written before the run.**
+
+1. **`Rating/1v1` rises above 420 by +200M.** It has oscillated about 394-424
+   for 483M steps against a pool it could not exploit.
+2. **The zero-sum-term behaviour metrics move for the first time since p16.**
+   `Shot/Saved Share` and `Save/Converted` moved 0.6% and 1.5% across the whole
+   483M; anything beyond their oscillation bands (4.9% and 2.0%) is signal.
+3. **`SB3 Clip Fraction` rises above 0.040** (0.0342-0.0375 for all of p18) --
+   a genuinely different opponent should produce advantages worth a larger step.
+4. **The ladder gains more than +42 Elo over p16 in 400M steps**, against p17
+   and p18 together managing exactly that in ~800M.
+
+**Kill criteria.** Stop at 100M if `Policy Entropy` has not fallen or
+`Rating/1v1` is below 380; stop at 200M if no behaviour metric has left its p18
+oscillation band. **The step budget is 3,475,000,000 cumulative (+400M).**
+
+**What a null result means, and it is not nothing.** If a pool spanning 478 Elo
+at a 50% encounter rate moves nothing, then opponent symmetry is NOT what the
+plateau is made of, and item 11 -- the leading hypothesis since p17 -- is
+falsified rather than deferred. That would point the restart at the reward
+stack and the state distribution instead.
+
+## PRE-REGISTERED: p18entropy (seeded from `main-p17/2591724288`, 2026-08-21)
+
+**A discriminator, not a reward run. One variable.** The reward stack is
+byte-identical to p17 -- save term included, budgets untouched -- and the only
+change is `--entropy-target 0 --entropy 0.002`, which disables the controller
+and pins `entropyScale` to a fixed value ~7x below the 0.0144 it had drifted to.
+0.002 is not arbitrary: it is the value CLAUDE.md records as having produced
+"the only breakthrough" this project has had.
+
+**The question it answers.** p17 proved a converged policy stays converged. It
+did not say WHY. Either (a) `entropyTarget = 0.40` is pinning the policy at
+5.98 effective actions of 90 and forbidding the sharpening that better shot
+selection requires, in which case every reward verdict since the controller was
+introduced was drawn against a policy that could not act on it -- or (b) this is
+a genuine local optimum and the lever is the observation, the network or
+opponent diversity, and no reward work should be done until that is fixed.
+
+Deliberately keeping the save term in. Removing it at the same time would
+confound the one thing being measured.
+
+**Baselines, p17 final 20% (from wandb `s2fdddcr`):** `Policy Entropy` 0.3974,
+`Entropy Scale` 0.0144, `SB3 Clip Fraction` 0.0354, `Mean KL` 0.0038,
+`Shot/Distance` 4009.2, `Shot/Saved Share` 0.289, `Save/Converted` 0.793,
+`Rating/1v1` 425.8, `Action/Steer Nonzero` to be read at start.
+
+**Predictions:**
+
+1. **`Policy Entropy` falls below 0.30 by 25M** (from 0.397). PRIMARY, and it
+   is a mechanism check rather than a result: if entropy does not move once the
+   controller is off, the controller was never what pinned the policy and
+   hypothesis (a) is dead on the spot.
+2. **`SB3 Clip Fraction` rises above 0.045** (from 0.0354, the value p16 ran out
+   of road at and p17 never left).
+3. **At least one behavioural metric moves more than 5% over 50M**, against
+   p17's largest move of ~1% over 300M. Nominated in advance so this cannot be
+   fitted after the fact: `Shot/Distance` and `Shot/Saved Share`.
+
+**Kill criteria:**
+
+- **AT ANY TIME:** `Obs/Non-Finite Rate` > 0, or any NaN in the PPO metrics.
+- **AT ANY TIME:** `Policy Entropy` < 0.05. That is near-determinism and the
+  extinction regime this project has lost three control dimensions to.
+- **AT ANY TIME:** `Action/Steer Nonzero` at the 0.02 eps-floor. The fourth
+  external patch protects against extinction but does not prevent it being
+  approached, and a falling entropy run is exactly when to watch for it.
+
+**Not a rating test.** 50M is far too short for `Rating/1v1` to mean anything,
+and the pool is inherited from p17. Rating is recorded, not predicted.
+
+## p18entropy OUTCOME: the entropy fix was real, and it was not the answer
+
+**Adopt the entropy change; abandon the hypothesis it was testing.**
+
+Two things are true at once and they must not be collapsed.
+
+**1. The pathology was real.** `Policy Relative Entropy Loss` in p17 swung
+between +940 and -42 against a documented healthy ~0.1 -- the entropy bonus
+drowning the policy gradient. With the controller off it reads **0.37 to 0.92**.
+Entropy fell 0.389 -> 0.285, i.e. **5.76 -> 3.61 effective actions of 90**, and
+`SB3 Clip Fraction` rose 0.0361 -> 0.0438 (+21.2%), the biggest effective steps
+since p16's mid-life. `entropyTarget = 0.40` was set from a single external data
+point a peer called "a bit low", and it was costing real gradient.
+
+**2. Fixing it moved no behaviour.** `Shot/Distance` +0.2% over 50M.
+`Save/Converted` 0.797 -> 0.796. `Shot/Saved Share` -4.1%, which merely
+continues a drift already visible across p17's 300M and is not a response.
+
+**And entropy is asymptoting, so "it needs longer" is weak.** Per-decile drops
+run -0.031, -0.022, -0.019, -0.006, -0.006, -0.005, -0.003, -0.007, -0.004: a
+7x deceleration settling near 0.27-0.28. The policy found a new, lower
+equilibrium and stopped. The transient is mostly spent, not mostly ahead.
+
+### The diagnosis this points to, and it is not the reward function
+
+The plateau is most likely a **self-play fixed point**, not a policy limit:
+
+- `trainAgainstOldChance` is 0.2, so **80% of training is against a current
+  copy of the same network**, and the other 20% is against 32 snapshots spanning
+  only the last ~160M steps -- policies nearly identical to the current one.
+- **~46% of reward mass sits in zero-sum terms**: `TouchGoalAccel` 0.31 at
+  k=0.8, `ShotOnTarget` 0.11 at k=1.0, `Save` 0.044 at k=1.0. Against a copy of
+  yourself a purely differential term has **zero expected advantage** by
+  construction, and there is no asymmetry to exploit.
+- `Rating/1v1` is measured against that same pool, so the entire apparatus is
+  self-referential. A policy saturated against copies of itself looks exactly
+  like this: every metric flat, rating oscillating about a fixed point.
+
+This is the p4pbrs lesson at the level of the whole stack rather than one term:
+the no-farm guarantee and the teaching signal are the same property. See
+`.scratch/run-backlog/issues/08-zerosum-k1-teaching-signal.md` and the new
+`11-opponent-diversity.md`.
+
+**Carry forward:** `entropyTarget 0` with `entropyScale 0.002` is now the
+default worth keeping -- it is strictly better on every PPO health metric and
+costs nothing.
+
+**That carry-forward was never written into `Config.h`, and 2026-08-23 is what
+it cost.** The flags were CLI-only, the resume omitted them, and the controller
+came back on with nobody watching. `CONFIG_HISTORY.json` recorded it correctly
+and no one read the file. **Command-line overrides do not survive a resume**;
+anything meant to persist belongs in `Config.h`.
+
+## p18entropy EXTENDED (483M): the objective is maximised, and 58% of it is unmeasurable
+
+The accidental 433M extension answers a question the 50M probe could not, and
+it inverts the standing framing of the plateau.
+
+**What was thought:** the reward is being optimised, but it buys the wrong
+behaviour -- a misspecification problem, fixable with better terms.
+
+**What 483M shows:** `Average Step Reward` moved **+0.7% net against a 2.6%
+oscillation**. The reward is not being optimised any more either. PPO has
+converged on its objective, at two different entropy levels, with every health
+metric constant to three significant figures. There is no residual gradient to
+harvest, so **no reward-term experiment run against this configuration can
+produce a readable result** -- which is what p17 and the 50M p18entropy probe
+each discovered separately and neither could prove.
+
+### The mechanism, from the k-arithmetic rather than from intuition
+
+A term wrapped at opponent scale k pays the actor `+S` and the opponent `-kS`.
+Self-play at 1v1 samples both roles from one network, so the population nets
+`S(1-k)` per event. At k=1 the expected advantage is exactly zero. Goals are
+inherently k=1 in 1v1 -- a goal for is a goal against.
+
+| Term | Share of reward mass | k | Population-expected |
+|---|---|---|---|
+| `TouchGoalAccel` | 30.7% | 0.8 | 6.1% |
+| `Goal` | 17.4% | 1.0 (structural) | 0 |
+| `ShotOnTarget` | 11.2% | 1.0 | 0 |
+| `Save` | 4.4% | 1.0 | 0 |
+| **subtotal** | **63.7%** | | **6.1%** |
+
+**57.6% of the budget has zero expected advantage against a copy of itself**,
+and `trainAgainstOldChance = 0.2` means 80% of training is exactly that. The
+remaining ~42% -- `AirTouch` 13.3%, `SpeedToBall` 10.3%, `FlipSpeed` 6.6%, and
+the small dense terms -- is a **solo-play objective**: it measures how the car
+moves, not whether it wins.
+
+That predicts precisely what the 483M shows. The only metrics with residual
+movement are `RewardMass/AirTouch` (+5.9%, 5.4 sigma), `Touch/Above 450`
+(+10.6%), `Player/Touch Height` (+2.6%) and `Phase/AirDribble` (+4.6%). **The
+bot is still improving on the largest term that is not cancelled by symmetry,
+and it is improving at style rather than at winning.**
+
+`AirTouch` being that term is not comfortable: issue 05 has a red test saying it
+already pays **1.33x the entire finishing block** per episode.
+
+### Why no number here can say whether that is good or bad
+
+`Rating/1v1` is an Elo against a rolling 32-version, ~160M-step pool, and each
+new version inherits the current rating on entry. It is a random walk with no
+anchor. Measured on this run: 41 samples, per-sample sigma 6.77, so the
+random-walk sigma over 40 updates is **42.8** -- the observed 424 -> 394 drift
+is inside chance and means nothing in either direction.
+
+**This is now the binding constraint on the whole project.** Every open reward
+ticket asks "did this make the bot better", and there is no instrument in the
+repo that can answer it. See `.scratch/run-backlog/PLAN-post-p18.md`.
+
+### Process repairs made 2026-08-23
+
+- **wandb fork.** The resume started a second run (`ciygwkg4`) alongside the
+  original (`hp16vami`) instead of continuing it, and the label's CSV lost its
+  first 496 iterations. Both repaired: `scripts/merge_wandb_runs.py` appends a
+  fork's history onto the run it should have continued, refuses unless the two
+  are contiguous in `Total Timesteps`, restores missing CSV rows and re-points
+  the ownership sidecar and every checkpoint `run_id`. `hp16vami` now holds all
+  4799 iterations, 2592M -> 3075M. The fork is renamed, not deleted.
+- **`metric_receiver.py` is no longer silent on the happy path.** It prints
+  which wandb run it resumed, and warns explicitly when a label with existing
+  history is handed no run id -- the exact fork signature, previously silent.
+
+## p17 OUTCOME: the policy was already finished before the run started
+
+**Read this before designing another reward term.** p17 is the cleanest
+evidence this project has that the current bottleneck is not the reward
+function.
+
+**Nothing moved.** Not "the new term underperformed" -- across 300M steps the
+biggest behavioural change in the entire metric set was `Flip/Neutral Share`
+0.0093 -> 0.0196, both negligible. `Shot/Distance` 4007.4 -> 4009.2 (**0.0%**),
+`Player/Velocity Alignment` 0.1%, `Shot/Toward Net Rate` 0.2%, `Touch/Above 200`
+0.0%.
+
+**And PPO was healthy the whole time.** `SB3 Clip Fraction` 0.0354, `Mean KL`
+0.0038, `Policy Update Magnitude` 0.0696, `GAE/Avg Advantage` 0.153 -- constant
+to three significant figures for 300M steps. This is not a stalled learner. It
+is a converged one, updating forever and going nowhere.
+
+**The entropy controller was engaged 100% of the run**, holding `Policy
+Entropy` at 0.397 = **5.98 effective actions of 90**, with `Policy Relative
+Entropy Loss` swinging between +940 and -42 against a documented healthy range
+of ~0.1 (the entropy bonus drowning the policy gradient).
+
+**But that is NOT sufficient on its own, and the comparison matters.** p16 ran
+with the same drowning (`Policy Relative Entropy Loss` -184, +29, +38, -11) and
+still gained 104 rating points. What separates them is the clip fraction:
+
+| | clip fraction | `Rating/1v1` |
+|---|---|---|
+| p16 early (1104-1461M) | 0.050 | 321 -> 345 |
+| p16 mid (1580-1927M) | 0.051 -> 0.035 | 369 -> 409 |
+| p16 late (2163M) | 0.036 | 425 |
+| **p17, all 300M** | **0.035, flat** | **431 -> 426** |
+
+p17 spent its whole life at the value p16 ran out of road at. **p16 had already
+finished learning before p17 was seeded**, and p17 confirmed it for 85 minutes.
+
+**Consequences for how the last several runs are read.** Any reward conclusion
+drawn from a policy pinned at a fixed entropy is suspect, because improving
+shot selection REQUIRES becoming more selective, i.e. lower entropy in those
+states, and the controller forbids that globally. `entropyTarget = 0.40` was
+set from a single external data point a peer called "a bit low"; it is now the
+prime suspect and has never been tested against.
+
+**Operator observation, recorded because a metric set is not a bot.** Watching
+the run, the save behaviour was unchanged -- which matches the telemetry
+exactly -- but a few small stylistic improvements were visible that had not
+been there before. The instruments cover shots, saves, touches, speeds and
+action rates; they cover positioning, rotation and decision quality **not at
+all**, so "nothing moved" is a statement about what is measured. Attribution is
+also ambiguous: 300M extra steps is 300M extra steps whatever the reward says.
+
+**What survived and is worth keeping:**
+
+- The instruments. The original complaint is now a number: the average
+  on-target shot is taken from **4,009 uu** out with 1.59 s of flight, and it
+  is flat to 0.0%. `Shot/Time` was computed by `ProjectShot` all along and no
+  reward or metric had ever read it.
+- `Save/Converted`'s measured null of **0.789**, which is not 0.5 and is not
+  analytic. See `docs/metrics.md`.
+- `CONFIG.json` / `CONFIG_HISTORY.json`, which exist because p16's live budgets
+  had to be back-solved from telemetry.
+- The wandb guard: p16's `o73axl44` is intact and p17 opened cleanly as
+  `s2fdddcr`.
+
+**Still open, deliberately not fixed in p17:** `airTouch` at 55 pays 64.5 per
+episode against the finishing block's 48.5, the one failing test in the suite.
+
+## PRE-REGISTERED: p17 (seeded from `main-p16/2281639168`, 2026-08-21)
+
+**One concept: stop paying for the attempt, pay for the outcome.** Three
+coupled changes, declared as not-one-variable, with separable instruments.
+
+The complaint that started it, from watching the bot rather than the metrics:
+it throws possessions away. It fires low-percentage ground shots at the net
+from distances where a save is near-certain, and it clears in ways that hand
+the ball straight back. Neither failure is a "who is closer to the ball"
+failure -- in both the bot HAS possession and IS closer -- so the reward has to
+be keyed on the consequence of the touch, not the position before it.
+
+**1. New `SaveReward`, signed, zero-sum at k = 1.0.** On a touch rising edge,
+the change in threat at the player's OWN net, through the same `ProjectShot`
+and the same `MISS_SCALE` (892.755) `ShotOnTarget` uses:
+`exp(-miss_before/S) - exp(-miss_after/S)`. Removing a threat is a save;
+creating one is a botched clearance; one expression prices both. Paired with
+`ShotOnTarget` this gives the semantics the run is named for: **an on-target
+shot is paid if and only if it is not saved.**
+
+Deliberately NOT graded by how imminent the incoming shot was. That pays more
+for the harder save and therefore penalises the shooter MORE for taking the
+better shot. The expected value already carries the grading, since P(saved) is
+high for a hopeless shot and low for a good one.
+
+**2. `shotOnTargetOpponentScale` 0.8 -> 1.0.** At 1v1 a term wrapped at
+opponentScale k pays the shooter `+S` and the defender `-kS`, so the
+POPULATION nets `S(1-k)` per event -- and self-play samples both roles from one
+policy. At 0.8 the stack was paying `+0.2S` for an on-target shot **existing**,
+whoever took it and whatever became of it: a direct subsidy for exactly the
+shot-spam being removed. `saveOpponentScale` is 1.0 for the same reason, and
+at any k < 1 the save term funds a "let them shoot so I can save it" farm.
+
+`touchGoalAccelOpponentScale` stays at 0.8. Same leak, but it prices ball
+movement rather than shot selection and has ~1B steps behind it. **Filed as a
+p18 candidate, not fixed here.**
+
+**3. `shotOnTarget` 22 -> 32.** Forced, not chosen. The save budget is capped
+at `shotOnTarget * E[Shot/Strength]` so that a saved on-target shot is never
+net-negative for the shooter -- without that cap the bot learns that a savable
+shot is not worth taking, which prices out rebound pressure, where consecutive
+saves progressively pull a defender out of position. At the live value of 22
+the cap is 11.5 and the save term realizes 0.043, i.e. inert. 32 is the
+ceiling: at 35 a shot on target out-pays a strong touch and the ordering guard
+in `test_rewards.cpp` fires.
+
+### The live p16 config was not what anyone thought, and had to be back-solved
+
+**This is the most important thing in this entry.** p16 ran with at least four
+budgets that appear in neither HEAD nor the working tree, and nobody knew.
+`RewardShare` is `m_i w_i` normalized, so with the policy frozen the ratio of
+probe share to p16's final share is proportional to `w_probe / w_live`. Eight
+of twelve terms reproduce within 2%, which is what validates the other four:
+
+| term | assumed | **actually live in p16** |
+|---|---|---|
+| `goal` | 25 | **34** |
+| `shotOnTarget` | 35 | **22** |
+| `airTouch` | 35 | **55** |
+| `air` | 2.88 | **1.9** |
+
+Building p17 on the assumed values would have made it a **five**-variable run.
+The baseline is set from the measurement instead. `CONFIG.json` and
+`CONFIG_HISTORY.json` now ship (full config per run folder, plus an
+append-only delta log keyed to the step count each change began at, accurate
+to within `tsPerSave` = 1M), so this can never be necessary again.
+
+### Calibration probe
+
+`main-p17cal`, resumed from `main-p16/2281639168` with `--lr 0
+--entropy-target 0`, 5.0M steps. `Policy Update Magnitude` and
+`Mean KL Divergence` both **exactly 0**, so the policy could not move and the
+measured per-term means are honest. Budgets solved by
+`scripts/solve_budgets.py --targets p17save` in PARTIAL mode: one free term,
+twelve held. A full re-solve would claw back `TouchGoalAccel` and `Goal`, the
+two terms p16 got right.
+
+Solver returned **28.05** for a 0.10 target share. The cap binds at
+`32 * 0.5247 = 16.79`, so `save = 16.5` and the **realized share is ~0.061,
+not the 0.10 target**. Recorded rather than papered over: it is above the
+~0.05 floor below which p5goalpot's potential was inert, and the cap wins
+because the alternative teaches the bot not to shoot.
+
+**Baselines, p17cal probe (tail 10), all under the frozen p16 policy:**
+`Shot/Saved Share` 0.3131, `Shot/Time` 1.573 s, `Shot/Distance` 3932 uu,
+`Save/Converted` 0.7888, `Save/Threat Faced Rate` 0.1582,
+`OwnHalf/Touch Rate` 0.0166, `Player/Ball Touch Ratio` 0.0149,
+`Shot/Strength` 0.5247, `Rating/1v1` 432.2, `Episode/Mean Steps` ~375.
+
+**`Save/Converted`'s null is 0.7888 and is NOT analytic.** A ball aimed at a
+1786-uu mouth is deflected off target by almost any contact, so chance is high,
+not 0.5. A run reading 0.75 against an assumed 0.5 would have been scored a
+triumph while nothing had been learned. See `docs/metrics.md`.
+
+**Predictions:**
+
+1. **`Shot/Saved Share` falls below 0.25** (from 0.3131). PRIMARY. This is the
+   quantity the whole run is aimed at: the shooter now pays for a shot that
+   gets saved, so shot selection must improve or the term did nothing.
+2. **`Shot/Distance` below 3400 uu and `Shot/Time` below 1.35 s** (from 3932 /
+   1.573). This is the operator's actual complaint, instrumented for the first
+   time -- `ProjectShot` had computed `time` all along and nothing read it.
+3. **`Save/Converted` rises above 0.85** (from 0.7888). The bot clears
+   decisively instead of deflecting, which is the positive side of the term.
+4. **`Rating/1v1` > 460 at 300M** (from 432.2), against the pool inherited from
+   p16 so the comparison is valid for roughly the first 160M steps.
+5. **`OwnHalf/Touch Rate` holds above 0.014** (from 0.0166). Not a success
+   metric -- the GUARD on the term's negative side.
+
+**Kill criteria:**
+
+- **10M:** `Obs/Non-Finite Rate` = 0; `SB3 Clip Fraction` in [0.02, 0.25];
+  `Mean KL Divergence` < 0.03; and `RewardShare/Save` within 3x of its solved
+  0.061, i.e. in [0.020, 0.183].
+- **25M:** `Shot/Saved Share` falling rather than rising. Direction, not level.
+- **AT ANY TIME:** `RewardShare/Save` > 0.25 -- the save farm. k = 1.0 should
+  make it unreachable, which is exactly why breaching it would mean the
+  zero-sum arithmetic is wrong rather than the budget.
+- **AT ANY TIME:** `OwnHalf/Touch Rate` < 0.010 against `Player/Ball Touch
+  Ratio`. The signed term's failure mode is a bot that refuses to touch the
+  ball near its own net rather than risk creating a threat.
+- **AT ANY TIME:** `Episode/Mean Steps` > 500 **while `RewardMass/Goal`
+  falls.** Carried from p16, but note that better defending on BOTH sides of
+  self-play legitimately lengthens episodes, so this only fires if the goal
+  mass moves with it.
+
+**Known violation, inherited and deliberately not fixed.** At the live
+`airTouch` of 55 the air block pays **64.5 per episode against the finishing
+block's 48.5**, breaking a guard written specifically so "get it high" would
+never be the stack's loudest opinion again (`test_rewards.cpp:873`, the one
+failing test). Cutting `AirTouch` is a retarget and would confound p17, so it
+is carried. It belongs with the p18 air question.
+
+**Also corrected:** `ASSUMED_SHOT_STRENGTH` in the ledger tests, 0.25 -> the
+measured 0.5247. p16 published `Shot/Strength` for exactly this purpose. It
+more than doubles the finishing block's shot contribution and makes every
+"stay below finishing" guard strictly harder to pass.
+
+**Frozen:** gamma 0.99, policyLR/criticLR 2e-4, `tsPerItr` 100k, obs Relative,
+spawn Random, `maskActions` false, the action parser, `entropyTarget` 0.40,
+`infiniteBoostChance` 0.1, `touchGoalAccel` 45 at exponent 2 and k = 0.8,
+`goal` 34, `airTouch` 55, `air` 1.9, and all six external patches.
+
+**Seeding.** `main-p16/2281639168` copied with `RUNNING_STATS.json`'s `run_id`
+DELETED. Verified: policy weights hash-identical, p16's own `run_id`
+(`o73axl44`) intact, no `metrics/main-p17.wandb-id` so the receiver opens a
+fresh run. `policy_versions` copied (32 versions) so `Rating/1v1` carries over.
+`return_stat` deliberately NOT reset, for the reason p16 documented.
+
+**Stop at 300M**, primary read at 100M, and do not interrupt at 100M.
 
 ## PRE-REGISTERED: p16 (seeded from `main-p15manual/1044744064`, 2026-08-20)
 

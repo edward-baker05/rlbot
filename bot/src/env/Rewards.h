@@ -36,12 +36,7 @@ public:
 	}
 };
 
-// The ONLY place "how much did this touch move the ball at their net" is
-// computed. TouchGoalAccelReward, ShotOnTargetReward and the Touch/Goal Accel
-// telemetry all go through here.
-//
-// Signed and normalized to the same 130 kph (3611 uu/s) saturation everywhere,
-// so the currency is unchanged whichever term consumes it.
+// The only place goalward delta-v is computed; every term and metric shares it.
 inline float GoalwardDeltaV(const RLGC::GameState& state, Team team) {
 	if (!state.prev)
 		return 0.f;
@@ -72,20 +67,12 @@ public:
 	}
 };
 
-// The ONLY place "is the ball heading for their half" is computed. AirTouchReward
-// and the AirTouch/* telemetry both go through here, for the same reason
-// ProjectShot exists: a metric that disagrees with the reward it audits is
-// worse than no metric.
-//
-// Measured in the GROUND PLANE. The goal centre sits at z = 321 while this
-// question is asked about balls near the ceiling, so a 3D direction would dock
-// a legitimate high carry for not diving at the net.
+// The only place ball-goalward direction is computed, in the GROUND plane.
 inline float BallGoalwardCos(const RLGC::GameState& state, Team team) {
 	const Vec flatVel = {state.ball.vel.x, state.ball.vel.y, 0.f};
 	const float flatSpeed = flatVel.Length();
 
-	// A ball going straight up has no horizontal opinion. Zero cos maps to a
-	// neutral factor below, rather than to a penalty.
+	// A ball going straight up has no horizontal opinion; 0 maps to neutral below.
 	if (flatSpeed < 1e-4f)
 		return 0.f;
 
@@ -100,10 +87,7 @@ inline float BallGoalwardCos(const RLGC::GameState& state, Team team) {
 	return RS_CLAMP(flatVel.Dot(toGoal.Normalized()) / flatSpeed, -1.f, 1.f);
 }
 
-// Exponent 1 is the shipped curve. Raising it leaves both ends fixed --
-// straight at the net is 1, straight back is 0 -- and only pulls the middle
-// down, so a sideways carry can be made worth less without touching the aerial
-// game at either extreme.
+// Exponent 1 is the shipped curve; raising it only pulls the middle down.
 inline float GoalwardFactor(float goalwardCos, float exponent) {
 	const float dir = RS_CLAMP(0.5f + 0.5f * goalwardCos, 0.f, 1.f);
 	return exponent == 1.f ? dir : std::pow(dir, exponent);
@@ -133,25 +117,7 @@ public:
 		if (base <= 0.f)
 			return 0.f;
 
-		// The direction factor, added 2026-08-20. Without it this term is
-		// blind to which net the ball is heading for, and at 19.1% of reward
-		// mass that made carrying the ball back into your own half pay exactly
-		// what carrying it at the opponent's net pays.
-		//
-		// TouchGoalAccel cannot supply the missing signal on its own: it is
-		// convex, so a 10x softer touch gives a 100x weaker direction signal,
-		// and an air dribble is by definition a sequence of very soft touches.
-		//
-		// SMOOTH rather than a gate. A hard cutoff at cos = 0 would have no
-		// gradient either side of it and would make a marginally misaimed
-		// aerial worthless; this pays 1.0 straight at the net, 0.5 sideways
-		// and 0 straight backwards, with gradient throughout.
-		// Added 2026-08-20. Without this the term is blind to which net the
-		// ball is heading for, and at 19.1% of reward mass that made carrying
-		// the ball back into your own half pay exactly what carrying it at the
-		// opponent's net pays. TouchGoalAccel cannot supply the signal on its
-		// own: it is convex, so a 10x softer touch gives a 100x weaker
-		// direction signal, and an air dribble is a sequence of soft touches.
+		// Smooth, not a gate: a marginally misaimed aerial must keep its gradient.
 		return base * GoalwardFactor(BallGoalwardCos(state, player.team),
 									 directionExponent);
 	}
@@ -159,18 +125,14 @@ public:
 
 class FlipSpeedReward : public RLGC::Reward {
 public:
-	// Contact flips are already paid by TouchGoalAccel; this term exists only
-	// to price a flip used as TRAVEL, so it is blind inside this radius.
+	// Prices a flip used as TRAVEL only; contact flips are TouchGoalAccel's.
 	static constexpr float MIN_BALL_DIST = 1500.f;
 
-	// RLConst::FLIP_INITIAL_VEL_SCALE: a dodge is worth +500 uu/s whatever
-	// direction it is aimed, so a full-value flip is one that keeps all of it.
+	// RLConst::FLIP_INITIAL_VEL_SCALE -- a dodge is worth +500 uu/s any direction.
 	static constexpr float FULL_GAIN = 500.f;
 	static constexpr float MIN_GAIN = 50.f;
 
-	// Broadly ball-ward, not precisely: a travel flip is aimed at where play
-	// is, and demanding better would re-create the v1 term's mistake of paying
-	// only for flips already lined up on the ball.
+	// Broadly ball-ward, not precisely; demanding better re-creates the v1 mistake.
 	static constexpr float TOWARD_BALL_COS = 0.5f;
 
 	void Reset(const RLGC::GameState& initialState) override { tracked.clear(); }
@@ -204,9 +166,7 @@ public:
 
 		t.active = false;
 
-		// isFlipping also clears on landing (Car.cpp:114) and the wheels scrub
-		// speed on contact, so the peak over the dodge is what the flip
-		// produced; the value after landing is not.
+		// isFlipping also clears on landing, so the peak is what the flip produced.
 		const float gain = RS_MAX(t.peakSpeed, speed) - t.startSpeed;
 		if (gain <= MIN_GAIN)
 			return 0.f;
@@ -230,17 +190,13 @@ private:
 		float peakSpeed = 0.f;
 	};
 
-	// The jump itself adds JUMP_IMMEDIATE_FORCE straight up, which is not
-	// travel, so only the ground plane counts.
+	// The jump's own vertical impulse is not travel, so only the plane counts.
 	static float FlatSpeed(const Vec& v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 
 	std::vector<Track> tracked;
 };
 
-// The ONLY place a shot is projected. Both ShotOnTargetReward and the
-// `Shot/*` telemetry go through here, for the same reason MakeActionParser is
-// the only construction site: a metric that disagrees with the reward it is
-// meant to audit is worse than no metric.
+// The only place a shot is projected; the reward and Shot/* telemetry share it.
 struct ShotProjection {
 	bool valid = false;   // heading at the target goal, arriving within MAX_TIME
 	float missDist = 0.f; // uu outside the mouth at the goal plane, 0 if on target
@@ -266,10 +222,7 @@ inline ShotProjection ProjectShot(const RLGC::GameState& state, Team team) {
 
 	const float x = state.ball.pos.x + state.ball.vel.x * t;
 
-	// Drag is left out: BALL_DRAG costs a few percent over a sub-3-second
-	// flight and does not move a shot across the post. The floor clamp is not
-	// an approximation but a correction -- a ballistic projection puts a
-	// ground shot underground, and a ground shot scores.
+	// The floor clamp is a correction, not an approximation: ground shots score.
 	const float z = RS_MAX(
 		RLGC::CommonValues::BALL_RADIUS,
 		state.ball.pos.z + state.ball.vel.z * t +
@@ -287,9 +240,7 @@ inline ShotProjection ProjectShot(const RLGC::GameState& state, Team team) {
 
 class ShotOnTargetReward : public RLGC::Reward {
 public:
-	// One goal half-width, so a shot that misses by a full goal keeps e^-2 of
-	// the payout. Never reaches zero: a wide shot must always have a gradient
-	// pulling it back toward the mouth.
+	// One goal half-width, and never zero, so a wide shot keeps a gradient inward.
 	static constexpr float MISS_SCALE = RLGC::CommonValues::GOAL_WIDTH_FROM_CENTER;
 
 	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override {
@@ -303,38 +254,45 @@ public:
 		if (!shot.valid)
 			return 0.f;
 
-		// STRENGTH, added 2026-08-20. Without it this term was indifferent to
-		// how hard the ball was hit, so a ball rolling goalward on the car's
-		// hood paid exactly what a strike paid -- on every contact rising
-		// edge. Walking the ball to the line was therefore strictly optimal
-		// and slower was strictly better, which is what the bot learned.
-		//
-		// Keyed on the CHANGE this touch made, not the ball's speed: a carried
-		// ball travels at the car's speed, so a speed factor would still have
-		// paid a dribble handsomely, while its delta-v is ~0.
-		//
-		// LINEAR on purpose. TouchGoalAccel already pays for power convexly;
-		// making this convex too would double-count it and re-create the
-		// blast-it-goalward failure convexity invites.
+		// Keyed on this touch's delta-v, not ball speed, so a carry pays ~0.
 		const float strength = RS_MAX(0.f, GoalwardDeltaV(state, player.team));
 		if (strength <= 0.f)
 			return 0.f;
 
-		// PLACEMENT stays a plateau inside the mouth, so the corners pay
-		// exactly what the centre pays. Corner shots are usually the right
-		// shot; what is priced here is on-target against off-target, and Goal
-		// is left to decide where within the mouth is best.
+		// A plateau inside the mouth: the corners pay what the centre pays.
 		return strength * std::exp(-shot.missDist / MISS_SCALE);
+	}
+};
+
+class SaveReward : public RLGC::Reward {
+public:
+	static float ThreatAtOwnNet(const RLGC::GameState& state, Team team) {
+		// ProjectShot aims at the net the given team ATTACKS, so pass the opponent.
+		const Team attacker = (team == Team::BLUE) ? Team::ORANGE : Team::BLUE;
+
+		const ShotProjection shot = ProjectShot(state, attacker);
+		if (!shot.valid)
+			return 0.f;
+
+		return std::exp(-shot.missDist / ShotOnTargetReward::MISS_SCALE);
+	}
+
+	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override {
+		if (!player.ballTouchedStep || !state.prev)
+			return 0.f;
+
+		if (player.prev && player.prev->ballTouchedStep)
+			return 0.f;
+
+		return ThreatAtOwnNet(*state.prev, player.team) -
+			   ThreatAtOwnNet(state, player.team);
 	}
 };
 
 class WrongSurfaceReward : public RLGC::Reward {
 public:
 	float GetReward(const RLGC::Player& player, const RLGC::GameState& state, bool isFinal) override {
-		// isOnGround is >=3 wheels on ANY surface, so this is surface-relative
-		// for free: a car driving up a wall is on its wheels and pays nothing,
-		// while a car on its roof or scraping its chassis pays every step.
-		// Free flight makes no world contact, so it is not an air tax.
+		// isOnGround is >=3 wheels on ANY surface, so this is surface-relative for free.
 		return (player.worldContact.hasContact && !player.isOnGround) ? -1.f : 0.f;
 	}
 };

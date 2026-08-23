@@ -1,0 +1,66 @@
+{
+  "env": {
+    "actionDelay": 7,
+    "infiniteBoostChance": 0.0,
+    "maskActions": false,
+    "maxPlayersPerTeam": 1,
+    "noTouchTimeoutSeconds": 12.0,
+    "numGames": 128,
+    "obs": "Relative",
+    "spawn": "Random",
+    "teamSpirit": 0.0,
+    "tickSkip": 8
+  },
+  "model": {
+    "addLayerNorm": true,
+    "policyLayers": [
+      512,
+      512,
+      512
+    ],
+    "sharedHeadLayers": [
+      512,
+      512
+    ]
+  },
+  "ppo": {
+    "criticLR": 0.0002,
+    "entropyAdjustRate": 0.0,
+    "entropyScale": 0.002,
+    "entropyTarget": 0.0,
+    "epochs": 2,
+    "gaeGamma": 0.99,
+    "miniBatchSize": 25000,
+    "policyLR": 0.0002,
+    "tsPerItr": 50000
+  },
+  "rewards": {
+    "air": 0.513,
+    "airTouch": 0.0,
+    "airTouchDirectionExponent": 1.0,
+    "airTouchHeightExponent": 1.0,
+    "faceBall": 3.42,
+    "flipSpeed": 0.0,
+    "goal": 0.0,
+    "pickupBoost": 0.5,
+    "save": 0.0,
+    "saveBoost": 1.5,
+    "saveOpponentScale": 1.0,
+    "shotOnTarget": 0.0,
+    "shotOnTargetOpponentScale": 1.0,
+    "speedToBall": 17.1,
+    "touchAccelExponent": 1.0,
+    "touchEdge": 0.25,
+    "touchGoalAccel": 3.0,
+    "touchGoalAccelOpponentScale": 0.0,
+    "touchGoalAccelTeamSpirit": 0.0,
+    "wrongSurface": 0.0
+  },
+  "selfPlay": {
+    "maxOldVersions": 32,
+    "trackSkill": true,
+    "trainAgainstOldChance": 0.2,
+    "trainAgainstOldVersions": true,
+    "tsPerVersion": 5000000
+  }
+}

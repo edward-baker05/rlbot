@@ -25,5 +25,8 @@ if ! python3 -c "import wandb" 2>/dev/null; then
 	echo "NOTE: wandb is not installed; pass --no-metrics to silence its errors." >&2
 fi
 
+trap 'python3 "$REPO/scripts/sync_checkpoints.py" --src "$BUILD_DIR/checkpoints" --dest "$REPO/checkpoints"' EXIT
+
 cd "$BUILD_DIR"
-exec "$BIN" train "$@"
+"$BIN" train "$@"
+

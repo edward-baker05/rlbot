@@ -1,0 +1,10 @@
+{
+    "return_stat": {
+        "count": 150,
+        "mean": 0.03623923270807912,
+        "var": 7.771273104632679
+    },
+    "skill_ratings": null,
+    "total_iterations": 1,
+    "total_timesteps": 100800
+}

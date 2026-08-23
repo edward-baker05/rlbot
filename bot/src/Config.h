@@ -40,12 +40,16 @@ inline constexpr float PerSecondWeight(float budgetPerSecond) {
 struct RewardBudget {
 	float touchGoalAccel = 45.0f;
 	float touchAccelExponent = 2.0f;
-	float touchGoalAccelOpponentScale = 0.5f;
+	float touchGoalAccelOpponentScale = 0.8f;
 	float touchGoalAccelTeamSpirit = 0.0f;
 
-	float goal = 25.0f;
-	float shotOnTarget = 35.0f;
+	float goal = 34.0f;
+	float shotOnTarget = 32.0f;
+	float shotOnTargetOpponentScale = 1.0f;
 	float touchEdge = 0.1394f;
+
+	float save = 16.5f;
+	float saveOpponentScale = 1.0f;
 
 	float speedToBall = 18.9f;
 	float faceBall = 1.59f;
@@ -53,17 +57,17 @@ struct RewardBudget {
 	float saveBoost = 0.79f;
 	float pickupBoost = 0.5067f;
 
-	float airTouch = 12.f;
+	float airTouch = 55.f;
 	float airTouchHeightExponent = 1.f;
 	float airTouchDirectionExponent = 1.f;
-	float air = 0.88f;
+	float air = 1.9f;
 	float flipSpeed = 2.5f;
 	float wrongSurface = 1.0f;
 };
 struct SelfPlayConfig {
 	bool trainAgainstOldVersions = true;
-	float trainAgainstOldChance = 0.2f;
-	int64_t tsPerVersion = 5'000'000;
+	float trainAgainstOldChance = 0.5f;
+	int64_t tsPerVersion = 200'000'000;
 	int maxOldVersions = 32;
 
 	bool trackSkill = true;
@@ -94,11 +98,11 @@ struct TrainConfig {
 	int tickSkip = 8;
 	int actionDelay = 7;
 
-	int tsPerItr = 50'000;
+	int tsPerItr = 100'000;
 	int miniBatchSize = 25'000;
 	int epochs = 2;
 
-	float entropyScale = 0.002f;
+	float entropyScale = 0.003f;
 	float entropyTarget = 0.40f;
 	float entropyAdjustRate = 0.15f;
 	float gaeGamma = 0.99f;

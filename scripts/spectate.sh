@@ -33,9 +33,9 @@ if [[ $# -eq 0 ]]; then
 	echo "Usage: $0 <run-label> [extra args...]" >&2
 	echo "       $0 --model <checkpoint-folder> [extra args...]" >&2
 	echo >&2
-	echo "Runs with a checkpoint under $BUILD_DIR/checkpoints:" >&2
-	ls -1d "$BUILD_DIR"/checkpoints/main-*/ 2>/dev/null |
-		sed 's|.*/checkpoints/main-|  |; s|/$||' >&2 || echo "  (none yet)" >&2
+	echo "Available runs:" >&2
+	ls -1d "$REPO"/checkpoints/main-*/ "$BUILD_DIR"/checkpoints/main-*/ 2>/dev/null |
+		sed 's|.*/checkpoints/main-|  |; s|/$||' | sort -u >&2 || echo "  (none yet)" >&2
 	exit 1
 fi
 

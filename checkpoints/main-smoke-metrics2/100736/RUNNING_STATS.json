@@ -1,0 +1,11 @@
+{
+    "return_stat": {
+        "count": 150,
+        "mean": 0.003240843825042254,
+        "var": 6.453638778058691
+    },
+    "run_id": "csv-only",
+    "skill_ratings": null,
+    "total_iterations": 1,
+    "total_timesteps": 100736
+}

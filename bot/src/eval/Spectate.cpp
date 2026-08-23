@@ -26,8 +26,7 @@ namespace Hive {
 
 namespace {
 
-// Resolve which checkpoint to play. Returns an empty path when following a run
-// that has not saved one yet, which is a wait-and-retry, not an error.
+// Empty path when following a run that has not saved a checkpoint yet.
 fs::path ResolveCheckpoint(const SpectateConfig& cfg) {
 	if (!cfg.followRun.empty())
 		return FindLatestCheckpoint(cfg.followRun);
@@ -40,11 +39,7 @@ void RunSpectate(const SpectateConfig& cfg) {
 	if (cfg.model.empty() == cfg.followRun.empty())
 		throw std::runtime_error("RunSpectate(): pass exactly one of --model or --follow");
 
-	// Pin inference to one thread so a spectator doesn't steal CPU from a
-	// concurrent training run. Set through the environment rather than
-	// at::set_num_threads(), since libtorch's headers are private to
-	// GigaLearnCPP; the pools read these on first inference. The 0 flag leaves
-	// an explicit setting from the caller alone.
+	// Pin inference to one thread so a spectator cannot steal a run's CPU.
 	if (!cfg.useGPU) {
 		setenv("OMP_NUM_THREADS", "1", 0);
 		setenv("MKL_NUM_THREADS", "1", 0);
@@ -63,17 +58,13 @@ void RunSpectate(const SpectateConfig& cfg) {
 			" yet. A run saves its first at tsPerSave steps; try again shortly.");
 	}
 
-	// Deployment-side values, so what is watched matches what is trained and
-	// what is deployed. A divergence here would not crash -- it would just make
-	// the bot look worse than it is, which is the whole class of bug the
-	// `verify` subcommand exists to catch.
+	// Deployment-side values, so what is watched matches what is deployed.
 	TrainConfig tcfg = {};
 	const int obsSize = ProbeObsSize(tcfg.maxPlayersPerTeam, tcfg.obs);
 	auto obsBuilder = MakeObsBuilder(tcfg.maxPlayersPerTeam, tcfg.obs);
 	auto parser = MakeActionParser(tcfg.maskActions);
 
-	// Learner's constructor is what normally starts the interpreter; there is
-	// no Learner here, and RenderSender needs it to import the receiver module.
+	// Learner's constructor normally starts the interpreter; there is none here.
 	pybind11::initialize_interpreter();
 	GGL::RenderSender sender(cfg.timeScale);
 
@@ -97,9 +88,7 @@ void RunSpectate(const SpectateConfig& cfg) {
 	            cfg.spawns == SpectateSpawns::Training ? "training" : "kickoff");
 
 	for (int episode = 0; cfg.episodes == 0 || episode < cfg.episodes; episode++) {
-		// Between episodes, not mid-episode: swapping the policy under a car
-		// mid-play would show a discontinuity that is an artifact of watching,
-		// not of the bot.
+		// Between episodes only: swapping the policy under a car mid-play misleads.
 		if (!cfg.followRun.empty()) {
 			fs::path latest = FindLatestCheckpoint(cfg.followRun);
 			if (!latest.empty() && latest != checkpoint) {
@@ -117,11 +106,7 @@ void RunSpectate(const SpectateConfig& cfg) {
 		else
 			arena->ResetToRandomKickoff();
 
-		// One GameState reused for the whole episode. Constructing a fresh one
-		// per step (as RunEval does, where it is harmless) makes deltaTime the
-		// arena's whole lifetime rather than one step: it would break both the
-		// renderer's wall-clock pacing and ballTouchedStep, and so the no-touch
-		// timeout too.
+		// One GameState reused for the whole episode.
 		GameState gs;
 		gs.UpdateFromArena(arena, std::vector<Action>(2), nullptr);
 
@@ -132,8 +117,7 @@ void RunSpectate(const SpectateConfig& cfg) {
 			auto acts = policy->InferBatch({gs.players[0], gs.players[1]}, {gs, gs},
 			                               cfg.deterministic);
 
-			// Replay the training cadence exactly: hold the previous action for
-			// actionDelay ticks, then apply the fresh one for the rest.
+			// Replay the training cadence exactly: hold the action for actionDelay ticks.
 			gs.ResetBeforeStep();
 			arena->Step(tcfg.actionDelay);
 

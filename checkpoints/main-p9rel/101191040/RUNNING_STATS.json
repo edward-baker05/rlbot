@@ -1,0 +1,13 @@
+{
+    "return_stat": {
+        "count": 296400,
+        "mean": 11.345341706053421,
+        "var": 29781686.586588442
+    },
+    "run_id": "tgou7sea",
+    "skill_ratings": {
+        "1v1": 13.866840362548828
+    },
+    "total_iterations": 1976,
+    "total_timesteps": 101191040
+}

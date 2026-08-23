@@ -7,36 +7,22 @@ namespace Hive {
 
 // Where episodes are spawned from.
 enum class SpectateSpawns {
-	// Whatever TrainConfig::spawn selects, via the same BuildSpawner() the
-	// learner uses -- so what you watch is what the policy is practising.
-	// Watching a distribution the bot never trains on is how you conclude it
-	// handles situations it has never seen.
+	// Whatever TrainConfig::spawn selects, via the learner's own BuildSpawner().
 	Training,
-	// Kickoff to goal, like a real match. Easier to judge as play, but not
-	// representative -- kickoffs are only ~8% of training resets.
+	// Kickoff to goal; easier to judge, but only ~8% of training resets.
 	Kickoff,
 };
 
-// Watch a checkpoint play, live, in RocketSimVis.
-//
-// This is deliberately NOT a learner. `train --render` builds a full Learner
-// and collects experience; running it alongside a real run wastes CPU and
-// competes for the run's checkpoint folder. This loads a checkpoint, plays it
-// against itself in one arena at wall-clock speed, and streams the gamestate.
-// It never writes anything.
+// Watch a checkpoint play live in RocketSimVis. Deliberately NOT a learner.
 struct SpectateConfig {
-	// Exactly one of these. `model` is a specific checkpoint folder; `followRun`
-	// is a run folder (checkpoints/main-<label>) whose newest checkpoint is
-	// picked up between episodes, so a live run can be watched improving.
+	// Exactly one of these; followRun picks up new checkpoints between episodes.
 	std::filesystem::path model;
 	std::filesystem::path followRun;
 
-	// Training owns the GPU during a run, and one car at 120 ticks/sec does not
-	// need it.
+	// Training owns the GPU during a run.
 	bool useGPU = false;
 
-	// Training samples from the action distribution; deterministic shows the
-	// policy's intent without exploration noise, and is what deployment uses.
+	// Deterministic shows intent without exploration noise; deployment uses it.
 	bool deterministic = false;
 
 	SpectateSpawns spawns = SpectateSpawns::Training;

@@ -62,6 +62,11 @@ def _claim_run_id(name, id, csv_existed):
     run" rather than toward "overwrite someone else's".
     """
     if not id:
+        if csv_existed:
+            print(f"[metrics] {name!r} has run here before but the checkpoint "
+                  f"carried NO wandb id. Starting a NEW wandb run, which FORKS "
+                  f"this label's history. Repair with "
+                  f"scripts/merge_wandb_runs.py once the run ends.")
         return None
 
     sidecar = _id_sidecar(name)
@@ -71,6 +76,7 @@ def _claim_run_id(name, id, csv_existed):
         except Exception:
             owned = ""
         if owned == id:
+            print(f"[metrics] resuming wandb run {id!r} for {name!r}")
             return id
         print(f"[metrics] REFUSING wandb id {id!r}: {name!r} owns {owned!r}. "
               f"Starting a NEW wandb run. This means a checkpoint was copied "

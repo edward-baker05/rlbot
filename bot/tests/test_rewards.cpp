@@ -681,7 +681,8 @@ constexpr float P15_AIR_TOUCH = 2.99e-3f;
 // exactly this, and this constant should be replaced by it after one run.
 // Named rather than folded in, so the guess stays visible.
 constexpr float P15_SHOT_ON_TARGET_FLAT = 2.0067e-3f;
-constexpr float ASSUMED_SHOT_STRENGTH = 0.25f;
+// Measured on the p17cal probe, no longer assumed.
+constexpr float ASSUMED_SHOT_STRENGTH = 0.5247f;
 constexpr float P15_SHOT_ON_TARGET = P15_SHOT_ON_TARGET_FLAT * ASSUMED_SHOT_STRENGTH;
 
 // Where the bot ACTUALLY touches the ball, measured at 1025M. The aerial
@@ -935,7 +936,7 @@ TEST_CASE("the touch exponent is convex but still learnable") {
 	CHECK(gradientFrac > 0.10f);
 }
 
-TEST_CASE("the spec list is the twelve designed terms, with positive weights") {
+TEST_CASE("the spec list is the thirteen designed terms, with positive weights") {
 	auto specs = GeneralRewardSpecs(TrainConfig{});
 
 	std::vector<std::string> names;
@@ -945,9 +946,10 @@ TEST_CASE("the spec list is the twelve designed terms, with positive weights") {
 	}
 
 	const std::vector<std::string> expected = {"TouchGoalAccel", "Goal", "ShotOnTarget",
-	                                           "TouchEdge", "SpeedToBall", "FaceBall",
-	                                           "SaveBoost", "PickupBoost", "FlipSpeed",
-	                                           "AirTouch", "Air", "WrongSurface"};
+	                                           "Save", "TouchEdge", "SpeedToBall",
+	                                           "FaceBall", "SaveBoost", "PickupBoost",
+	                                           "FlipSpeed", "AirTouch", "Air",
+	                                           "WrongSurface"};
 	CHECK(names == expected);
 }
 
@@ -1557,4 +1559,138 @@ TEST_CASE("a carry pays the shot term once, not once per step") {
 
 	cur.ballTouchedStep = false;
 	CHECK(r.GetReward(cur, s, false) == 0.f);
+}
+
+
+// Blue defends -BACK_WALL_Y, so a ball travelling in -y threatens blue's net.
+
+namespace {
+
+void SetupThreatOnBlue(RLGC::GameState& sPrev, RLGC::GameState& s) {
+	s.prev = &sPrev;
+	sPrev.ball.pos = {0, 0, 93};
+	sPrev.ball.vel = {0, -2000, 0};
+	s.ball.pos = sPrev.ball.pos;
+}
+
+RLGC::Player Toucher(Team team) {
+	static RLGC::Player prev = {};
+	prev.ballTouchedStep = false;
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = team;
+	cur.ballTouchedStep = true;
+	return cur;
+}
+
+}  // namespace
+
+TEST_CASE("clearing a ball off your own goal line pays, and the botch charges") {
+	SaveReward r;
+	RLGC::GameState sPrev = {}, s = {};
+	SetupThreatOnBlue(sPrev, s);
+	RLGC::Player cur = Toucher(Team::BLUE);
+
+	CHECK(SaveReward::ThreatAtOwnNet(sPrev, Team::BLUE) == doctest::Approx(1.f));
+
+	s.ball.vel = {0, 2000, 0};
+	const float cleared = r.GetReward(cur, s, false);
+	CHECK(cleared == doctest::Approx(1.f));
+
+	// A harmless ball turned into a shot on your own net.
+	RLGC::GameState bPrev = {}, b = {};
+	b.prev = &bPrev;
+	bPrev.ball.pos = {0, 0, 93};
+	bPrev.ball.vel = {0, 2000, 0};
+	b.ball.pos = bPrev.ball.pos;
+	b.ball.vel = {0, -2000, 0};
+	const float botched = r.GetReward(cur, b, false);
+	CHECK(botched == doctest::Approx(-1.f));
+
+	CHECK(cleared == doctest::Approx(-botched));
+}
+
+TEST_CASE("a deflection that leaves the ball on target pays only the difference") {
+	SaveReward r;
+	RLGC::GameState sPrev = {}, s = {};
+	SetupThreatOnBlue(sPrev, s);
+	RLGC::Player cur = Toucher(Team::BLUE);
+
+	s.ball.vel = {600, -2000, 0};
+	const float partial = r.GetReward(cur, s, false);
+
+	CHECK(partial > 0.f);
+	CHECK(partial < 1.f);
+
+	// Anti-farm: a repeat touch collects only the threat it newly removed.
+	RLGC::GameState s2Prev = {}, s2 = {};
+	s2.prev = &s2Prev;
+	s2Prev.ball.pos = s.ball.pos;
+	s2Prev.ball.vel = s.ball.vel;
+	s2.ball.pos = s.ball.pos;
+	s2.ball.vel = s.ball.vel;
+	CHECK(r.GetReward(cur, s2, false) == doctest::Approx(0.f));
+}
+
+TEST_CASE("SaveReward is blind to a ball that threatens nobody") {
+	SaveReward r;
+	RLGC::GameState sPrev = {}, s = {};
+	s.prev = &sPrev;
+	sPrev.ball.pos = {0, 0, 93};
+	sPrev.ball.vel = {2000, 0, 0};
+	s.ball.pos = sPrev.ball.pos;
+	s.ball.vel = {-2000, 0, 0};
+
+	CHECK(r.GetReward(Toucher(Team::BLUE), s, false) == doctest::Approx(0.f));
+}
+
+TEST_CASE("SaveReward pays on the rising edge only") {
+	SaveReward r;
+	RLGC::GameState sPrev = {}, s = {};
+	SetupThreatOnBlue(sPrev, s);
+	s.ball.vel = {0, 2000, 0};
+
+	RLGC::Player prev = {};
+	prev.ballTouchedStep = true;  // already in contact last step
+	RLGC::Player cur = {};
+	cur.prev = &prev;
+	cur.team = Team::BLUE;
+	cur.ballTouchedStep = true;
+
+	CHECK(r.GetReward(cur, s, false) == 0.f);
+}
+
+TEST_CASE("SaveReward is team-invariant") {
+	SaveReward r;
+
+	RLGC::GameState bluePrev = {}, blue = {};
+	SetupThreatOnBlue(bluePrev, blue);
+	blue.ball.vel = {0, 2000, 0};
+
+	// Reflected: orange defends +BACK_WALL_Y.
+	RLGC::GameState orangePrev = {}, orange = {};
+	orange.prev = &orangePrev;
+	orangePrev.ball.pos = {0, 0, 93};
+	orangePrev.ball.vel = {0, 2000, 0};
+	orange.ball.pos = orangePrev.ball.pos;
+	orange.ball.vel = {0, -2000, 0};
+
+	CHECK(r.GetReward(Toucher(Team::BLUE), blue, false) ==
+	      doctest::Approx(r.GetReward(Toucher(Team::ORANGE), orange, false)));
+}
+
+TEST_CASE("the save term's zero-sum scale closes the farm rather than funding it") {
+	const RewardBudget b = {};
+
+	// At k < 1 the population nets S(1-k) per event: see docs/comments.md.
+	CHECK(b.saveOpponentScale == 1.f);
+	CHECK(b.shotOnTargetOpponentScale == 1.f);
+}
+
+TEST_CASE("a saved on-target shot is never net-negative for the shooter") {
+	const RewardBudget b = {};
+
+	// The exp(-miss/MISS_SCALE) is common to both terms and cancels.
+	constexpr float P16_SHOT_STRENGTH = 0.5247f;  // p17cal probe, tail 10
+	CHECK(b.save <= b.shotOnTarget * P16_SHOT_STRENGTH);
 }
