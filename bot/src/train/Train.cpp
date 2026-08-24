@@ -245,7 +245,10 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 	j["rewards"] = {
 		{"goal", b.goal},
 		{"strongTouch", b.strongTouch},
-		{"air", b.airTouch},
+		{"airTouch", b.airTouch},
+		{"airFaceBall", b.airFaceBall},
+		{"airVelToBall", b.airVelToBall},
+		{"airLaunch", b.airLaunch},
 		{"pickupBoost", b.pickupBoost},
 		{"saveBoost", b.saveBoost},
 		{"bump", b.bump},
@@ -253,6 +256,14 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"save", b.save},
 		{"awkwardContact", b.awkwardContact},
 		{"possession", b.possession},
+	};
+
+	j["aerial"] = {
+		{"aerialSpawnChance", cfg.aerial.aerialSpawnChance},
+		{"hoverFraction", cfg.aerial.hoverFraction},
+		{"minBallHeight", cfg.aerial.minBallHeight},
+		{"maxBallHeight", cfg.aerial.maxBallHeight},
+		{"initialBoost", cfg.aerial.initialBoost},
 	};
 
 	j["ppo"] = {

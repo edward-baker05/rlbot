@@ -18,9 +18,29 @@ using namespace RLGC;
 namespace Dash {
 
 StateSetter *BuildSpawner(const TrainConfig &cfg) {
-	StateSetter *base =
-		new CombinedState({{new RandomState(true, true, false), 0.8f},
-						   {new FuzzedKickoffState(), 0.2f}});
+	StateSetter *groundBase =
+		new CombinedState({{new RandomState(true, true, true), 0.7f},
+						   {new FuzzedKickoffState(), 0.3f}});
+
+	StateSetter *base = groundBase;
+
+	if (cfg.aerial.aerialSpawnChance > 0.f) {
+		float hoverWeight = RS_CLAMP(cfg.aerial.hoverFraction, 0.01f, 0.99f);
+		StateSetter *aerialBase = new CombinedState({
+			{new AerialHoverState(cfg.aerial.initialBoost), hoverWeight},
+			{new HighBallPopUpState(cfg.aerial.initialBoost),
+			 1.f - hoverWeight},
+		});
+
+		if (cfg.aerial.aerialSpawnChance >= 1.f) {
+			base = aerialBase;
+		} else {
+			base = new CombinedState({
+				{groundBase, 1.f - cfg.aerial.aerialSpawnChance},
+				{aerialBase, cfg.aerial.aerialSpawnChance},
+			});
+		}
+	}
 
 	if (cfg.infiniteBoostChance <= 0.f)
 		return base;

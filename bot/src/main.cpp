@@ -53,6 +53,10 @@ void PrintUsage(const char *argv0) {
 		"  --lr X               Policy and critic learning rate; 0 freezes "
 		"the\n"
 		"                       policy, for calibration probes\n"
+		"  --aerial-spawns X    Fraction of episodes in aerial state (default: "
+		"0.65)\n"
+		"  --aerial-hover-frac X Fraction of aerial spawns in hover state (default: "
+		"0.60)\n"
 		"  --fresh              Start over instead of resuming --label's "
 		"checkpoints\n"
 		"\n"
@@ -192,6 +196,12 @@ int RunTrain(int argc, char *argv[]) {
 			cfg.criticLR = lr;
 		} else if (arg == "--infinite-boost" && i + 1 < argc) {
 			cfg.infiniteBoostChance = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--aerial-spawns" && i + 1 < argc) {
+			cfg.aerial.aerialSpawnChance =
+				static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--aerial-hover-frac" && i + 1 < argc) {
+			cfg.aerial.hoverFraction =
+				static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--fresh") {
 			fresh = true;
 		} else if (arg == "--self-play") {

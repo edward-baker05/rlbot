@@ -12,10 +12,24 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Strong Touch", b.strongTouch,
 		 [] { return new ZeroSumReward(new DirectionalTouchReward(), 1); }},
 		{"Air Touch", b.airTouch,
-		 // [] { return new ZeroSumReward(new ImprovedAirTouchReward(), 1); }},
-		 // This should be reintroduced later, but to reduce noise I'm
-		 // leaving it non-zero-sum for now
-		 [] { return new ImprovedAirTouchReward(); }},
+		 [=] {
+			 return new ImprovedAirTouchReward(cfg.aerial.minBallHeight,
+											   cfg.aerial.maxBallHeight);
+		 }},
+		{"Air Face Ball", b.airFaceBall,
+		 [=] {
+			 return new AirFaceBallReward(cfg.aerial.minBallHeight,
+										  cfg.aerial.maxBallHeight);
+		 }},
+		{"Air Vel to Ball", b.airVelToBall,
+		 [=] {
+			 return new AirVelToBallReward(cfg.aerial.minBallHeight,
+										   cfg.aerial.maxBallHeight);
+		 }},
+		{"Air Launch", b.airLaunch,
+		 [=] {
+			 return new AirLaunchReward(cfg.aerial.minBallHeight);
+		 }},
 		{"Boost Pickup", b.pickupBoost,
 		 [] { return new ZeroSumReward(new PickupBoostReward(), 1); }},
 		{"Save Boost", b.saveBoost, [] { return new SaveBoostReward(); }},

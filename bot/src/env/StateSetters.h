@@ -21,4 +21,26 @@ private:
 	bool lastWasInfinite = false;
 };
 
+class AerialHoverState : public RLGC::StateSetter {
+public:
+	explicit AerialHoverState(float initialBoost = 100.f)
+		: initialBoost(initialBoost) {}
+
+	void ResetArena(Arena* arena) override;
+
+private:
+	float initialBoost;
+};
+
+class HighBallPopUpState : public RLGC::StateSetter {
+public:
+	explicit HighBallPopUpState(float initialBoost = 100.f)
+		: initialBoost(initialBoost) {}
+
+	void ResetArena(Arena* arena) override;
+
+private:
+	float initialBoost;
+};
+
 }  // namespace Dash
