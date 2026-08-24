@@ -43,27 +43,6 @@ void Policy::Load(const std::filesystem::path &folder) {
 	policyCfg.activationType = shape.activation;
 	policyCfg.addLayerNorm = shape.addLayerNorm;
 
-	/*
-	cfg.ppo.sharedHead.layerSizes = { 256, 256 };
-	cfg.ppo.policy.layerSizes = { 256, 256, 256 };
-	cfg.ppo.critic.layerSizes = { 256, 256, 256 };
-
-	auto optim = ModelOptimType::ADAM;
-	cfg.ppo.policy.optimType = optim;
-	cfg.ppo.critic.optimType = optim;
-	cfg.ppo.sharedHead.optimType = optim;
-
-	auto activation = ModelActivationType::RELU;
-	cfg.ppo.policy.activationType = activation;
-	cfg.ppo.critic.activationType = activation;
-	cfg.ppo.sharedHead.activationType = activation;
-
-	bool addLayerNorm = true;
-	cfg.ppo.policy.addLayerNorm = addLayerNorm;
-	cfg.ppo.critic.addLayerNorm = addLayerNorm;
-	cfg.ppo.sharedHead.addLayerNorm = addLayerNorm;
-	*/
-
 	unit =
 		std::make_unique<GGL::InferUnit>(obsBuilder, obsSize, actionParser,
 										 sharedCfg, policyCfg, folder, useGPU);

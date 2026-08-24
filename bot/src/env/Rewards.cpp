@@ -9,18 +9,15 @@ namespace Dash {
 std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 	const RewardBudget &b = cfg.rewards;
 
-	return {{"Air", b.air, new AirReward()},
-			{"Face Ball", b.faceBall, new FaceBallReward()},
-			{"Velocity: Player to Ball", b.velocityPlayerToBall,
-			 new VelocityPlayerToBallReward()},
-			{"Strong Touch", b.strongTouch, new StrongTouchReward(20, 100)},
+	return {{"Goal", b.goal, [] { return new GoalReward(); }},
+			{"Strong Touch", b.strongTouch,
+			 [] { return new StrongTouchReward(30, 90); }},
 			{"Velocity: Ball to Goal", b.velocityBallToGoal,
-			 new ZeroSumReward(new VelocityBallToGoalReward(), 1)},
-			{"Pickup Boost", b.pickupBoost, new PickupBoostReward(), 10.f},
-			{"Save Boost", b.saveBoost, new SaveBoostReward()},
-			{"Bump", b.bump, new ZeroSumReward(new BumpReward(), 0.5f)},
-			{"Demo", b.demo, new ZeroSumReward(new DemoReward(), 0.5f)},
-			{"Goal", b.goal, new GoalReward(), 150}};
+			 [] { return new VelocityBallToGoalReward(); }},
+			{"Velocity: Player to Ball", b.velocityPlayerToBall,
+			 [] { return new VelocityPlayerToBallReward(); }},
+			{"Face Ball", b.faceBall, [] { return new FaceBallReward(); }},
+			{"Air", b.air, [] { return new AirReward(); }}};
 }
 
 std::vector<WeightedReward> BuildGeneralRewards(const TrainConfig &cfg) {

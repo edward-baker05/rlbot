@@ -88,16 +88,20 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 	const RewardBudget &b = cfg.rewards;
 	nlohmann::json j;
 
-	j["rewards"] = {{"air", b.air},
-					{"faceBall", b.faceBall},
-					{"velocityPlayerToBall", b.velocityPlayerToBall},
-					{"strongTouch", b.strongTouch},
-					{"velocityBallToGoal", b.velocityBallToGoal},
-					{"pickupBoost", b.pickupBoost},
-					{"saveBoost", b.saveBoost},
-					{"bump", b.bump},
-					{"demo", b.demo},
-					{"goal", b.goal}};
+	j["rewards"] = {
+		{"goal", b.goal},
+		{"strongTouch", b.strongTouch},
+		{"velocityBallToGoal", b.velocityBallToGoal},
+		{"velocityPlayerToBall", b.velocityPlayerToBall},
+		{"faceBall", b.faceBall},
+		{"air", b.air},
+		// {"strongTouch", b.strongTouch},
+		// {"velocityBallToGoal", b.velocityBallToGoal},
+		// {"pickupBoost", b.pickupBoost},
+		// {"saveBoost", b.saveBoost},
+		// {"bump", b.bump},
+		// {"demo", b.demo},
+	};
 
 	j["ppo"] = {
 		{"tsPerItr", cfg.tsPerItr},

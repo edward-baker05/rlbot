@@ -9,8 +9,8 @@
 namespace Dash {
 
 struct ModelShape {
-	std::vector<int> sharedHeadLayers = {512, 512};
-	std::vector<int> policyLayers = {512, 512, 512};
+	std::vector<int> sharedHeadLayers = {1024, 1024, 512};
+	std::vector<int> policyLayers = {512};
 	GGL::ModelActivationType activation = GGL::ModelActivationType::RELU;
 	bool addLayerNorm = true;
 };
