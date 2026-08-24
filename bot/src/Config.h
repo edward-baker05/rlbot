@@ -102,7 +102,7 @@ struct TrainConfig {
 	int miniBatchSize = 25'000;
 	int epochs = 2;
 
-	float entropyScale = 0.030f;
+	float entropyScale = 0.050f;
 	float entropyTarget = 0.0f;
 	float entropyAdjustRate = 0.15f;
 	float gaeGamma = 0.99f;
