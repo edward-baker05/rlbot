@@ -43,7 +43,9 @@ class DirectionalTouchReward : public Reward {
 		Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
 
 		float hitVel = deltaVel.Length();
-		float power = RS_MIN(1.f, hitVel / MAX_REWARDED_HIT_VEL);
+		// TODO Uncomment this at a later time
+		// float power = RS_MIN(1.f, hitVel / MAX_REWARDED_HIT_VEL);
+		float power = sqrt(RS_MIN(1.f, hitVel / MAX_REWARDED_HIT_VEL));
 
 		float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
 		float dirFactor = (alignment + DIR_OFFSET) / (1.f + DIR_OFFSET);
@@ -78,7 +80,9 @@ class ImprovedAirTouchReward : public Reward {
 		if (!player.ballTouchedStep || player.isOnGround)
 			return 0;
 
-		float height = (state.ball.pos.z - MIN_HEIGHT) / HEIGHT_SPAN;
+		// TODO Swap these back at some point
+		// float height = (state.ball.pos.z - MIN_HEIGHT) / HEIGHT_SPAN;
+		float height = sqrt((state.ball.pos.z - MIN_HEIGHT) / HEIGHT_SPAN);
 		height = RS_CLAMP(height, 0.f, 1.f);
 		if (height <= 0)
 			return 0;
