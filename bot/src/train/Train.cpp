@@ -107,6 +107,29 @@ static void RecordNectoArena(const GameState &gs, const NectoArenaState &arena,
 	report.AddAvg("Necto/Train/GoalDiffPerEp", learnerScored ? 1.f : -1.f);
 }
 
+// Single-sided positive reward for a player from any reward function,
+// peeling through ZeroSumReward wrappers and symmetric rewards.
+static float GetSingleSidedReward(Reward *r, const Player &player,
+								  const GameState &gs, bool isTerminal) {
+	if (auto *zeroSum = dynamic_cast<ZeroSumReward *>(r)) {
+		if (player.index < zeroSum->_lastRewards.size())
+			return RS_MAX(0.f, zeroSum->_lastRewards[player.index]);
+		return 0.f;
+	}
+	if (dynamic_cast<GoalReward *>(r)) {
+		if (gs.goalScored && player.team != RS_TEAM_FROM_Y(gs.ball.pos.y))
+			return 1.f;
+		return 0.f;
+	}
+	if (auto *possession = dynamic_cast<PossessionReward *>(r)) {
+		auto all = possession->GetAllRewards(gs, isTerminal);
+		if (player.index < all.size())
+			return RS_MAX(0.f, all[player.index]);
+		return 0.f;
+	}
+	return RS_MAX(0.f, r->GetReward(player, gs, isTerminal));
+}
+
 static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 						 Report &report) {
 	if (g_StopRequested) {
@@ -167,23 +190,50 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 		}
 	}
 
+
 	auto &envSet = *learner->envSet;
 	if (!g_RewardLabels.empty()) {
-		std::vector<float> totals(g_RewardLabels.size(), 0.f);
-		bool any = false;
-		for (size_t a = 0; a < envSet.state.lastRewards.size(); a++) {
-			const auto &last = envSet.state.lastRewards[a];
-			if (last.size() != totals.size())
-				continue;
-			for (size_t j = 0; j < totals.size(); j++)
-				totals[j] += std::fabs(last[j] * g_RewardLabels[j].second);
-			any = true;
+		std::vector<float> posTotals(g_RewardLabels.size(), 0.f);
+		int totalLearnerCars = 0;
+
+		for (size_t a = 0; a < states.size() && a < envSet.rewards.size(); a++) {
+			const auto &gs = states[a];
+			Team nectoTeam = Team::BLUE;
+			bool hasNecto = false;
+			if (g_NectoEnabled && a < envSet.userInfos.size()) {
+				const auto *nectoArena = static_cast<const NectoArenaState *>(
+					envSet.userInfos[a]);
+				if (nectoArena && nectoArena->active) {
+					hasNecto = true;
+					nectoTeam = nectoArena->nectoTeam;
+				}
+			}
+
+			const auto &arenaRewards = envSet.rewards[a];
+			const bool terminal = a < es.terminals.size() && es.terminals[a];
+
+			for (const Player &player : gs.players) {
+				if (hasNecto && player.team == nectoTeam)
+					continue; // Only attribute to learner cars
+
+				totalLearnerCars++;
+
+				for (size_t j = 0;
+					 j < arenaRewards.size() && j < g_RewardLabels.size(); j++) {
+					posTotals[j] += GetSingleSidedReward(arenaRewards[j].reward,
+														 player, gs, terminal);
+				}
+			}
 		}
-		if (any) {
-			for (size_t j = 0; j < totals.size(); j++)
+
+		if (totalLearnerCars > 0) {
+			const float invCars = 1.f / static_cast<float>(totalLearnerCars);
+			for (size_t j = 0; j < g_RewardLabels.size(); j++) {
+				const float meanPos = posTotals[j] * invCars;
+				report.AddAvg("RewardPositive/" + g_RewardLabels[j].first, meanPos);
 				report.AddAvg("RewardMass/" + g_RewardLabels[j].first,
-							  totals[j] / static_cast<float>(
-											  envSet.state.lastRewards.size()));
+							  meanPos * g_RewardLabels[j].second);
+			}
 		}
 	}
 }
