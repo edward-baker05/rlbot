@@ -187,6 +187,353 @@ ENTROPY_CONTROLLER_ANCHOR = '\t// Assemble and return report\n\treport["Policy E
 
 ENTROPY_CONTROLLER_BODY = '\t// --- HIVE LOCAL PATCH: target-entropy controller ------------------------\n\t// See PPOLearnerConfig.h for the derivation. Applied AFTER the epochs, on\n\t// the iteration\'s mean entropy, so one adjustment per iteration.\n\t//\n\t// Skipped on the first iteration, whose averages are not trustworthy, and\n\t// guarded on isfinite for the same reason the NaN patches exist: a NaN\n\t// entropy would otherwise turn entropyScale into NaN and poison every\n\t// subsequent loss.\n\tif (config.entropyTarget > 0 && !isFirstIteration) {\n\t\tconst float measured = avgEntropy.Get();\n\t\tif (std::isfinite(measured)) {\n\t\t\t// Anti-windup: there is nothing to correct while the policy is MORE\n\t\t\t// random than asked for. See PPOLearnerConfig.h -- integrating the\n\t\t\t// fresh-init transient buries the scale somewhere it cannot climb\n\t\t\t// back out of inside one run.\n\t\t\tif (!config.entropyControllerEngaged && measured <= config.entropyTarget) {\n\t\t\t\tconfig.entropyControllerEngaged = true;\n\t\t\t\tconfig.entropyScaleMin = config.entropyScale * config.entropyScaleMinFrac;\n\t\t\t}\n\n\t\t\tif (config.entropyControllerEngaged) {\n\t\t\t\tconst float err = config.entropyTarget - measured;\n\t\t\t\tconfig.entropyScale = std::clamp(\n\t\t\t\t\tconfig.entropyScale * std::exp(config.entropyAdjustRate * err),\n\t\t\t\t\tconfig.entropyScaleMin, config.entropyScaleMax);\n\t\t\t}\n\t\t}\n\t}\n\t// 0 until the controller takes over, so "is it driving yet" is readable off\n\t// the graph instead of inferred from the scale sitting still.\n\treport["Entropy Controller Engaged"] = config.entropyControllerEngaged ? 1.f : 0.f;\n\t// The scale is now a moving quantity, so it MUST be observable -- a\n\t// controlled variable that nobody can read is not controlled.\n\treport["Entropy Scale"] = config.entropyScale;\n\treport["Entropy Target"] = config.entropyTarget;\n\t// --- END HIVE LOCAL PATCH -----------------------------------------------\n\n\t// Assemble and return report\n\treport["Policy Entropy"] = avgEntropy.Get();'
 
+BOOSTPAD_NULL_ANCHOR = """	Car* curLockedCar = NULL;
+	uint32_t prevLockedCarID = NULL;"""
+
+BOOSTPAD_NULL_BODY = """	Car* curLockedCar = NULL;
+	uint32_t prevLockedCarID = 0;"""
+
+GIGALEARN_MINIMUM_ANCHOR = 'cmake_minimum_required (VERSION 3.8)'
+
+GIGALEARN_MINIMUM_BODY = 'cmake_minimum_required (VERSION 3.12)'
+
+GIGALEARN_PYTHON_ANCHOR = """find_package(Python COMPONENTS Interpreter Development)
+find_package(PythonLibs REQUIRED)
+include_directories(${PYTHON_INCLUDE_DIRS})
+target_link_libraries(GigaLearnCPP PUBLIC ${PYTHON_LIBRARIES})"""
+
+GIGALEARN_PYTHON_BODY = """find_package(Python COMPONENTS Interpreter Development REQUIRED)
+include_directories(${Python_INCLUDE_DIRS})
+target_link_libraries(GigaLearnCPP PUBLIC ${Python_LIBRARIES})"""
+
+GIGALEARN_COPY_ANCHOR = """configure_file("./python_scripts/metric_receiver.py" "../python_scripts/metric_receiver.py" COPY)
+configure_file("./python_scripts/render_receiver.py" "../python_scripts/render_receiver.py" COPY)"""
+
+GIGALEARN_COPY_BODY = """configure_file("./python_scripts/metric_receiver.py" "../python_scripts/metric_receiver.py" COPYONLY)
+configure_file("./python_scripts/render_receiver.py" "../python_scripts/render_receiver.py" COPYONLY)"""
+
+CPP_INTERFACE_CMP0169_ANCHOR = """cmake_minimum_required(VERSION 3.22)
+
+project(RLBotCPP VERSION 2.0.0)"""
+
+CPP_INTERFACE_CMP0169_BODY = """cmake_minimum_required(VERSION 3.22)
+
+if(POLICY CMP0169)
+	cmake_policy(SET CMP0169 OLD)
+endif()
+
+project(RLBotCPP VERSION 2.0.0)"""
+
+PPOLEARNER_INCLUDE_ANCHOR = '#include "ExperienceBuffer.h";'
+
+PPOLEARNER_INCLUDE_BODY = '#include "ExperienceBuffer.h"'
+
+REPORT_PRAGMA_ONCE_ANCHOR = '#pragma once\n\n#include "Report.h"'
+
+REPORT_PRAGMA_ONCE_BODY = '#include "Report.h"'
+
+METRIC_SENDER_H_ANCHOR = """namespace GGL {
+	struct RG_IMEXPORT MetricSender {
+		std::string curRunID;
+		std::string projectName, groupName, runName;
+		pybind11::module pyMod;
+
+		MetricSender(std::string projectName = {}, std::string groupName = {}, std::string runName = {}, std::string runID = {});
+		
+		RG_NO_COPY(MetricSender);
+
+		void Send(const Report& report);
+		void Finish();
+
+		~MetricSender();
+	};
+}"""
+
+METRIC_SENDER_H_BODY = """namespace GGL {
+	struct RG_IMEXPORT MetricSender {
+		std::string curRunID;
+		std::string projectName, groupName, runName;
+		void* pyMod = nullptr;
+
+		MetricSender(std::string projectName = {}, std::string groupName = {}, std::string runName = {}, std::string runID = {});
+		
+		RG_NO_COPY(MetricSender);
+
+		void Send(const Report& report);
+		void Finish();
+
+		~MetricSender();
+	};
+}"""
+
+METRIC_SENDER_CPP_ANCHOR = """#include "MetricSender.h"
+
+#include "Timer.h"
+
+namespace py = pybind11;
+using namespace GGL;
+
+GGL::MetricSender::MetricSender(std::string _projectName, std::string _groupName, std::string _runName, std::string runID) :
+	projectName(_projectName), groupName(_groupName), runName(_runName) {
+
+	RG_LOG("Initializing MetricSender...");
+
+	try {
+		pyMod = py::module::import("python_scripts.metric_receiver");
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("MetricSender: Failed to import metrics receiver, exception: " << e.what());
+	}
+
+	try {
+		auto returedRunID = pyMod.attr("init")(PY_EXEC_PATH, projectName, groupName, runName, runID);
+		curRunID = returedRunID.cast<std::string>();
+		RG_LOG(" > " << (runID.empty() ? "Starting" : "Continuing") << " run with ID : \"" << curRunID << "\"...");
+
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("MetricSender: Failed to initialize in Python, exception: " << e.what());
+	}
+
+	RG_LOG(" > MetricSender initalized.");
+}
+
+void GGL::MetricSender::Send(const Report& report) {
+	py::dict reportDict = {};
+
+	for (auto& pair : report.data)
+		reportDict[pair.first.c_str()] = pair.second;
+
+	try {
+		pyMod.attr("add_metrics")(reportDict);
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("MetricSender: Failed to add metrics, exception: " << e.what());
+	}
+}
+
+void GGL::MetricSender::Finish() {
+	try {
+		pyMod.attr("finish")();
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("MetricSender: Failed to finish, exception: " << e.what());
+	}
+}
+
+GGL::MetricSender::~MetricSender() {
+
+}"""
+
+METRIC_SENDER_CPP_BODY = """#include "MetricSender.h"
+
+#include <pybind11/pybind11.h>
+#include "Timer.h"
+
+namespace py = pybind11;
+using namespace GGL;
+
+GGL::MetricSender::MetricSender(std::string _projectName, std::string _groupName, std::string _runName, std::string runID) :
+	projectName(_projectName), groupName(_groupName), runName(_runName) {
+
+	RG_LOG("Initializing MetricSender...");
+
+	try {
+		pyMod = new py::module(py::module::import("python_scripts.metric_receiver"));
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("MetricSender: Failed to import metrics receiver, exception: " << e.what());
+	}
+
+	try {
+		auto returedRunID = static_cast<py::module*>(pyMod)->attr("init")(PY_EXEC_PATH, projectName, groupName, runName, runID);
+		curRunID = returedRunID.cast<std::string>();
+		RG_LOG(" > " << (runID.empty() ? "Starting" : "Continuing") << " run with ID : \"" << curRunID << "\"...");
+
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("MetricSender: Failed to initialize in Python, exception: " << e.what());
+	}
+
+	RG_LOG(" > MetricSender initalized.");
+}
+
+void GGL::MetricSender::Send(const Report& report) {
+	py::dict reportDict = {};
+
+	for (auto& pair : report.data)
+		reportDict[pair.first.c_str()] = pair.second;
+
+	try {
+		static_cast<py::module*>(pyMod)->attr("add_metrics")(reportDict);
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("MetricSender: Failed to add metrics, exception: " << e.what());
+	}
+}
+
+void GGL::MetricSender::Finish() {
+	try {
+		static_cast<py::module*>(pyMod)->attr("finish")();
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("MetricSender: Failed to finish, exception: " << e.what());
+	}
+}
+
+GGL::MetricSender::~MetricSender() {
+	if (pyMod) {
+		delete static_cast<py::module*>(pyMod);
+		pyMod = nullptr;
+	}
+}"""
+
+RENDER_SENDER_H_ANCHOR = """namespace GGL {
+	struct RG_IMEXPORT RenderSender {
+		pybind11::module pyMod;
+
+		float timeScale;
+		double adaptiveRenderDelay = -1;
+		Timer renderTimer = {};
+
+		RenderSender(float timeScale);
+
+		RG_NO_COPY(RenderSender);
+
+		void Send(const RLGC::GameState& state);
+
+		~RenderSender();
+	};
+}"""
+
+RENDER_SENDER_H_BODY = """namespace GGL {
+	struct RG_IMEXPORT RenderSender {
+		void* pyMod = nullptr;
+
+		float timeScale;
+		double adaptiveRenderDelay = -1;
+		Timer renderTimer = {};
+
+		RenderSender(float timeScale);
+
+		RG_NO_COPY(RenderSender);
+
+		void Send(const RLGC::GameState& state);
+
+		~RenderSender();
+	};
+}"""
+
+RENDER_SENDER_CPP_ANCHOR = """#include "RenderSender.h"
+
+#include <nlohmann/json.hpp>
+
+using namespace nlohmann;
+using namespace RLGC;
+
+GGL::RenderSender::RenderSender(float timeScale) : timeScale(timeScale) {
+	RG_LOG("Initializing RenderSender...");
+
+	try {
+		RG_LOG("Current dir: " << std::filesystem::current_path());
+		pyMod = pybind11::module::import("python_scripts.render_receiver");
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("RenderSender: Failed to import render receiver, exception: " << e.what());
+	}
+
+	RG_LOG(" > RenderSender initalized.");
+}"""
+
+RENDER_SENDER_CPP_BODY = """#include "RenderSender.h"
+
+#include <pybind11/pybind11.h>
+#include <nlohmann/json.hpp>
+
+using namespace nlohmann;
+using namespace RLGC;
+
+GGL::RenderSender::RenderSender(float timeScale) : timeScale(timeScale) {
+	RG_LOG("Initializing RenderSender...");
+
+	try {
+		RG_LOG("Current dir: " << std::filesystem::current_path());
+		pyMod = new pybind11::module(pybind11::module::import("python_scripts.render_receiver"));
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("RenderSender: Failed to import render receiver, exception: " << e.what());
+	}
+
+	RG_LOG(" > RenderSender initalized.");
+}"""
+
+RENDER_SENDER_CPP_SEND_ANCHOR = """	try {
+		pyMod.attr("render_state")(jStr);
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("RenderSender: Failed to send gamestate, exception: " << e.what());
+	}"""
+
+RENDER_SENDER_CPP_SEND_BODY = """	try {
+		static_cast<pybind11::module*>(pyMod)->attr("render_state")(jStr);
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE("RenderSender: Failed to send gamestate, exception: " << e.what());
+	}"""
+
+RENDER_SENDER_CPP_DTOR_ANCHOR = """GGL::RenderSender::~RenderSender() {}"""
+
+RENDER_SENDER_CPP_DTOR_BODY = """GGL::RenderSender::~RenderSender() {
+	if (pyMod) {
+		delete static_cast<pybind11::module*>(pyMod);
+		pyMod = nullptr;
+	}
+}"""
+
+MODEL_ITERATOR_ANCHOR = """		class ModelIterator : public std::iterator<std::forward_iterator_tag, Model*> {
+		public:
+			using MapItr = std::map<std::string, Model*>::iterator;
+			MapItr _mapItr;"""
+
+MODEL_ITERATOR_BODY = """		class ModelIterator {
+		public:
+			using iterator_category = std::forward_iterator_tag;
+			using value_type = Model*;
+			using difference_type = std::ptrdiff_t;
+			using pointer = Model**;
+			using reference = Model*&;
+
+			using MapItr = std::map<std::string, Model*>::iterator;
+			MapItr _mapItr;"""
+
+BALL_ENUM_BITWISE_ANCHOR = """bulletWorld->addRigidBody(&_rigidBody, btBroadphaseProxy::DefaultFilter | CollisionMasks::HOOPS_NET, btBroadphaseProxy::AllFilter);"""
+
+BALL_ENUM_BITWISE_BODY = """bulletWorld->addRigidBody(&_rigidBody, (int)btBroadphaseProxy::DefaultFilter | (int)CollisionMasks::HOOPS_NET, btBroadphaseProxy::AllFilter);"""
+
+BOTCONTEXT_REDUNDANT_MOVE_ANCHOR = """	// collect desired game state
+	auto const gameState = m_bot->getDesiredGameState ();
+	if (gameState.has_value () && m_matchConfiguration->enable_state_setting ())
+		m_connection.sendDesiredGameState (std::move (gameState.value ()));"""
+
+BOTCONTEXT_REDUNDANT_MOVE_BODY = """	// collect desired game state
+	auto const gameState = m_bot->getDesiredGameState ();
+	if (gameState.has_value () && m_matchConfiguration->enable_state_setting ())
+		m_connection.sendDesiredGameState (gameState.value ());"""
+
+BULLET_MARGIN_RETURN_ANCHOR = """	case CONVEX_HULL_SHAPE_PROXYTYPE:
+		return ((btConvexHullShape*)this)->getMargin();
+	default:
+		btAssert(false);
+	}
+}"""
+
+BULLET_MARGIN_RETURN_BODY = """	case CONVEX_HULL_SHAPE_PROXYTYPE:
+		return ((btConvexHullShape*)this)->getMargin();
+	default:
+		btAssert(false);
+		return 0;
+	}
+}"""
+
+TORCH_KINETO_OPTIONAL_ANCHOR = """if(ON)
+  append_torchlib_if_found(kineto)
+endif()"""
+
+TORCH_KINETO_OPTIONAL_BODY = """if(ON)
+  find_library(kineto_LIBRARY kineto PATHS "${TORCH_INSTALL_PREFIX}/lib")
+  if(kineto_LIBRARY)
+    list(APPEND TORCH_LIBRARIES ${kineto_LIBRARY})
+  endif()
+endif()"""
+
 
 PATCHES = [
 	{
@@ -231,6 +578,133 @@ PATCHES = [
 		"anchor": ENTROPY_CONTROLLER_ANCHOR,
 		"body": ENTROPY_CONTROLLER_BODY,
 	},
+	{
+		"name": "boostpad-null-to-zero",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/RLGymCPP/RocketSim/src/Sim/BoostPad/BoostPad.h",
+		"marker": "uint32_t prevLockedCarID = 0;",
+		"anchor": BOOSTPAD_NULL_ANCHOR,
+		"body": BOOSTPAD_NULL_BODY,
+	},
+	{
+		"name": "gigalearn-cmake-minimum",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/CMakeLists.txt",
+		"marker": "cmake_minimum_required (VERSION 3.12)",
+		"anchor": GIGALEARN_MINIMUM_ANCHOR,
+		"body": GIGALEARN_MINIMUM_BODY,
+	},
+	{
+		"name": "gigalearn-python",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/CMakeLists.txt",
+		"marker": "find_package(Python COMPONENTS Interpreter Development REQUIRED)",
+		"anchor": GIGALEARN_PYTHON_ANCHOR,
+		"body": GIGALEARN_PYTHON_BODY,
+	},
+	{
+		"name": "gigalearn-configure-copy",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/CMakeLists.txt",
+		"marker": 'configure_file("./python_scripts/metric_receiver.py" "../python_scripts/metric_receiver.py" COPYONLY)',
+		"anchor": GIGALEARN_COPY_ANCHOR,
+		"body": GIGALEARN_COPY_BODY,
+	},
+	{
+		"name": "cpp-interface-cmp0169",
+		"path": "external/cpp-interface/CMakeLists.txt",
+		"marker": "cmake_policy(SET CMP0169 OLD)",
+		"anchor": CPP_INTERFACE_CMP0169_ANCHOR,
+		"body": CPP_INTERFACE_CMP0169_BODY,
+	},
+	{
+		"name": "ppolearner-include-semicolon",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/private/GigaLearnCPP/PPO/PPOLearner.h",
+		"marker": '#include "ExperienceBuffer.h"\n',
+		"anchor": PPOLEARNER_INCLUDE_ANCHOR,
+		"body": PPOLEARNER_INCLUDE_BODY,
+	},
+	{
+		"name": "report-pragma-once",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Util/Report.cpp",
+		"marker": '#include "Report.h"\n\nvoid GGL::Report::Display',
+		"anchor": REPORT_PRAGMA_ONCE_ANCHOR,
+		"body": REPORT_PRAGMA_ONCE_BODY,
+	},
+	{
+		"name": "metric-sender-h",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Util/MetricSender.h",
+		"marker": "void* pyMod = nullptr;",
+		"anchor": METRIC_SENDER_H_ANCHOR,
+		"body": METRIC_SENDER_H_BODY,
+	},
+	{
+		"name": "metric-sender-cpp",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Util/MetricSender.cpp",
+		"marker": "new py::module(py::module::import",
+		"anchor": METRIC_SENDER_CPP_ANCHOR,
+		"body": METRIC_SENDER_CPP_BODY,
+	},
+	{
+		"name": "render-sender-h",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Util/RenderSender.h",
+		"marker": "void* pyMod = nullptr;",
+		"anchor": RENDER_SENDER_H_ANCHOR,
+		"body": RENDER_SENDER_H_BODY,
+	},
+	{
+		"name": "render-sender-cpp",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Util/RenderSender.cpp",
+		"marker": "new pybind11::module(pybind11::module::import",
+		"anchor": RENDER_SENDER_CPP_ANCHOR,
+		"body": RENDER_SENDER_CPP_BODY,
+	},
+	{
+		"name": "render-sender-cpp-send",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Util/RenderSender.cpp",
+		"marker": "static_cast<pybind11::module*>(pyMod)->attr(\"render_state\")",
+		"anchor": RENDER_SENDER_CPP_SEND_ANCHOR,
+		"body": RENDER_SENDER_CPP_SEND_BODY,
+	},
+	{
+		"name": "render-sender-cpp-dtor",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Util/RenderSender.cpp",
+		"marker": "delete static_cast<pybind11::module*>(pyMod);",
+		"anchor": RENDER_SENDER_CPP_DTOR_ANCHOR,
+		"body": RENDER_SENDER_CPP_DTOR_BODY,
+	},
+	{
+		"name": "model-iterator-std-iterator",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/private/GigaLearnCPP/Util/Models.h",
+		"marker": "using iterator_category = std::forward_iterator_tag;",
+		"anchor": MODEL_ITERATOR_ANCHOR,
+		"body": MODEL_ITERATOR_BODY,
+	},
+	{
+		"name": "ball-enum-bitwise",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/RLGymCPP/RocketSim/src/Sim/Ball/Ball.cpp",
+		"marker": "(int)btBroadphaseProxy::DefaultFilter | (int)CollisionMasks::HOOPS_NET",
+		"anchor": BALL_ENUM_BITWISE_ANCHOR,
+		"body": BALL_ENUM_BITWISE_BODY,
+	},
+	{
+		"name": "botcontext-redundant-move",
+		"path": "external/cpp-interface/library/BotContext.cpp",
+		"marker": "m_connection.sendDesiredGameState (gameState.value ());",
+		"anchor": BOTCONTEXT_REDUNDANT_MOVE_ANCHOR,
+		"body": BOTCONTEXT_REDUNDANT_MOVE_BODY,
+	},
+	{
+		"name": "bullet-margin-return",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/RLGymCPP/RocketSim/libsrc/bullet3-3.24/BulletCollision/CollisionShapes/btCollisionShape.cpp",
+		"marker": "return 0;\n\t}\n}",
+		"anchor": BULLET_MARGIN_RETURN_ANCHOR,
+		"body": BULLET_MARGIN_RETURN_BODY,
+	},
+	{
+		"name": "torch-kineto-optional",
+		"path": "libs/libtorch/share/cmake/Torch/TorchConfig.cmake",
+		"marker": 'find_library(kineto_LIBRARY kineto PATHS "${TORCH_INSTALL_PREFIX}/lib")',
+		"anchor": TORCH_KINETO_OPTIONAL_ANCHOR,
+		"body": TORCH_KINETO_OPTIONAL_BODY,
+		"optional": True,
+	},
 ]
 
 
@@ -239,6 +713,8 @@ def process(patch, check_only):
 	name = patch["name"]
 
 	if not path.exists():
+		if patch.get("optional"):
+			return "skipped", f"{name}: target file not present (skipped)"
 		return "missing", f"{name}: target file not found ({patch['path']})"
 
 	text = path.read_text()
