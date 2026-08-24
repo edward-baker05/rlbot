@@ -11,7 +11,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 
 	return {{"Goal", b.goal, [] { return new GoalReward(); }},
 			{"Strong Touch", b.strongTouch,
-			 [] { return new StrongTouchReward(30, 90); }},
+			 [] { return new ZeroSumReward(new DirectionalTouchReward(), 1); }},
 			{"Velocity: Ball to Goal", b.velocityBallToGoal,
 			 [] { return new VelocityBallToGoalReward(); }},
 			{"Velocity: Player to Ball", b.velocityPlayerToBall,

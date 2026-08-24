@@ -15,15 +15,14 @@ struct RewardBudget {
 	float goal = 1.f;
 	float strongTouch = 0.1f;
 	float velocityBallToGoal = 0.15f;
-	float velocityPlayerToBall = 0.075f;
-	float faceBall = 0.01f;
-	float air = 0.004;
+	float velocityPlayerToBall = 0.05f;
+	float faceBall = 0.00f;
+	float air = 0.006;
 
 	// float pickupBoost = 10.f;
 	// float saveBoost = 0.2f;
 	// float bump = 20.f;
 	// float demo = 80.f;
-	// float goal = 150.f;
 };
 
 struct SelfPlayConfig {
