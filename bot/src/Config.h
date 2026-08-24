@@ -26,8 +26,8 @@ struct RewardBudget {
 };
 
 struct SelfPlayConfig {
-	bool trainAgainstOldVersions = false;
-	float trainAgainstOldChance = 0.5f;
+	bool trainAgainstOldVersions = true;
+	float trainAgainstOldChance = 0.3f;
 	int64_t tsPerVersion = 5'000'000;
 	int maxOldVersions = 32;
 
@@ -105,12 +105,12 @@ struct TrainConfig {
 	int miniBatchSize = 50'000;
 	int epochs = 2;
 
-	float entropyScale = 0.035f;
+	float entropyScale = 0.05f;
 	float entropyTarget = 0.0f;
 	float entropyAdjustRate = 0.15f;
 	float gaeGamma = 0.99f;
-	float policyLR = 2e-4f;
-	float criticLR = 2e-4f;
+	float policyLR = 3e-4f;
+	float criticLR = 3e-4f;
 	int64_t maxSteps = 0;
 
 	std::filesystem::path checkpointRoot = "checkpoints";
