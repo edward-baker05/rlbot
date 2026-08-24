@@ -1,11 +1,11 @@
 #include "Spectate.h"
 
-#include "Checkpoints.h"
 #include "../Config.h"
 #include "../env/Actions.h"
 #include "../env/Env.h"
 #include "../env/Obs.h"
 #include "../policy/Policy.h"
+#include "Checkpoints.h"
 
 #include <GigaLearnCPP/Util/RenderSender.h>
 
@@ -14,8 +14,10 @@
 
 #include <pybind11/embed.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <memory>
 #include <stdexcept>
 
@@ -27,7 +29,7 @@ namespace Dash {
 namespace {
 
 // Empty path when following a run that has not saved a checkpoint yet.
-fs::path ResolveCheckpoint(const SpectateConfig& cfg) {
+fs::path ResolveCheckpoint(const SpectateConfig &cfg) {
 	if (!cfg.followRun.empty())
 		return FindLatestCheckpoint(cfg.followRun);
 	return cfg.model;
@@ -35,9 +37,10 @@ fs::path ResolveCheckpoint(const SpectateConfig& cfg) {
 
 } // namespace
 
-void RunSpectate(const SpectateConfig& cfg) {
+void RunSpectate(const SpectateConfig &cfg) {
 	if (cfg.model.empty() == cfg.followRun.empty())
-		throw std::runtime_error("RunSpectate(): pass exactly one of --model or --follow");
+		throw std::runtime_error(
+			"RunSpectate(): pass exactly one of --model or --follow");
 
 	// Pin inference to one thread so a spectator cannot steal a run's CPU.
 	if (!cfg.useGPU) {
@@ -45,7 +48,7 @@ void RunSpectate(const SpectateConfig& cfg) {
 		setenv("MKL_NUM_THREADS", "1", 0);
 	}
 
-	const char* meshEnv = std::getenv("DASH_COLLISION_MESHES");
+	const char *meshEnv = std::getenv("DASH_COLLISION_MESHES");
 	if (!meshEnv)
 		meshEnv = std::getenv("HIVE_COLLISION_MESHES");
 	RocketSim::Init(meshEnv ? meshEnv : "collision_meshes");
@@ -55,9 +58,10 @@ void RunSpectate(const SpectateConfig& cfg) {
 
 	fs::path checkpoint = ResolveCheckpoint(cfg);
 	if (checkpoint.empty()) {
-		throw std::runtime_error(
-			"RunSpectate(): no complete checkpoint in " + cfg.followRun.string() +
-			" yet. A run saves its first at tsPerSave steps; try again shortly.");
+		throw std::runtime_error("RunSpectate(): no complete checkpoint in " +
+								 cfg.followRun.string() +
+								 " yet. A run saves its first at tsPerSave "
+								 "steps; try again shortly.");
 	}
 
 	// Deployment-side values, so what is watched matches what is deployed.
@@ -66,7 +70,8 @@ void RunSpectate(const SpectateConfig& cfg) {
 	auto obsBuilder = MakeObsBuilder(tcfg.maxPlayersPerTeam, tcfg.obs);
 	auto parser = MakeActionParser(tcfg.maskActions);
 
-	// Learner's constructor normally starts the interpreter; there is none here.
+	// Learner's constructor normally starts the interpreter; there is none
+	// here.
 	pybind11::initialize_interpreter();
 	GGL::RenderSender sender(cfg.timeScale);
 
@@ -77,28 +82,37 @@ void RunSpectate(const SpectateConfig& cfg) {
 	NoTouchCondition noTouch(tcfg.noTouchTimeoutSeconds);
 	GoalScoreCondition goalScored;
 
-	Arena* arena = Arena::Create(GameMode::SOCCAR);
+	Arena *arena = Arena::Create(GameMode::SOCCAR);
 	arena->AddCar(Team::BLUE);
 	arena->AddCar(Team::ORANGE);
 
-	auto policy = std::make_unique<Policy>(obsBuilder.get(), obsSize, parser.get(),
-	                                       tcfg.modelShape, cfg.useGPU);
+	auto policy = std::make_unique<Policy>(
+		obsBuilder.get(), obsSize, parser.get(), tcfg.modelShape, cfg.useGPU);
 	policy->Load(checkpoint);
 	std::printf("Spectating %s (%s, %s spawns) -> RocketSimVis on UDP 9273\n",
-	            checkpoint.string().c_str(),
-	            cfg.deterministic ? "deterministic" : "stochastic",
-	            cfg.spawns == SpectateSpawns::Training ? "training" : "kickoff");
+				checkpoint.string().c_str(),
+				cfg.deterministic ? "deterministic" : "stochastic",
+				cfg.spawns == SpectateSpawns::Training ? "training"
+													   : "kickoff");
 
-	for (int episode = 0; cfg.episodes == 0 || episode < cfg.episodes; episode++) {
-		// Between episodes only: swapping the policy under a car mid-play misleads.
+	for (int episode = 0; cfg.episodes == 0 || episode < cfg.episodes;
+		 episode++) {
+		// Between episodes only: swapping the policy under a car mid-play
+		// misleads.
 		if (!cfg.followRun.empty()) {
 			fs::path latest = FindLatestCheckpoint(cfg.followRun);
 			if (!latest.empty() && latest != checkpoint) {
 				checkpoint = latest;
-				policy = std::make_unique<Policy>(obsBuilder.get(), obsSize, parser.get(),
-				                                  tcfg.modelShape, cfg.useGPU);
+				policy = std::make_unique<Policy>(obsBuilder.get(), obsSize,
+												  parser.get(), tcfg.modelShape,
+												  cfg.useGPU);
 				policy->Load(checkpoint);
-				std::printf("-> now playing %s\n", checkpoint.filename().string().c_str());
+				const auto now = std::chrono::system_clock::now();
+				const std::time_t t_c =
+					std::chrono::system_clock::to_time_t(now);
+				std::printf("-> now playing %s (%s)\n",
+							checkpoint.filename().string().c_str(),
+							std::ctime(&t_c));
 				std::fflush(stdout);
 			}
 		}
@@ -116,10 +130,11 @@ void RunSpectate(const SpectateConfig& cfg) {
 		goalScored.Reset(gs);
 
 		while (true) {
-			auto acts = policy->InferBatch({gs.players[0], gs.players[1]}, {gs, gs},
-			                               cfg.deterministic);
+			auto acts = policy->InferBatch({gs.players[0], gs.players[1]},
+										   {gs, gs}, cfg.deterministic);
 
-			// Replay the training cadence exactly: hold the action for actionDelay ticks.
+			// Replay the training cadence exactly: hold the action for
+			// actionDelay ticks.
 			gs.ResetBeforeStep();
 			arena->Step(tcfg.actionDelay);
 
