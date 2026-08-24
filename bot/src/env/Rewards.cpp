@@ -20,6 +20,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Demo", b.demo,
 		 [] { return new ZeroSumReward(new DemoReward(), 0, 2); }},
 		{"Save", b.save, [] { return new ZeroSumReward(new SaveReward(), 1); }},
+		{"Awkward Contact", b.awkwardContact,
+		 [] { return new AwkwardContactPenalty(); }},
 		// {"Possession", b.possession, [] { return new PossessionReward(); }},
 	};
 }

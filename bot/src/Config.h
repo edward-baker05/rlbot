@@ -14,7 +14,7 @@ namespace Dash {
 struct RewardBudget {
 	float goal = 1.f;
 	float strongTouch = 0.25f;
-	float airTouch = 0.02f;
+	float airTouch = 0.1f;
 
 	float pickupBoost = 0.1f;
 	float saveBoost = 0.001f;
@@ -23,6 +23,8 @@ struct RewardBudget {
 	float demo = 0.4f;
 
 	float save = 0.5f;
+
+	float awkwardContact = 0.005f;
 
 	float possession = 0.005f;
 };
@@ -109,7 +111,7 @@ struct TrainConfig {
 
 	bool maskActions = true;
 	ObsMode obs = ObsMode::Advanced;
-	float infiniteBoostChance = 0.1f;
+	float infiniteBoostChance = 0.f;
 
 	RewardBudget rewards = {};
 	float teamSpirit = 0.0f;
@@ -130,7 +132,7 @@ struct TrainConfig {
 	float entropyScale = 0.02f;
 	float entropyTarget = 0.0f;
 	float entropyAdjustRate = 0.15f;
-	float gaeGamma = 0.99f; // TODO This needs to go to 0.995 soon
+	float gaeGamma = 0.995f;
 	float policyLR = 1e-4f;
 	float criticLR = 1e-4f;
 	int64_t maxSteps = 0;

@@ -201,6 +201,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"bump", b.bump},
 		{"demo", b.demo},
 		{"save", b.save},
+		{"awkwardContact", b.awkwardContact},
 		{"possession", b.possession},
 	};
 
