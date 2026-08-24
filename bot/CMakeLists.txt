@@ -54,6 +54,8 @@ add_subdirectory("${DASH_EXTERNAL}/cpp-interface" rlbot-cpp)
 add_library(DashCore STATIC
 	src/env/Actions.cpp
 	src/env/Actions.h
+	src/env/AdvancedObsPadded.cpp
+	src/env/AdvancedObsPadded.h
 	src/env/Env.cpp
 	src/env/Env.h
 	src/env/Obs.cpp
@@ -63,6 +65,7 @@ add_library(DashCore STATIC
 	src/env/StateSetters.cpp
 	src/env/StateSetters.h
 	src/env/Terminal.h
+	src/env/TimeoutCondition.h
 
 	src/policy/Policy.cpp
 	src/policy/Policy.h

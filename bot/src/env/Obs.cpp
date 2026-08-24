@@ -1,4 +1,5 @@
 #include "Obs.h"
+#include "AdvancedObsPadded.h"
 
 #include <RLGymCPP/Gamestates/GameState.h>
 #include <RLGymCPP/ObsBuilders/DefaultObsPadded.h>
@@ -14,7 +15,14 @@ std::unique_ptr<ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,
 	if (maxPlayersPerTeam < 1)
 		throw std::runtime_error("MakeObsBuilder(): maxPlayersPerTeam must be >= 1");
 
-	return std::make_unique<DefaultObsPadded>(maxPlayersPerTeam);
+	switch (mode) {
+	case ObsMode::Default:
+		return std::make_unique<DefaultObsPadded>(maxPlayersPerTeam);
+	case ObsMode::Advanced:
+		return std::make_unique<AdvancedObsPadded>(maxPlayersPerTeam);
+	default:
+		throw std::runtime_error("MakeObsBuilder(): unknown ObsMode");
+	}
 }
 
 int ProbeObsSize(int maxPlayersPerTeam, ObsMode mode) {

@@ -107,13 +107,18 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 	j["env"] = {
 		{"maxPlayersPerTeam", cfg.maxPlayersPerTeam},
 		{"maskActions", cfg.maskActions},
-		{"obs", "Default"},
+		{"obs", cfg.obs == ObsMode::Advanced ? "Advanced" : "Default"},
 		{"infiniteBoostChance", cfg.infiniteBoostChance},
 		{"teamSpirit", cfg.teamSpirit},
 		{"noTouchTimeoutSeconds", cfg.noTouchTimeoutSeconds},
 		{"numGames", cfg.numGames},
 		{"tickSkip", cfg.tickSkip},
 		{"actionDelay", cfg.actionDelay},
+		{"teamDistribution", {
+			{"p1v1", cfg.teamDistribution.p1v1},
+			{"p2v2", cfg.teamDistribution.p2v2},
+			{"p3v3", cfg.teamDistribution.p3v3},
+		}},
 	};
 
 	j["model"] = {
@@ -227,8 +232,18 @@ void RunTraining(const TrainConfig &cfg) {
 	RocketSim::Init(meshPath);
 
 	const int obsSize = ProbeObsSize(cfg.maxPlayersPerTeam, cfg.obs);
+	int n1 = 0, n2 = 0, n3 = 0;
+	for (int i = 0; i < cfg.numGames; i++) {
+		int sz = cfg.teamDistribution.SampleTeamSize(i, cfg.numGames);
+		if (sz == 1) n1++;
+		else if (sz == 2) n2++;
+		else if (sz == 3) n3++;
+	}
 	std::cout << "Observation size: " << obsSize
-			  << " (maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
+			  << " (mode=" << (cfg.obs == ObsMode::Advanced ? "Advanced" : "Default")
+			  << ", maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
+	std::cout << "Arenas:           " << cfg.numGames << " total ("
+			  << n1 << "x 1v1, " << n2 << "x 2v2, " << n3 << "x 3v3)\n";
 	std::cout << "Run:              " << cfg.RunName() << "\n";
 	std::cout << "Checkpoints:      " << cfg.CheckpointFolder() << "\n";
 	std::cout << "Self-play:        "

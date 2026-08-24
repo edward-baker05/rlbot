@@ -5,6 +5,7 @@
 
 #include <GigaLearnCPP/LearnerConfig.h>
 
+#include <cmath>
 #include <filesystem>
 #include <string>
 
@@ -27,11 +28,59 @@ struct SelfPlayConfig {
 	float skillMaxSimTime = 240.f;
 };
 
+struct TeamDistribution {
+	// Relative probabilities / weights for each team size occurring in training
+	float p1v1 = 1.0f;
+	float p2v2 = 0.0f;
+	float p3v3 = 0.0f;
+
+	// Deterministically partitions the arena index [0, totalArenas-1] into team
+	// sizes (1, 2, or 3)
+	int SampleTeamSize(int arenaIndex, int totalArenas) const {
+		float total = p1v1 + p2v2 + p3v3;
+		if (total <= 0.f || totalArenas <= 0)
+			return 1;
+
+		float norm1 = p1v1 / total;
+		float norm2 = p2v2 / total;
+
+		int count1 = static_cast<int>(std::round(norm1 * totalArenas));
+		int count2 = static_cast<int>(std::round(norm2 * totalArenas));
+
+		if (norm1 > 0.f && count1 == 0 && totalArenas > 0)
+			count1 = 1;
+		if (norm2 > 0.f && count2 == 0 && totalArenas > count1)
+			count2 = 1;
+
+		if (count1 + count2 > totalArenas) {
+			if (count1 > 0 && count2 > 0)
+				count2 = totalArenas - count1;
+			else if (count1 > totalArenas)
+				count1 = totalArenas;
+		}
+
+		if (arenaIndex < count1)
+			return 1;
+		if (arenaIndex < count1 + count2)
+			return 2;
+		return 3;
+	}
+
+	int MaxActivePlayersPerTeam() const {
+		if (p3v3 > 0.f)
+			return 3;
+		if (p2v2 > 0.f)
+			return 2;
+		return 1;
+	}
+};
+
 struct TrainConfig {
-	int maxPlayersPerTeam = 1;
+	int maxPlayersPerTeam = 3;
+	TeamDistribution teamDistribution = {};
 
 	bool maskActions = true;
-	ObsMode obs = ObsMode::Default;
+	ObsMode obs = ObsMode::Advanced;
 	float infiniteBoostChance = 0.1f;
 
 	RewardBudget rewards = {};
@@ -40,6 +89,7 @@ struct TrainConfig {
 	SelfPlayConfig selfPlay = {};
 
 	float noTouchTimeoutSeconds = 12.f;
+	float timeoutSeconds = 60.f;
 	int numGames = 128;
 	int tickSkip = 8;
 	int actionDelay = 7;

@@ -39,10 +39,17 @@ BotSettings BotSettings::FromEnvironment() {
 	s.model = model;
 
 	s.collisionMeshes = EnvOr("DASH_COLLISION_MESHES", EnvOr("HIVE_COLLISION_MESHES", "collision_meshes"));
-	s.maxPlayersPerTeam = EnvIntOr("DASH_MAX_PLAYERS_PER_TEAM", EnvIntOr("HIVE_MAX_PLAYERS_PER_TEAM", 1));
+	s.maxPlayersPerTeam = EnvIntOr("DASH_MAX_PLAYERS_PER_TEAM", EnvIntOr("HIVE_MAX_PLAYERS_PER_TEAM", 3));
 	s.tickSkip = EnvIntOr("DASH_TICK_SKIP", EnvIntOr("HIVE_TICK_SKIP", 8));
 	s.maskActions = EnvIntOr("DASH_MASK_ACTIONS", EnvIntOr("HIVE_MASK_ACTIONS", 0)) != 0;
-	s.obs = ObsMode::Default;
+	
+	const std::string obsStr = EnvOr("DASH_OBS", EnvOr("HIVE_OBS", "advanced"));
+	if (obsStr == "default" || obsStr == "Default") {
+		s.obs = ObsMode::Default;
+	} else {
+		s.obs = ObsMode::Advanced;
+	}
+
 	s.actionDelay = EnvIntOr("DASH_ACTION_DELAY", EnvIntOr("HIVE_ACTION_DELAY", 7));
 	s.deterministic = EnvIntOr("DASH_DETERMINISTIC", EnvIntOr("HIVE_DETERMINISTIC", 1)) != 0;
 	s.useGPU = EnvIntOr("DASH_USE_GPU", EnvIntOr("HIVE_USE_GPU", 1)) != 0;
