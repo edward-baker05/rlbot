@@ -1,5 +1,8 @@
 #include "Config.h"
 #include "eval/Spectate.h"
+#include "eval/Checkpoints.h"
+#include "eval/NectoBench.h"
+#include "opponents/NectoSelfTest.h"
 #include "rlbot/DashBot.h"
 #include "train/Train.h"
 
@@ -20,6 +23,9 @@ void PrintUsage(const char *argv0) {
 		"  train            Train the policy\n"
 		"  play             Connect to RLBot v5 and play a match\n"
 		"  spectate         Watch a checkpoint or live run in RocketSimVis\n"
+		"  benchmark        Score a checkpoint head-to-head against Necto\n"
+		"  necto-selftest   Dump the Necto observation for a fixed state, to diff\n"
+		"                   against the Python reference\n"
 		"\n"
 		"Training options:\n"
 		"  --games N            Number of simultaneous games (default 128)\n"
@@ -50,6 +56,26 @@ void PrintUsage(const char *argv0) {
 		"  --fresh              Start over instead of resuming --label's "
 		"checkpoints\n"
 		"\n"
+		"Benchmark options:\n"
+		"  --run LABEL          Score the newest checkpoint of this run\n"
+		"  --model PATH         Score this checkpoint folder instead\n"
+		"  --arenas N           Parallel arenas, also the goals per round\n"
+		"                       (default 16)\n"
+		"  --rounds N           Play N rounds (default 1)\n"
+		"  --necto-beta X       Necto temperature (default 1.0 = deterministic)\n"
+		"\n"
+		"Necto opponent:\n"
+		"  --necto              Put Necto in a slice of the training arenas\n"
+		"  --necto-fraction X   Fraction of ARENAS with Necto in them (default\n"
+		"                       0.20). The share of training DATA is X/(2-X),\n"
+		"                       since only the learner's half of those arenas\n"
+		"                       produces trajectories\n"
+		"  --necto-beta X       Necto sampling temperature: 0.5 is on-policy\n"
+		"                       sampling (default), 1.0 is deterministic\n"
+		"  --no-necto-bench     Skip the periodic head-to-head benchmark\n"
+		"  --necto-bench-interval N  Iterations between benchmarks (default 100)\n"
+		"  --necto-bench-arenas N    Arenas per benchmark round (default 16)\n"
+		"\n"
 		"Self-play options:\n"
 		"  --self-play          Train against saved old versions, and track "
 		"skill\n"
@@ -67,7 +93,8 @@ void PrintUsage(const char *argv0) {
 		"\n"
 		"Environment (both):\n"
 		"  DASH_COLLISION_MESHES  Path to RocketSim collision meshes\n"
-		"                         (default: collision_meshes)\n",
+		"                         (default: collision_meshes)\n"
+		"  DASH_NECTO_MODEL       Path to necto-model.pt\n",
 		argv0);
 }
 
@@ -175,6 +202,20 @@ int RunTrain(int argc, char *argv[]) {
 			cfg.selfPlay.trackSkill = true;
 		} else if (arg == "--ts-per-version" && i + 1 < argc) {
 			cfg.selfPlay.tsPerVersion = std::atoll(argv[++i]);
+		} else if (arg == "--necto") {
+			cfg.necto.enabled = true;
+		} else if (arg == "--necto-fraction" && i + 1 < argc) {
+			cfg.necto.enabled = true;
+			cfg.necto.arenaFraction =
+				static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--necto-beta" && i + 1 < argc) {
+			cfg.necto.trainBeta = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--no-necto-bench") {
+			cfg.necto.benchmark = false;
+		} else if (arg == "--necto-bench-interval" && i + 1 < argc) {
+			cfg.necto.benchInterval = std::atoi(argv[++i]);
+		} else if (arg == "--necto-bench-arenas" && i + 1 < argc) {
+			cfg.necto.benchArenas = std::atoi(argv[++i]);
 		} else if (arg == "--render") {
 			// Wall-clock speed for RocketSimVis; useless for actually training.
 			cfg.renderMode = true;
@@ -332,6 +373,79 @@ int RunSpectate(int argc, char *argv[]) {
 
 } // namespace
 
+int RunBenchmark(int argc, char *argv[]) {
+	Dash::TrainConfig cfg = {};
+	cfg.necto.enabled = true;
+
+	std::filesystem::path model;
+	std::string run;
+	int rounds = 1;
+
+	for (int i = 2; i < argc; i++) {
+		const std::string arg = argv[i];
+		if (arg == "--model" && i + 1 < argc) {
+			model = argv[++i];
+		} else if (arg == "--run" && i + 1 < argc) {
+			run = argv[++i];
+		} else if (arg == "--arenas" && i + 1 < argc) {
+			cfg.necto.benchArenas = std::atoi(argv[++i]);
+		} else if (arg == "--rounds" && i + 1 < argc) {
+			rounds = std::atoi(argv[++i]);
+		} else if (arg == "--necto-beta" && i + 1 < argc) {
+			cfg.necto.benchBeta = static_cast<float>(std::atof(argv[++i]));
+		} else {
+			std::fprintf(stderr, "Unknown option: %s\n", arg.c_str());
+			return EXIT_FAILURE;
+		}
+	}
+
+	if (!run.empty() && model.empty()) {
+		cfg.runLabel = run;
+		model = Dash::FindLatestCheckpoint(cfg.CheckpointFolder());
+		if (model.empty()) {
+			std::fprintf(stderr, "No complete checkpoint under %s\n",
+						 cfg.CheckpointFolder().string().c_str());
+			return EXIT_FAILURE;
+		}
+	}
+
+	if (model.empty()) {
+		std::fprintf(stderr, "Pass --model <checkpoint> or --run <label>\n");
+		return EXIT_FAILURE;
+	}
+
+	// Keep the Elo file next to the run the checkpoint came from, so repeated
+	// benchmarks of the same run accumulate rather than starting over.
+	if (run.empty()) {
+		cfg.checkpointRoot = model.parent_path().parent_path();
+		cfg.runLabel = model.parent_path().filename().string();
+	}
+
+	const char *meshEnv = std::getenv("DASH_COLLISION_MESHES");
+	if (!meshEnv)
+		meshEnv = std::getenv("HIVE_COLLISION_MESHES");
+	RocketSim::Init(meshEnv ? meshEnv : "collision_meshes");
+
+	std::printf("Benchmarking %s vs Necto (%d arenas, beta %.2f)\n",
+				model.string().c_str(), cfg.necto.benchArenas,
+				cfg.necto.benchBeta);
+
+	Dash::NectoBench bench(cfg);
+	for (int r = 0; r < rounds; r++) {
+		const Dash::NectoBenchResult result = bench.Run(model);
+		if (!result.valid) {
+			std::fprintf(stderr, "Benchmark produced no episodes\n");
+			return EXIT_FAILURE;
+		}
+		std::printf("round %d: %d-%d over %d episodes (%d decisive), "
+					"win rate %.3f, Elo %.1f\n",
+					r + 1, result.goalsFor, result.goalsAgainst,
+					result.episodes, result.decisive, result.winRate,
+					result.elo);
+	}
+	return EXIT_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
 	// Unbuffered output so logs interleave correctly when RLBot captures them.
 	std::setvbuf(stdout, nullptr, _IONBF, 0);
@@ -352,6 +466,14 @@ int main(int argc, char *argv[]) {
 
 	if (command == "spectate")
 		return RunSpectate(argc, argv);
+
+	if (command == "benchmark")
+		return RunBenchmark(argc, argv);
+
+	if (command == "necto-selftest") {
+		// Optional output path; defaults to stdout.
+		return Dash::RunNectoSelfTest(argc > 2 ? argv[2] : "");
+	}
 
 	if (command == "-h" || command == "--help" || command == "help") {
 		PrintUsage(argv[0]);

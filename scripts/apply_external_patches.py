@@ -581,6 +581,44 @@ ROCKETSIMVIS_SOCKET_BODY = """    def stop_async(self):
                 pass"""
 
 
+
+# --- External opponents (Necto) ---------------------------------------------
+# Lets a non-GigaLearn opponent play in a slice of the training arenas without
+# its experience entering the PPO update. See bot/src/opponents/ for the
+# Dash-side driver that fills these hooks in.
+
+EXT_CFG_INCLUDE_ANCHOR = '#include "SkillTrackerConfig.h"'
+
+EXT_CFG_INCLUDE_BODY = '#include "SkillTrackerConfig.h"\n\n// --- HIVE LOCAL PATCH: external opponent includes -------------------------\n#include <functional>\n#include <vector>\nnamespace RLGC { struct EnvSet; }\n// --- END HIVE LOCAL PATCH -------------------------------------------------'
+
+EXT_CFG_HOOKS_ANCHOR = '\t\tSkillTrackerConfig skillTracker = {};'
+
+EXT_CFG_HOOKS_BODY = "\t\tSkillTrackerConfig skillTracker = {};\n\n\t\t// --- HIVE LOCAL PATCH: external opponent hooks --------------------------\n\t\t// Hooks for opponents that are NOT GigaLearn models, and so cannot ride the\n\t\t// old-version path: they have their own observation, their own action head,\n\t\t// or both. This project uses them to put Necto in a slice of the arenas.\n\t\t//\n\t\t// externalPlayerMaskFn is called once, after the EnvSet exists, and flags\n\t\t// the players the learner does not own. Flagged players are excluded from\n\t\t// the update -- their actions did not come from the policy, so PPO's\n\t\t// importance ratio for them is meaningless.\n\t\t//\n\t\t// preStepFn runs immediately before each StepSecondHalf, which is where an\n\t\t// external opponent computes its controls for every arena in one batch.\n\t\tstd::function<void(RLGC::EnvSet*, std::vector<uint8_t>&)> externalPlayerMaskFn = nullptr;\n\t\tstd::function<void(RLGC::EnvSet*)> preStepFn = nullptr;\n\t\t// --- END HIVE LOCAL PATCH -----------------------------------------------"
+
+EXT_MASK_ANCHOR = '\t\tint numPlayers = envSet->state.numPlayers;'
+
+EXT_MASK_BODY = '\t\tint numPlayers = envSet->state.numPlayers;\n\n\t\t// --- HIVE LOCAL PATCH: external opponent mask -------------------------\n\t\t// Players driven by something that is neither this policy nor an old\n\t\t// version of it. They must be kept out of the update: their actions did\n\t\t// not come from the policy, so PPO\'s importance ratio on them is\n\t\t// meaningless, and the gradient it produces is noise wearing a\n\t\t// confident-looking magnitude.\n\t\t//\n\t\t// The assignment is fixed for the whole run, so this is built once here\n\t\t// rather than re-derived per iteration.\n\t\tstd::vector<uint8_t> externalPlayerMask(numPlayers, 0);\n\t\tint numExternalPlayers = 0;\n\t\tif (config.externalPlayerMaskFn) {\n\t\t\tconfig.externalPlayerMaskFn(envSet, externalPlayerMask);\n\t\t\texternalPlayerMask.resize(numPlayers, 0);\n\t\t\tfor (uint8_t flagged : externalPlayerMask)\n\t\t\t\tnumExternalPlayers += flagged ? 1 : 0;\n\n\t\t\tRG_LOG(" > External opponents: " << numExternalPlayers << " of " << numPlayers << " players");\n\t\t\tif (numExternalPlayers >= numPlayers)\n\t\t\t\tRG_ERR_CLOSE("Every player is an external opponent; nothing would be learned");\n\t\t}\n\t\t// --- END HIVE LOCAL PATCH ---------------------------------------------'
+
+EXT_NEWIDX_ANCHOR = '\t\t\tfor (int i = 0; i < numPlayers; i++)\n\t\t\t\tnewPlayerIndices.push_back(i);'
+
+EXT_NEWIDX_BODY = '\t\t\t// --- HIVE LOCAL PATCH: external opponents excluded ---------------\n\t\t\t// newPlayerIndices is the only list the trajectory appends iterate, so\n\t\t\t// leaving external players out of it here is the entire mechanism that\n\t\t\t// keeps their experience out of the update.\n\t\t\tfor (int i = 0; i < numPlayers; i++)\n\t\t\t\tif (!externalPlayerMask[i])\n\t\t\t\t\tnewPlayerIndices.push_back(i);\n\t\t\t// --- END HIVE LOCAL PATCH ----------------------------------------'
+
+EXT_OLDMASK_ANCHOR = '\t\t\t\t\tnewPlayerIndices.clear();\n\t\t\t\t\toldVersionPlayerMask.resize(numPlayers);\n\t\t\t\t\tint i = 0;\n\t\t\t\t\tfor (auto& state : envSet->state.gameStates) {\n\t\t\t\t\t\tfor (auto& player : state.players) {\n\t\t\t\t\t\t\tif (player.team == oldVersionTeam) {\n\t\t\t\t\t\t\t\toldVersionPlayerMask[i] = true;\n\t\t\t\t\t\t\t\toldPlayerIndices.push_back(i);\n\t\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\t\toldVersionPlayerMask[i] = false;\n\t\t\t\t\t\t\t\tnewPlayerIndices.push_back(i);\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\ti++;\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\n\t\t\t\t\ttNewPlayerIndices = torch::tensor(newPlayerIndices);\n\t\t\t\t\ttOldPlayerIndices = torch::tensor(oldPlayerIndices);'
+
+EXT_OLDMASK_BODY = '\t\t\t\t\tnewPlayerIndices.clear();\n\t\t\t\t\toldVersionPlayerMask.resize(numPlayers);\n\t\t\t\t\tint i = 0;\n\t\t\t\t\tfor (auto& state : envSet->state.gameStates) {\n\t\t\t\t\t\t// --- HIVE LOCAL PATCH: external opponent arenas keep their learner\n\t\t\t\t\t\t// An arena that already holds an external opponent is left as it\n\t\t\t\t\t\t// is. Handing its remaining player to an old version would leave\n\t\t\t\t\t\t// that arena with nobody learning in it -- sim time spent for no\n\t\t\t\t\t\t// gradient, and silently, since nothing downstream would notice.\n\t\t\t\t\t\tbool arenaHasExternal = false;\n\t\t\t\t\t\tfor (int j = 0; j < (int)state.players.size(); j++)\n\t\t\t\t\t\t\tarenaHasExternal |= externalPlayerMask[i + j] != 0;\n\t\t\t\t\t\t// --- END HIVE LOCAL PATCH ---\n\n\t\t\t\t\t\tfor (auto& player : state.players) {\n\t\t\t\t\t\t\tif (!arenaHasExternal && player.team == oldVersionTeam) {\n\t\t\t\t\t\t\t\toldVersionPlayerMask[i] = true;\n\t\t\t\t\t\t\t\toldPlayerIndices.push_back(i);\n\t\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\t\toldVersionPlayerMask[i] = false;\n\t\t\t\t\t\t\t\tif (!externalPlayerMask[i])\n\t\t\t\t\t\t\t\t\tnewPlayerIndices.push_back(i);\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\ti++;\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\n\t\t\t\t\tif (oldPlayerIndices.empty()) {\n\t\t\t\t\t\t// Every arena holds an external opponent, so there is no\n\t\t\t\t\t\t// old-version side to field this iteration.\n\t\t\t\t\t\toldVersion = NULL;\n\t\t\t\t\t} else {\n\t\t\t\t\t\ttNewPlayerIndices = torch::tensor(newPlayerIndices);\n\t\t\t\t\t\ttOldPlayerIndices = torch::tensor(oldPlayerIndices);\n\t\t\t\t\t}'
+
+EXT_NUMREAL_ANCHOR = '\t\t\tint numRealPlayers = oldVersion ? newPlayerIndices.size() : envSet->state.numPlayers;'
+
+EXT_NUMREAL_BODY = '\t\t\t// --- HIVE LOCAL PATCH: split inference flag ----------------------\n\t\t\t// newPlayerIndices is authoritative in every case now: it already\n\t\t\t// excludes both old-version and external players.\n\t\t\tint numRealPlayers = newPlayerIndices.size();\n\n\t\t\t// Take the split path whenever ANY player is not ours. That keeps\n\t\t\t// tLogProbs aligned 1:1 with newPlayerIndices, which is exactly what\n\t\t\t// the trajectory appends further down assume -- so they need no change.\n\t\t\tconst bool splitInference = oldVersion || numExternalPlayers > 0;\n\t\t\tif (splitInference && !tNewPlayerIndices.defined())\n\t\t\t\ttNewPlayerIndices = torch::tensor(newPlayerIndices);\n\t\t\t// --- END HIVE LOCAL PATCH ----------------------------------------'
+
+EXT_INFER_ANCHOR = '\t\t\t\t\t\tif (oldVersion) {\n\t\t\t\t\t\t\ttorch::Tensor tdNewStates = tStates.index_select(0, tNewPlayerIndices).to(ppo->device, true);\n\t\t\t\t\t\t\ttorch::Tensor tdOldStates = tStates.index_select(0, tOldPlayerIndices).to(ppo->device, true);\n\t\t\t\t\t\t\ttorch::Tensor tdNewActionMasks = tActionMasks.index_select(0, tNewPlayerIndices).to(ppo->device, true);\n\t\t\t\t\t\t\ttorch::Tensor tdOldActionMasks = tActionMasks.index_select(0, tOldPlayerIndices).to(ppo->device, true);\n\n\t\t\t\t\t\t\ttorch::Tensor tNewActions;\n\t\t\t\t\t\t\ttorch::Tensor tOldActions;\n\n\t\t\t\t\t\t\tppo->InferActions(tdNewStates, tdNewActionMasks, &tNewActions, &tLogProbs);\n\t\t\t\t\t\t\tppo->InferActions(tdOldStates, tdOldActionMasks, &tOldActions, NULL, &oldVersion->models);\n\n\t\t\t\t\t\t\ttActions = torch::zeros(numPlayers, tNewActions.dtype());\n\t\t\t\t\t\t\ttActions.index_copy_(0, tNewPlayerIndices, tNewActions.cpu());\n\t\t\t\t\t\t\ttActions.index_copy_(0, tOldPlayerIndices, tOldActions.cpu());\n\t\t\t\t\t\t} else {'
+
+EXT_INFER_BODY = "\t\t\t\t\t\tif (splitInference) {\n\t\t\t\t\t\t\t// --- HIVE LOCAL PATCH: split inference branch ----------\n\t\t\t\t\t\t\t// Infer for our own players only. tLogProbs therefore comes\n\t\t\t\t\t\t\t// back in newPlayerIndices order, which the trajectory\n\t\t\t\t\t\t\t// appends rely on.\n\t\t\t\t\t\t\ttorch::Tensor tdNewStates = tStates.index_select(0, tNewPlayerIndices).to(ppo->device, true);\n\t\t\t\t\t\t\ttorch::Tensor tdNewActionMasks = tActionMasks.index_select(0, tNewPlayerIndices).to(ppo->device, true);\n\n\t\t\t\t\t\t\ttorch::Tensor tNewActions;\n\t\t\t\t\t\t\tppo->InferActions(tdNewStates, tdNewActionMasks, &tNewActions, &tLogProbs);\n\n\t\t\t\t\t\t\ttActions = torch::zeros(numPlayers, tNewActions.dtype());\n\t\t\t\t\t\t\ttActions.index_copy_(0, tNewPlayerIndices, tNewActions.cpu());\n\n\t\t\t\t\t\t\tif (oldVersion) {\n\t\t\t\t\t\t\t\ttorch::Tensor tdOldStates = tStates.index_select(0, tOldPlayerIndices).to(ppo->device, true);\n\t\t\t\t\t\t\t\ttorch::Tensor tdOldActionMasks = tActionMasks.index_select(0, tOldPlayerIndices).to(ppo->device, true);\n\n\t\t\t\t\t\t\t\ttorch::Tensor tOldActions;\n\t\t\t\t\t\t\t\tppo->InferActions(tdOldStates, tdOldActionMasks, &tOldActions, NULL, &oldVersion->models);\n\t\t\t\t\t\t\t\ttActions.index_copy_(0, tOldPlayerIndices, tOldActions.cpu());\n\t\t\t\t\t\t\t}\n\n\t\t\t\t\t\t\t// External players keep action index 0. Their arena's action\n\t\t\t\t\t\t\t// parser ignores the index entirely and applies the opponent's\n\t\t\t\t\t\t\t// own controls instead.\n\t\t\t\t\t\t\t// --- END HIVE LOCAL PATCH -----------------------------\n\t\t\t\t\t\t} else {"
+
+EXT_PRESTEP_ANCHOR = '\t\t\t\t\t\tenvSet->Sync(); // Make sure the first half is done\n\t\t\t\t\t\tenvSet->StepSecondHalf(curActions, false);'
+
+EXT_PRESTEP_BODY = "\t\t\t\t\t\tenvSet->Sync(); // Make sure the first half is done\n\n\t\t\t\t\t\t// --- HIVE LOCAL PATCH: pre-step hook -----------------------\n\t\t\t\t\t\t// Where a non-GigaLearn opponent computes its controls, in ONE\n\t\t\t\t\t\t// batched forward covering every arena it plays in. The arenas'\n\t\t\t\t\t\t// action parsers pick those up during the step below.\n\t\t\t\t\t\t//\n\t\t\t\t\t\t// This has to be a hook rather than lazy work inside the parser:\n\t\t\t\t\t\t// the parser is called once per car, so inference would degrade\n\t\t\t\t\t\t// to one tiny forward per arena (~40ms per step measured at 51\n\t\t\t\t\t\t// arenas) instead of a single batched one (~3ms).\n\t\t\t\t\t\tif (config.preStepFn)\n\t\t\t\t\t\t\tconfig.preStepFn(envSet);\n\t\t\t\t\t\t// --- END HIVE LOCAL PATCH ---------------------------------\n\n\t\t\t\t\t\tenvSet->StepSecondHalf(curActions, false);"
+
 PATCHES = [
 	{
 		"name": "exploration-floor",
@@ -764,6 +802,62 @@ PATCHES = [
 		"marker": "self.sock.close()",
 		"anchor": ROCKETSIMVIS_SOCKET_ANCHOR,
 		"body": ROCKETSIMVIS_SOCKET_BODY,
+	},
+	{
+		"name": 'external-opponent-includes',
+		"path": 'external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/LearnerConfig.h',
+		"marker": 'HIVE LOCAL PATCH: external opponent includes',
+		"anchor": EXT_CFG_INCLUDE_ANCHOR,
+		"body": EXT_CFG_INCLUDE_BODY,
+	},
+	{
+		"name": 'external-opponent-hooks',
+		"path": 'external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/LearnerConfig.h',
+		"marker": 'HIVE LOCAL PATCH: external opponent hooks',
+		"anchor": EXT_CFG_HOOKS_ANCHOR,
+		"body": EXT_CFG_HOOKS_BODY,
+	},
+	{
+		"name": 'external-opponent-mask',
+		"path": 'external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp',
+		"marker": 'HIVE LOCAL PATCH: external opponent mask',
+		"anchor": EXT_MASK_ANCHOR,
+		"body": EXT_MASK_BODY,
+	},
+	{
+		"name": 'external-opponents-excluded',
+		"path": 'external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp',
+		"marker": 'HIVE LOCAL PATCH: external opponents excluded',
+		"anchor": EXT_NEWIDX_ANCHOR,
+		"body": EXT_NEWIDX_BODY,
+	},
+	{
+		"name": 'external-opponent-arenas-keep-learner',
+		"path": 'external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp',
+		"marker": 'HIVE LOCAL PATCH: external opponent arenas keep their learner',
+		"anchor": EXT_OLDMASK_ANCHOR,
+		"body": EXT_OLDMASK_BODY,
+	},
+	{
+		"name": 'split-inference-flag',
+		"path": 'external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp',
+		"marker": 'HIVE LOCAL PATCH: split inference flag',
+		"anchor": EXT_NUMREAL_ANCHOR,
+		"body": EXT_NUMREAL_BODY,
+	},
+	{
+		"name": 'split-inference-branch',
+		"path": 'external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp',
+		"marker": 'HIVE LOCAL PATCH: split inference branch',
+		"anchor": EXT_INFER_ANCHOR,
+		"body": EXT_INFER_BODY,
+	},
+	{
+		"name": 'external-opponent-pre-step-hook',
+		"path": 'external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp',
+		"marker": 'HIVE LOCAL PATCH: pre-step hook',
+		"anchor": EXT_PRESTEP_ANCHOR,
+		"body": EXT_PRESTEP_BODY,
 	},
 ]
 

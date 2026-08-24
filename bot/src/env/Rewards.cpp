@@ -11,17 +11,16 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Goal", b.goal, [] { return new GoalReward(); }},
 		{"Strong Touch", b.strongTouch,
 		 [] { return new ZeroSumReward(new DirectionalTouchReward(), 1); }},
-		{"Velocity: Ball to Goal", b.velocityBallToGoal,
-		 [] { return new VelocityBallToGoalReward(); }},
-		{"Velocity: Player to Ball", b.velocityPlayerToBall,
-		 [] { return new VelocityPlayerToBallReward(); }},
 		{"Air Touch", b.airTouch,
 		 [] { return new ZeroSumReward(new ImprovedAirTouchReward(), 1); }},
-		{"Speed", b.speed,
-		 [] { return new ZeroSumReward(new SpeedReward(), 1); }},
 		{"Boost Pickup", b.pickupBoost,
 		 [] { return new ZeroSumReward(new PickupBoostReward(), 1); }},
 		{"Save Boost", b.saveBoost, [] { return new SaveBoostReward(); }},
+		{"Bump", b.bump, [] { return new BumpReward(); }},
+		{"Demo", b.demo,
+		 [] { return new ZeroSumReward(new DemoReward(), 0, 2); }},
+		{"Save", b.save, [] { return new ZeroSumReward(new SaveReward(), 1); }},
+		// {"Possession", b.possession, [] { return new PossessionReward(); }},
 	};
 }
 

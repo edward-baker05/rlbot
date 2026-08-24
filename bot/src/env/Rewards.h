@@ -71,6 +71,23 @@ class ImprovedAirTouchReward : public Reward {
 	}
 };
 
+class PossessionReward : public Reward {
+  public:
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) {
+		float selfDot = player.pos.Dot(state.ball.pos);
+		float oppDot;
+		for (Player opponent : state.players) {
+			if (opponent.team == player.team)
+				continue;
+
+			oppDot = RS_MIN(oppDot, opponent.pos.Dot(state.ball.pos));
+		}
+
+		return selfDot - oppDot;
+	}
+};
+
 std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg);
 
 std::vector<RLGC::WeightedReward> BuildGeneralRewards(const TrainConfig &cfg);

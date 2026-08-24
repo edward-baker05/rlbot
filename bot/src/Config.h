@@ -16,19 +16,19 @@ struct RewardBudget {
 	float strongTouch = 0.25f;
 	float airTouch = 0.02f;
 
-	float velocityBallToGoal = 0.05f;
-	float velocityPlayerToBall = 0.0005f; // 0.025f;
-
-	float speed = 0.003f;
 	float pickupBoost = 0.1f;
 	float saveBoost = 0.001f;
 
-	// float bump = 20.f; Scaled against goal = 150
-	// float demo = 80.f;
+	float bump = 0.15f;
+	float demo = 0.4f;
+
+	float save = 0.5f;
+
+	float possession = 0.005f;
 };
 
 struct SelfPlayConfig {
-	bool trainAgainstOldVersions = true;
+	bool trainAgainstOldVersions = false;
 	float trainAgainstOldChance = 0.3f;
 	int64_t tsPerVersion = 25'000'000;
 	int maxOldVersions = 16;
@@ -38,6 +38,25 @@ struct SelfPlayConfig {
 	int skillUpdateInterval = 100;
 	float skillSimTime = 45.f;
 	float skillMaxSimTime = 240.f;
+};
+
+struct NectoConfig {
+	bool enabled = true;
+
+	float arenaFraction = 0.1f;
+
+	float trainBeta = 0.5f;
+	float benchBeta = 1.0f;
+
+	std::filesystem::path modelPath =
+		"../../libs/opponents/NectoFamily/necto/necto-model.pt";
+
+	bool benchmark = true;
+	int benchInterval = 100;
+	int benchArenas = 16;
+	float benchSimTime = 45.f;
+	float benchMaxSimTime = 240.f;
+	float benchEloK = 5.f;
 };
 
 struct TeamDistribution {
@@ -96,28 +115,29 @@ struct TrainConfig {
 	float teamSpirit = 0.0f;
 	ModelShape modelShape = {};
 	SelfPlayConfig selfPlay = {};
+	NectoConfig necto = {};
 
 	float noTouchTimeoutSeconds = 12.f;
-	float timeoutSeconds = 60.f;
+	float timeoutSeconds = 120.f;
 	int numGames = 256;
 	int tickSkip = 8;
 	int actionDelay = 7;
 
-	int tsPerItr = 100'000;
+	int tsPerItr = 250'000;
 	int miniBatchSize = 50'000;
 	int epochs = 2;
 
-	float entropyScale = 0.03f;
+	float entropyScale = 0.02f;
 	float entropyTarget = 0.0f;
 	float entropyAdjustRate = 0.15f;
-	float gaeGamma = 0.99f;
-	float policyLR = 2e-4f;
-	float criticLR = 2e-4f;
+	float gaeGamma = 0.99f; // TODO This needs to go to 0.995 soon
+	float policyLR = 1e-4f;
+	float criticLR = 1e-4f;
 	int64_t maxSteps = 0;
 
 	std::filesystem::path checkpointRoot = "checkpoints";
 	std::string runLabel = {};
-	int64_t tsPerSave = 1'000'000;
+	int64_t tsPerSave = 5'000'000;
 	int checkpointsToKeep = 16;
 	int64_t randomSeed = -1;
 

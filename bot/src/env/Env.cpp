@@ -7,6 +7,7 @@
 #include "StateSetters/CombinedState.h"
 #include "StateSetters/FuzzedKickoffState.h"
 #include "Terminal.h"
+#include "../opponents/NectoArena.h"
 
 #include <RLGymCPP/StateSetters/RandomState.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
@@ -36,9 +37,25 @@ EnvCreateResult CreateEnv(int index, const TrainConfig &cfg) {
 		arena->AddCar(Team::ORANGE);
 	}
 
+	// Necto arenas are fixed at creation: a static assignment keeps the
+	// learner's once-per-iteration player split valid, and pins exactly half the
+	// Necto arenas to each side. Owned for the process lifetime, like the parser
+	// and obs builder below.
+	NectoArenaState *nectoArena = nullptr;
+	if (cfg.necto.enabled) {
+		Team nectoTeam = Team::ORANGE;
+		if (NectoArenaAssignment(index, cfg.necto.arenaFraction, &nectoTeam)) {
+			nectoArena = new NectoArenaState();
+			nectoArena->active = true;
+			nectoArena->nectoTeam = nectoTeam;
+			nectoArena->pending.assign(playersPerTeam * 2, RLGC::Action{});
+		}
+	}
+
 	EnvCreateResult result = {};
 	result.arena = arena;
-	result.actionParser = MakeActionParser(cfg.maskActions).release();
+	result.userInfo = nectoArena;
+	result.actionParser = MakeActionParser(cfg.maskActions, nectoArena).release();
 	result.obsBuilder =
 		MakeObsBuilder(cfg.maxPlayersPerTeam, cfg.obs).release();
 	result.stateSetter = BuildSpawner(cfg);

@@ -37,6 +37,7 @@ endif()
 # GigaLearnCPP brings RLGymCPP and RocketSim with it.
 add_subdirectory("${DASH_EXTERNAL}/GigaLearnCPP/GigaLearnCPP" gigalearn)
 
+
 # RLBot v5 C++ interface. Its own CMakeLists fetches flatbuffers, the RLBot
 # schema and liburing at configure time, so the first configure needs network
 # access and takes a couple of minutes.
@@ -69,8 +70,18 @@ add_library(DashCore STATIC
 
 	src/eval/Checkpoints.cpp
 	src/eval/Checkpoints.h
+	src/eval/NectoBench.cpp
+	src/eval/NectoBench.h
 	src/eval/Spectate.cpp
 	src/eval/Spectate.h
+
+	src/opponents/NectoArena.h
+	src/opponents/NectoDriver.cpp
+	src/opponents/NectoDriver.h
+	src/opponents/NectoPolicy.cpp
+	src/opponents/NectoPolicy.h
+	src/opponents/NectoSelfTest.cpp
+	src/opponents/NectoSelfTest.h
 
 	src/policy/Policy.cpp
 	src/policy/Policy.h
@@ -94,9 +105,27 @@ target_include_directories(DashCore PRIVATE
 	"${DASH_EXTERNAL}/GigaLearnCPP/GigaLearnCPP/libsrc/json"
 )
 
+# libtorch, by explicit path. GigaLearnCPP links torch PRIVATE, so DashCore
+# inherits no torch headers or libraries from it -- only TORCH_CXX_FLAGS leaks
+# through, via CMAKE_CXX_FLAGS (see the note further down). The Necto opponent
+# loads a TorchScript module itself, so it needs the real thing.
+#
+# Deliberately NOT find_package(Torch): TorchConfig runs CUDA architecture
+# detection, which needs the CUDA language enabled, and this project is
+# LANGUAGES CXX. GigaLearnCPP gets away with it inside its own project() scope.
+# The paths are hard-coded here the same way the NCCL and NVSHMEM ones are
+# below, and libtorch/lib is already on the binary's RPATH.
+target_include_directories(DashCore PRIVATE
+	"${DASH_LIBS}/libtorch/include"
+	"${DASH_LIBS}/libtorch/include/torch/csrc/api/include"
+)
+
 target_link_libraries(DashCore PUBLIC
 	GigaLearnCPP
 	RLBotCPP-static
+	"${DASH_LIBS}/libtorch/lib/libtorch.so"
+	"${DASH_LIBS}/libtorch/lib/libtorch_cpu.so"
+	"${DASH_LIBS}/libtorch/lib/libc10.so"
 )
 
 # external/ carries six local patches that this repo's git cannot see, because
