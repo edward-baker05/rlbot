@@ -29,7 +29,7 @@ fi
 # dominates the step number and any label sorting late in the alphabet wins
 # outright: a 250k-step main-smoke-rewards folder beat every main-p1x run,
 # and being trained under the old 89-float obs it failed to load at all.
-: "${DASH_MODEL:=${HIVE_MODEL:-$(ls -dt "$BUILD_DIR"/checkpoints/main*/[0-9]*/ "$REPO"/checkpoints/main*/[0-9]*/ 2>/dev/null | head -1)}}"
+: "${DASH_MODEL:=${HIVE_MODEL:-$(ls -dt "$BUILD_DIR"/checkpoints/*/[0-9]*/ "$REPO"/checkpoints/*/[0-9]*/ 2>/dev/null | head -1)}}"
 
 if [[ -z "${DASH_MODEL:-}" || ! -d "${DASH_MODEL}" ]]; then
 	echo "No model found. Train one first, or set DASH_MODEL to a checkpoint folder." >&2
