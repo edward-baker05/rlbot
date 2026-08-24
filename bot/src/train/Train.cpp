@@ -94,9 +94,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"air", b.airTouch},
 		{"velocityBallToGoal", b.velocityBallToGoal},
 		{"velocityPlayerToBall", b.velocityPlayerToBall},
-		{"faceBall", b.faceBall},
 		{"speed", b.speed},
-		{"flip", b.flip},
 		{"pickupBoost", b.pickupBoost},
 		{"saveBoost", b.saveBoost}
 		// {"pickupBoost", b.pickupBoost},

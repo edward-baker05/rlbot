@@ -15,7 +15,6 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		 [] { return new VelocityBallToGoalReward(); }},
 		{"Velocity: Player to Ball", b.velocityPlayerToBall,
 		 [] { return new VelocityPlayerToBallReward(); }},
-		{"Face Ball", b.faceBall, [] { return new FaceBallReward(); }},
 		{"Air Touch", b.airTouch,
 		 [] { return new ZeroSumReward(new ImprovedAirTouchReward(), 1); }},
 		{"Speed", b.speed,
@@ -23,7 +22,6 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Boost Pickup", b.pickupBoost,
 		 [] { return new ZeroSumReward(new PickupBoostReward(), 1); }},
 		{"Save Boost", b.saveBoost, [] { return new SaveBoostReward(); }},
-		// {"Flip", b.flip, [] { return new FlipReward(); }}
 	};
 }
 
