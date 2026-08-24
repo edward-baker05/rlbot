@@ -3,7 +3,9 @@
 #include "../Config.h"
 
 #include "Rewards/ZeroSumReward.h"
+#include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/Math.h>
+#include <RLGymCPP/Rewards/CommonRewards.h>
 #include <RLGymCPP/Rewards/Reward.h>
 
 #include <functional>
@@ -49,6 +51,23 @@ class DirectionalTouchReward : public Reward {
 			}
 		}
 		return 0;
+	}
+};
+
+class ImprovedAirTouchReward : public Reward {
+  public:
+	constexpr static float MAX_TIME_IN_AIR = 2.f;
+
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) {
+		if (!state.prev)
+			return 0;
+
+		float air_time_frac =
+			RS_MIN(player.airTime, MAX_TIME_IN_AIR) / MAX_TIME_IN_AIR;
+		float height_frac = state.ball.pos[2] / RLGC::CommonValues::CEILING_Z;
+
+		return RS_MIN(air_time_frac, height_frac);
 	}
 };
 

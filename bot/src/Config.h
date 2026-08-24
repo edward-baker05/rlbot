@@ -14,23 +14,26 @@ namespace Dash {
 struct RewardBudget {
 	float goal = 1.f;
 	float strongTouch = 0.1f;
+	float airTouch = 0.2f;
+
 	float velocityBallToGoal = 0.15f;
 	float velocityPlayerToBall = 0.05f;
-	float faceBall = 0.00f;
-	float air = 0.006;
-	float speed = 0.001;
+	float faceBall = 0.01f;
 
-	// float pickupBoost = 10.f;
-	// float saveBoost = 0.2f;
-	// float bump = 20.f;
+	float speed = 0.003;
+	float flip = 0.01f;
+	float pickupBoost = 0.05f;
+	float saveBoost = 0.02f;
+
+	// float bump = 20.f; Scaled against goal = 150
 	// float demo = 80.f;
 };
 
 struct SelfPlayConfig {
 	bool trainAgainstOldVersions = true;
 	float trainAgainstOldChance = 0.3f;
-	int64_t tsPerVersion = 5'000'000;
-	int maxOldVersions = 32;
+	int64_t tsPerVersion = 25'000'000;
+	int maxOldVersions = 16;
 
 	bool trackSkill = false;
 	int skillArenas = 8;
@@ -106,12 +109,12 @@ struct TrainConfig {
 	int miniBatchSize = 50'000;
 	int epochs = 2;
 
-	float entropyScale = 0.05f;
+	float entropyScale = 0.03f;
 	float entropyTarget = 0.0f;
 	float entropyAdjustRate = 0.15f;
 	float gaeGamma = 0.99f;
-	float policyLR = 3e-4f;
-	float criticLR = 3e-4f;
+	float policyLR = 2e-4f;
+	float criticLR = 2e-4f;
 	int64_t maxSteps = 0;
 
 	std::filesystem::path checkpointRoot = "checkpoints";

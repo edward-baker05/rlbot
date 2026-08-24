@@ -18,8 +18,8 @@ namespace Dash {
 
 StateSetter *BuildSpawner(const TrainConfig &cfg) {
 	StateSetter *base =
-		new CombinedState({{new RandomState(true, true, false), 0.9f},
-						   {new FuzzedKickoffState(), 0.1f}});
+		new CombinedState({{new RandomState(true, true, false), 0.8f},
+						   {new FuzzedKickoffState(), 0.2f}});
 
 	if (cfg.infiniteBoostChance <= 0.f)
 		return base;
