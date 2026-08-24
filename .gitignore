@@ -1,6 +1,8 @@
 # Build output
 bot/build/
 build/
+dist/
+scratch/
 
 # Training artifacts
 wandb/
