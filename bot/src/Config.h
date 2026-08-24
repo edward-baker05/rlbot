@@ -12,12 +12,16 @@
 namespace Dash {
 
 struct RewardBudget {
-	float goal = 1.0f;
-	float touchAccel = 0.08f;
-	float velocityPlayerToBall = 0.002f;
-	float velocityBallToGoal = 0.005f;
-	float demo = 0.2f;
-	float faceBall = 0.001f;
+	float air = 0.25;
+	float faceBall = 0.25f;
+	float velocityPlayerToBall = 4.f;
+	float strongTouch = 60;
+	float velocityBallToGoal = 2.f;
+	float pickupBoost = 10.f;
+	float saveBoost = 0.2f;
+	float bump = 20.f;
+	float demo = 80.f;
+	float goal = 150.f;
 };
 
 struct SelfPlayConfig {
@@ -34,13 +38,10 @@ struct SelfPlayConfig {
 };
 
 struct TeamDistribution {
-	// Relative probabilities / weights for each team size occurring in training
 	float p1v1 = 1.0f;
 	float p2v2 = 0.0f;
 	float p3v3 = 0.0f;
 
-	// Deterministically partitions the arena index [0, totalArenas-1] into team
-	// sizes (1, 2, or 3)
 	int SampleTeamSize(int arenaIndex, int totalArenas) const {
 		float total = p1v1 + p2v2 + p3v3;
 		if (total <= 0.f || totalArenas <= 0)
@@ -95,20 +96,20 @@ struct TrainConfig {
 
 	float noTouchTimeoutSeconds = 12.f;
 	float timeoutSeconds = 60.f;
-	int numGames = 128;
+	int numGames = 256;
 	int tickSkip = 8;
 	int actionDelay = 7;
 
 	int tsPerItr = 100'000;
-	int miniBatchSize = 25'000;
+	int miniBatchSize = 50'000;
 	int epochs = 2;
 
-	float entropyScale = 0.050f;
+	float entropyScale = 0.035f;
 	float entropyTarget = 0.0f;
 	float entropyAdjustRate = 0.15f;
 	float gaeGamma = 0.99f;
-	float policyLR = 3e-4f;
-	float criticLR = 3e-4f;
+	float policyLR = 2e-4f;
+	float criticLR = 2e-4f;
 	int64_t maxSteps = 0;
 
 	std::filesystem::path checkpointRoot = "checkpoints";

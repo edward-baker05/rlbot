@@ -16,31 +16,29 @@ struct ModelShape {
 };
 
 class Policy {
-public:
-	Policy(RLGC::ObsBuilder* obsBuilder,
-	       int obsSize,
-	       RLGC::ActionParser* actionParser,
-	       const ModelShape& shape,
-	       bool useGPU);
+  public:
+	Policy(RLGC::ObsBuilder *obsBuilder, int obsSize,
+		   RLGC::ActionParser *actionParser, const ModelShape &shape,
+		   bool useGPU);
 
-	Policy(const Policy&) = delete;
-	Policy& operator=(const Policy&) = delete;
+	Policy(const Policy &) = delete;
+	Policy &operator=(const Policy &) = delete;
 
-	void Load(const std::filesystem::path& checkpointFolder);
+	void Load(const std::filesystem::path &checkpointFolder);
 	bool Loaded() const { return unit != nullptr; }
 
-	std::vector<RLGC::Action> InferBatch(const std::vector<RLGC::Player>& players,
-	                                     const std::vector<RLGC::GameState>& states,
-	                                     bool deterministic,
-	                                     float temperature = 1.f);
+	std::vector<RLGC::Action>
+	InferBatch(const std::vector<RLGC::Player> &players,
+			   const std::vector<RLGC::GameState> &states, bool deterministic,
+			   float temperature = 1.f);
 
-private:
-	RLGC::ObsBuilder* obsBuilder;
+  private:
+	RLGC::ObsBuilder *obsBuilder;
 	int obsSize;
-	RLGC::ActionParser* actionParser;
+	RLGC::ActionParser *actionParser;
 	ModelShape shape;
 	bool useGPU;
 	std::unique_ptr<GGL::InferUnit> unit;
 };
 
-}  // namespace Dash
+} // namespace Dash

@@ -88,9 +88,16 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 	const RewardBudget &b = cfg.rewards;
 	nlohmann::json j;
 
-	j["rewards"] = {
-		{"goal", b.goal},
-	};
+	j["rewards"] = {{"air", b.air},
+					{"faceBall", b.faceBall},
+					{"velocityPlayerToBall", b.velocityPlayerToBall},
+					{"strongTouch", b.strongTouch},
+					{"velocityBallToGoal", b.velocityBallToGoal},
+					{"pickupBoost", b.pickupBoost},
+					{"saveBoost", b.saveBoost},
+					{"bump", b.bump},
+					{"demo", b.demo},
+					{"goal", b.goal}};
 
 	j["ppo"] = {
 		{"tsPerItr", cfg.tsPerItr},
@@ -114,11 +121,12 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"numGames", cfg.numGames},
 		{"tickSkip", cfg.tickSkip},
 		{"actionDelay", cfg.actionDelay},
-		{"teamDistribution", {
-			{"p1v1", cfg.teamDistribution.p1v1},
-			{"p2v2", cfg.teamDistribution.p2v2},
-			{"p3v3", cfg.teamDistribution.p3v3},
-		}},
+		{"teamDistribution",
+		 {
+			 {"p1v1", cfg.teamDistribution.p1v1},
+			 {"p2v2", cfg.teamDistribution.p2v2},
+			 {"p3v3", cfg.teamDistribution.p3v3},
+		 }},
 	};
 
 	j["model"] = {
@@ -235,15 +243,18 @@ void RunTraining(const TrainConfig &cfg) {
 	int n1 = 0, n2 = 0, n3 = 0;
 	for (int i = 0; i < cfg.numGames; i++) {
 		int sz = cfg.teamDistribution.SampleTeamSize(i, cfg.numGames);
-		if (sz == 1) n1++;
-		else if (sz == 2) n2++;
-		else if (sz == 3) n3++;
+		if (sz == 1)
+			n1++;
+		else if (sz == 2)
+			n2++;
+		else if (sz == 3)
+			n3++;
 	}
-	std::cout << "Observation size: " << obsSize
-			  << " (mode=" << (cfg.obs == ObsMode::Advanced ? "Advanced" : "Default")
+	std::cout << "Observation size: " << obsSize << " (mode="
+			  << (cfg.obs == ObsMode::Advanced ? "Advanced" : "Default")
 			  << ", maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
-	std::cout << "Arenas:           " << cfg.numGames << " total ("
-			  << n1 << "x 1v1, " << n2 << "x 2v2, " << n3 << "x 3v3)\n";
+	std::cout << "Arenas:           " << cfg.numGames << " total (" << n1
+			  << "x 1v1, " << n2 << "x 2v2, " << n3 << "x 3v3)\n";
 	std::cout << "Run:              " << cfg.RunName() << "\n";
 	std::cout << "Checkpoints:      " << cfg.CheckpointFolder() << "\n";
 	std::cout << "Self-play:        "
@@ -277,7 +288,7 @@ void RunTraining(const TrainConfig &cfg) {
 	lc.numGames = cfg.numGames;
 	lc.tickSkip = cfg.tickSkip;
 	lc.actionDelay = cfg.actionDelay;
-	lc.randomSeed = cfg.randomSeed;
+	// lc.randomSeed = cfg.randomSeed;
 
 	lc.checkpointFolder = cfg.CheckpointFolder();
 	lc.tsPerSave = cfg.tsPerSave;

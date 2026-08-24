@@ -534,6 +534,52 @@ TORCH_KINETO_OPTIONAL_BODY = """if(ON)
   endif()
 endif()"""
 
+ROCKETSIMVIS_MAIN_ANCHOR = """    print("Starting socket thread...")
+    socket_thread = threading.Thread(target=run_socket_thread, args=(int(port),))
+    socket_thread.start()
+
+    print("Starting visualizer window...")
+
+    app = QtWidgets.QApplication([])
+    ui.update_scaling_factor(app)
+
+    window = QRSVWindow(QRSVGLWidget(app.primaryScreen()))
+    window.showNormal()
+    app.exec_()
+
+    print("Shutting down...")
+    g_socket_listener.stop_async()
+    exit()"""
+
+ROCKETSIMVIS_MAIN_BODY = """    print("Starting socket thread...")
+    socket_thread = threading.Thread(target=run_socket_thread, args=(int(port),), daemon=True)
+    socket_thread.start()
+
+    print("Starting visualizer window...")
+
+    app = QtWidgets.QApplication([])
+    ui.update_scaling_factor(app)
+
+    window = QRSVWindow(QRSVGLWidget(app.primaryScreen()))
+    window.showNormal()
+    app.exec_()
+
+    print("Shutting down...")
+    if g_socket_listener:
+        g_socket_listener.stop_async()
+    sys.exit(0)"""
+
+ROCKETSIMVIS_SOCKET_ANCHOR = """    def stop_async(self):
+        self.should_run = False"""
+
+ROCKETSIMVIS_SOCKET_BODY = """    def stop_async(self):
+        self.should_run = False
+        if hasattr(self, 'sock') and self.sock:
+            try:
+                self.sock.close()
+            except Exception:
+                pass"""
+
 
 PATCHES = [
 	{
@@ -704,6 +750,20 @@ PATCHES = [
 		"anchor": TORCH_KINETO_OPTIONAL_ANCHOR,
 		"body": TORCH_KINETO_OPTIONAL_BODY,
 		"optional": True,
+	},
+	{
+		"name": "rocketsimvis-main-clean-exit",
+		"path": "external/RocketSimVis/src/main.py",
+		"marker": "daemon=True",
+		"anchor": ROCKETSIMVIS_MAIN_ANCHOR,
+		"body": ROCKETSIMVIS_MAIN_BODY,
+	},
+	{
+		"name": "rocketsimvis-socket-clean-exit",
+		"path": "external/RocketSimVis/src/socket_listener.py",
+		"marker": "self.sock.close()",
+		"anchor": ROCKETSIMVIS_SOCKET_ANCHOR,
+		"body": ROCKETSIMVIS_SOCKET_BODY,
 	},
 ]
 

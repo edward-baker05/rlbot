@@ -54,8 +54,13 @@ ARGS+=("$@")
 
 # Launch RocketSimVis in the background if not already active, and ensure clean exit.
 VIS_PID=""
+BOT_PID=""
 cleanup() {
 	trap - EXIT INT TERM
+	if [[ -n "$BOT_PID" ]] && kill -0 "$BOT_PID" 2>/dev/null; then
+		kill "$BOT_PID" 2>/dev/null || true
+		wait "$BOT_PID" 2>/dev/null || true
+	fi
 	if [[ -n "$VIS_PID" ]] && kill -0 "$VIS_PID" 2>/dev/null; then
 		kill "$VIS_PID" 2>/dev/null || true
 		wait "$VIS_PID" 2>/dev/null || true
@@ -63,7 +68,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! pgrep -f "RocketSimVis.*/src/main\.py" >/dev/null 2>&1; then
+if ! pgrep -f "RocketSimVis.*src/main\.py" >/dev/null 2>&1; then
 	"$REPO/scripts/vis.sh" &
 	VIS_PID=$!
 fi
@@ -71,5 +76,22 @@ fi
 echo "Streaming to RocketSimVis on UDP 9273."
 # cd matters: RenderSender imports python_scripts.render_receiver relative to
 # the working directory, and collision meshes resolve from here too.
-cd "$BUILD_DIR"
-"$BIN" spectate "${ARGS[@]}"
+(cd "$BUILD_DIR" && exec "$BIN" spectate "${ARGS[@]}") &
+BOT_PID=$!
+
+if [[ -n "$VIS_PID" ]]; then
+	# Wait for either RocketSimVis or DashBot to exit.
+	# If the user closes the visualizer window, kill DashBot and exit cleanly.
+	# If DashBot exits, kill RocketSimVis and propagate DashBot's exit status.
+	wait -n "$BOT_PID" "$VIS_PID" || true
+	if kill -0 "$VIS_PID" 2>/dev/null; then
+		set +e
+		wait "$BOT_PID"
+		BOT_EXIT=$?
+		set -e
+		exit "$BOT_EXIT"
+	fi
+else
+	wait "$BOT_PID"
+fi
+
