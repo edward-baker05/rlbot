@@ -1,0 +1,13 @@
+{
+ "return_stat": {
+  "count": 6873000,
+  "mean": 19.776431283824145,
+  "var": 11464883785.462713
+ },
+ "run_id": "hp16vami",
+ "skill_ratings": {
+  "1v1": 381.14630126953125
+ },
+ "total_iterations": 45820,
+ "total_timesteps": 3075056128
+}

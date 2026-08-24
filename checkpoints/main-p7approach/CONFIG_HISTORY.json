@@ -15,7 +15,7 @@
         "tickSkip": 8
       },
       "model": {
-        "addLayerNorm": false,
+        "addLayerNorm": true,
         "policyLayers": [
           512,
           512,

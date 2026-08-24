@@ -1,7 +1,13 @@
 # 11 - Opponent diversity: the plateau may be a self-play fixed point
 
-Status: open
-Priority: this is the leading hypothesis after p18entropy
+Status: **FALSIFIED 2026-08-24 by p19pool, in the form this project can build.**
+A pool of 5 own-history ancestors spanning 478 Elo at a 50% encounter rate, run
+400M steps, moved the policy +10 Elo against a ~+-13 noise floor -- and held-out
+opponents (p13strike, p14aerial, never in the pool) confirm there was no general
+improvement and no pool-specific exploitation either. Four of the five pool
+members were WEAKER than the challenger, so the gradient it restored pointed at
+beating weak play. Limb 2 of this ticket -- external-opponent Elo against Necto
+or Nexto, which are not weaker -- remains untested and is now the only live part.
 
 ## Why this jumped the queue
 

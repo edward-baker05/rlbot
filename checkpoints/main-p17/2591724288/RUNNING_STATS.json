@@ -1,0 +1,13 @@
+{
+    "return_stat": {
+        "count": 6153000,
+        "mean": 21.07494118104557,
+        "var": 10685982457.884739
+    },
+    "run_id": "s2fdddcr",
+    "skill_ratings": {
+        "1v1": 425.26788330078125
+    },
+    "total_iterations": 41020,
+    "total_timesteps": 2591724288
+}
