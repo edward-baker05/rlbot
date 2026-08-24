@@ -16,9 +16,9 @@ struct RewardBudget {
 	float strongTouch = 0.125f;
 	float airTouch = 0.02f;
 
-	float velocityBallToGoal = 0.f;	  // 0.075f;
+	float velocityBallToGoal = 0.05f;
 	float velocityPlayerToBall = 0.f; // 0.025f;
-	float faceBall = 0.005f;
+	float faceBall = 0.000f;
 
 	float speed = 0.0015;
 	float flip = 0.005f;
