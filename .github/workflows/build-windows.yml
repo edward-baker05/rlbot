@@ -1,0 +1,44 @@
+name: Build Windows Release
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download Windows LibTorch
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path libs
+          Invoke-WebRequest -Uri "https://download-r2.pytorch.org/libtorch/cpu/libtorch-win-shared-with-deps-2.2.0%2Bcpu.zip" -OutFile "libs/libtorch.zip"
+          Expand-Archive -Path "libs/libtorch.zip" -DestinationPath "libs"
+          Remove-Item "libs/libtorch.zip"
+
+      - name: Configure CMake
+        run: |
+          cmake -B bot/build -S bot -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libs/libtorch"
+
+      - name: Build HivemindBot
+        run: |
+          cmake --build bot/build --config Release --target HivemindBot
+
+      - name: Package Dist Folder
+        shell: pwsh
+        run: |
+          Copy-Item "bot/build/Release/HivemindBot.exe" -Destination "dist/Hivemind/"
+          Compress-Archive -Path "dist/Hivemind" -DestinationPath "Hivemind-RLBot-v5.zip"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hivemind-RLBot-v5-Standalone
+          path: Hivemind-RLBot-v5.zip

@@ -1,0 +1,41 @@
+# Build output
+bot/build/
+build/
+
+# Training artifacts
+wandb/
+*.lt
+!checkpoints/**/*.lt
+
+# Large third-party binaries. These are installed by scripts/setup_libs.sh
+# rather than committed -- libtorch alone is ~1 GB.
+libs/
+
+# Third-party sources are vendored but each has its own git history; they are
+# checked out rather than committed as part of this repo.
+external/*/
+
+# The collision mesh dumper: a 13 MB Windows binary and its 14 MB source tree,
+# both third-party. tools/collision_meshes/ IS tracked -- it is the 176 KB of
+# output RocketSim actually needs at runtime.
+tools/RLArenaCollisionDumper-src/
+tools/RLArenaCollisionDumper.exe
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+compile_commands.json
+
+# Training run logs
+runs/
+bot/build/metrics/
+runs-driver.log
+bot/rlbot-config/match-vs-generated.toml

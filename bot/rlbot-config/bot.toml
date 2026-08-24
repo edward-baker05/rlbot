@@ -1,0 +1,29 @@
+# RLBot v5 bot configuration
+#
+# `hivemind = true` is the important line: it tells RLBot to give every car of
+# this agent_id on a team to ONE process. That process receives all of their
+# indices in a single Bot instance, which is what lets the bot infer all its
+# cars in one batched forward pass. See bot/src/rlbot/HivemindBot.cpp.
+#
+# Note that hivemind grouping is per team -- blue and orange each get their own
+# process even with the same agent_id.
+
+[settings]
+name = "Hivemind"
+agent_id = "hivemind/bot"
+hivemind = true
+
+root_dir = ""
+loadout_file = "loadout.toml"
+
+# run.sh sets the model paths and other HIVE_* variables before exec'ing the
+# binary. RLBot supplies RLBOT_SERVER_IP, RLBOT_SERVER_PORT and RLBOT_AGENT_ID.
+run_command = ""
+run_command_linux = "./run.sh"
+
+[details]
+description = "Single-policy RL bot trained with GigaLearn on RocketSim."
+fun_fact = "Trained entirely in RocketSim."
+developer = "edwardb"
+language = "C++"
+tags = ["1v1"]

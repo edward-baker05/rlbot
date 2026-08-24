@@ -1,0 +1,28 @@
+# 1v1: you (human) against the bot.
+#
+# `type = "Human"` gives you the car. The bot needs no special configuration to
+# play alongside or against a human -- a human appears in the game packet as an
+# ordinary car, and the padded observation cannot distinguish it from a bot.
+
+[rlbot]
+launcher = "Steam"
+auto_start_agents = true
+wait_for_agents = true
+
+[match]
+game_mode = "Soccar"
+game_map_upk = "Stadium_P"
+existing_match_behavior = "Restart"
+enable_state_setting = true
+enable_rendering = false
+skip_replays = false
+auto_save_replay = false
+
+[[cars]]
+team = "Blue"
+type = "Human"
+
+[[cars]]
+team = "Orange"
+type = "RLBot"
+config_file = "bot.toml"
