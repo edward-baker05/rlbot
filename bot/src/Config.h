@@ -18,6 +18,7 @@ struct RewardBudget {
 	float velocityPlayerToBall = 0.05f;
 	float faceBall = 0.00f;
 	float air = 0.006;
+	float speed = 0.001;
 
 	// float pickupBoost = 10.f;
 	// float saveBoost = 0.2f;

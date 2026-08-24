@@ -17,7 +17,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 			{"Velocity: Player to Ball", b.velocityPlayerToBall,
 			 [] { return new VelocityPlayerToBallReward(); }},
 			{"Face Ball", b.faceBall, [] { return new FaceBallReward(); }},
-			{"Air", b.air, [] { return new AirReward(); }}};
+			{"Air", b.air, [] { return new AirReward(); }},
+			{"Speed", b.speed, [] { return new SpeedReward(); }}};
 }
 
 std::vector<WeightedReward> BuildGeneralRewards(const TrainConfig &cfg) {
