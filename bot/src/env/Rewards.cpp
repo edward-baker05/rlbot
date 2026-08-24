@@ -12,7 +12,10 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Strong Touch", b.strongTouch,
 		 [] { return new ZeroSumReward(new DirectionalTouchReward(), 1); }},
 		{"Air Touch", b.airTouch,
-		 [] { return new ZeroSumReward(new ImprovedAirTouchReward(), 1); }},
+		 // [] { return new ZeroSumReward(new ImprovedAirTouchReward(), 1); }},
+		 // This should be reintroduced later, but to reduce noise I'm
+		 // leaving it non-zero-sum for now
+		 [] { return new ImprovedAirTouchReward(); }},
 		{"Boost Pickup", b.pickupBoost,
 		 [] { return new ZeroSumReward(new PickupBoostReward(), 1); }},
 		{"Save Boost", b.saveBoost, [] { return new SaveBoostReward(); }},
