@@ -67,6 +67,11 @@ add_library(DashCore STATIC
 	src/env/Terminal.h
 	src/env/TimeoutCondition.h
 
+	src/eval/Checkpoints.cpp
+	src/eval/Checkpoints.h
+	src/eval/Spectate.cpp
+	src/eval/Spectate.h
+
 	src/policy/Policy.cpp
 	src/policy/Policy.h
 

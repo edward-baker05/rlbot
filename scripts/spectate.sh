@@ -35,8 +35,12 @@ if [[ $# -eq 0 ]]; then
 	echo "       $0 --model <checkpoint-folder> [extra args...]" >&2
 	echo >&2
 	echo "Available runs:" >&2
-	ls -1d "$REPO"/checkpoints/*/ "$BUILD_DIR"/checkpoints/*/ 2>/dev/null |
-		sed 's|.*/checkpoints/|  |; s|/$||' | sort -u >&2 || echo "  (none yet)" >&2
+	RUNS=$(find "$REPO"/checkpoints "$BUILD_DIR"/checkpoints -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed 's|.*/||' | sort -u || true)
+	if [[ -n "$RUNS" ]]; then
+		echo "$RUNS" | sed 's/^/  /' >&2
+	else
+		echo "  (none yet)" >&2
+	fi
 	exit 1
 fi
 

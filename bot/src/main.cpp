@@ -1,4 +1,5 @@
 #include "Config.h"
+#include "eval/Spectate.h"
 #include "rlbot/DashBot.h"
 #include "train/Train.h"
 
@@ -18,6 +19,7 @@ void PrintUsage(const char *argv0) {
 		"Commands:\n"
 		"  train            Train the policy\n"
 		"  play             Connect to RLBot v5 and play a match\n"
+		"  spectate         Watch a checkpoint or live run in RocketSimVis\n"
 		"\n"
 		"Training options:\n"
 		"  --games N            Number of simultaneous games (default 128)\n"
@@ -276,6 +278,58 @@ int RunTrain(int argc, char *argv[]) {
 	return EXIT_SUCCESS;
 }
 
+int RunSpectate(int argc, char *argv[]) {
+	Dash::SpectateConfig scfg = {};
+	Dash::TrainConfig defaults = {};
+	for (int i = 2; i < argc; i++) {
+		const std::string arg = argv[i];
+		if (arg == "--follow" && i + 1 < argc) {
+			defaults.runLabel = argv[++i];
+			scfg.followRun = defaults.CheckpointFolder();
+		} else if (arg == "--model" && i + 1 < argc) {
+			scfg.model = argv[++i];
+		} else if (arg == "--spawns" && i + 1 < argc) {
+			const std::string mode = argv[++i];
+			if (mode == "training" || mode == "curriculum") {
+				scfg.spawns = Dash::SpectateSpawns::Training;
+			} else if (mode == "kickoff") {
+				scfg.spawns = Dash::SpectateSpawns::Kickoff;
+			} else {
+				std::fprintf(stderr, "--spawns must be training or kickoff\n");
+				return EXIT_FAILURE;
+			}
+		} else if (arg == "--time-scale" && i + 1 < argc) {
+			scfg.timeScale = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--episodes" && i + 1 < argc) {
+			scfg.episodes = std::atoi(argv[++i]);
+		} else if (arg == "--seed" && i + 1 < argc) {
+			scfg.seed = std::atoll(argv[++i]);
+		} else if (arg == "--deterministic") {
+			scfg.deterministic = true;
+		} else if (arg == "--gpu") {
+			scfg.useGPU = true;
+		} else {
+			std::fprintf(stderr, "Unknown option: %s\n", arg.c_str());
+			return EXIT_FAILURE;
+		}
+	}
+	if (scfg.model.empty() == scfg.followRun.empty()) {
+		std::fprintf(stderr,
+		             "Usage: %s spectate --follow <label> | --model <ckpt>\n"
+		             "       [--spawns training|kickoff] [--deterministic]\n"
+		             "       [--time-scale X] [--episodes N] [--gpu]\n",
+		             argv[0]);
+		return EXIT_FAILURE;
+	}
+	try {
+		Dash::RunSpectate(scfg);
+	} catch (const std::exception &e) {
+		std::fprintf(stderr, "Spectate failed: %s\n", e.what());
+		return EXIT_FAILURE;
+	}
+	return EXIT_SUCCESS;
+}
+
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -295,6 +349,9 @@ int main(int argc, char *argv[]) {
 
 	if (command == "play")
 		return RunPlay(argc, argv);
+
+	if (command == "spectate")
+		return RunSpectate(argc, argv);
 
 	if (command == "-h" || command == "--help" || command == "help") {
 		PrintUsage(argv[0]);
