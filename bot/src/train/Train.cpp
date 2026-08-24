@@ -10,8 +10,8 @@
 #include <nlohmann/json.hpp>
 
 #include <csignal>
-#include <fstream>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <sstream>
@@ -192,7 +192,6 @@ static void RecordConfig(const TrainConfig &cfg) {
 		}
 	}
 
-	// Written every run so the folder is self-describing; history only on change.
 	{
 		std::ofstream out(folder / "CONFIG.json");
 		out << current.dump(2) << "\n";
@@ -222,7 +221,8 @@ static void RecordConfig(const TrainConfig &cfg) {
 
 void RunTraining(const TrainConfig &cfg) {
 	const char *meshEnv = std::getenv("DASH_COLLISION_MESHES");
-	if (!meshEnv) meshEnv = std::getenv("HIVE_COLLISION_MESHES");
+	if (!meshEnv)
+		meshEnv = std::getenv("HIVE_COLLISION_MESHES");
 	const std::string meshPath = meshEnv ? meshEnv : "collision_meshes";
 	RocketSim::Init(meshPath);
 
@@ -325,4 +325,4 @@ void RunTraining(const TrainConfig &cfg) {
 	learner.Start();
 }
 
-}  // namespace Dash
+} // namespace Dash

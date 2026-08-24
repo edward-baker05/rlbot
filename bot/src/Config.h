@@ -30,7 +30,7 @@ struct SelfPlayConfig {
 struct TrainConfig {
 	int maxPlayersPerTeam = 1;
 
-	bool maskActions = false;
+	bool maskActions = true;
 	ObsMode obs = ObsMode::Default;
 	float infiniteBoostChance = 0.1f;
 
@@ -48,18 +48,18 @@ struct TrainConfig {
 	int miniBatchSize = 25'000;
 	int epochs = 2;
 
-	float entropyScale = 0.003f;
-	float entropyTarget = 0.40f;
+	float entropyScale = 0.020f;
+	float entropyTarget = 0.0f;
 	float entropyAdjustRate = 0.15f;
 	float gaeGamma = 0.99f;
-	float policyLR = 2e-4f;
-	float criticLR = 2e-4f;
+	float policyLR = 3e-4f;
+	float criticLR = 3e-4f;
 	int64_t maxSteps = 0;
 
 	std::filesystem::path checkpointRoot = "checkpoints";
 	std::string runLabel = {};
 	int64_t tsPerSave = 1'000'000;
-	int checkpointsToKeep = 8;
+	int checkpointsToKeep = 16;
 	int64_t randomSeed = -1;
 
 	bool sendMetrics = true;
