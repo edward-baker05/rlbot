@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace Hive {
+namespace Dash {
 
 class PacketConverter {
 public:
@@ -23,4 +23,4 @@ private:
 	std::unordered_map<int, float> lastTouchTimes;
 };
 
-}  // namespace Hive
+}  // namespace Dash

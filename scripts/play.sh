@@ -23,8 +23,8 @@ if [[ ! -f "$CONFIG_DIR/$MATCH" ]]; then
 	exit 1
 fi
 
-if [[ ! -x "$REPO/bot/build/HivemindBot" ]]; then
-	echo "HivemindBot not built. Run scripts/build.sh first." >&2
+if [[ ! -x "$REPO/bot/build/DashBot" ]]; then
+	echo "DashBot not built. Run scripts/build.sh first." >&2
 	exit 1
 fi
 

@@ -27,18 +27,18 @@ jobs:
         run: |
           cmake -B bot/build -S bot -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libs/libtorch"
 
-      - name: Build HivemindBot
+      - name: Build DashBot
         run: |
-          cmake --build bot/build --config Release --target HivemindBot
+          cmake --build bot/build --config Release --target DashBot
 
       - name: Package Dist Folder
         shell: pwsh
         run: |
-          Copy-Item "bot/build/Release/HivemindBot.exe" -Destination "dist/Hivemind/"
-          Compress-Archive -Path "dist/Hivemind" -DestinationPath "Hivemind-RLBot-v5.zip"
+          Copy-Item "bot/build/Release/DashBot.exe" -Destination "dist/Dash/"
+          Compress-Archive -Path "dist/Dash" -DestinationPath "Dash-RLBot-v5.zip"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Hivemind-RLBot-v5-Standalone
-          path: Hivemind-RLBot-v5.zip
+          name: Dash-RLBot-v5-Standalone
+          path: Dash-RLBot-v5.zip

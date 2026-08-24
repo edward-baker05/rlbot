@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo =======================================================
-echo Building HivemindBot for Windows (MSVC)
+echo Building DashBot for Windows (MSVC)
 echo =======================================================
 
 set "REPO=%~dp0"
@@ -20,24 +20,24 @@ if not exist "%REPO%libs\libtorch\include" (
 echo [INFO] Configuring CMake...
 cmake -B "%BUILD_DIR%" -S "%REPO%bot" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="%REPO%libs\libtorch"
 
-:: 3. Build HivemindBot
-echo [INFO] Compiling HivemindBot...
-cmake --build "%BUILD_DIR%" --config Release --target HivemindBot
+:: 3. Build DashBot
+echo [INFO] Compiling DashBot...
+cmake --build "%BUILD_DIR%" --config Release --target DashBot
 
-:: 4. Copy to dist\Hivemind
-if exist "%BUILD_DIR%\Release\HivemindBot.exe" (
-    copy /y "%BUILD_DIR%\Release\HivemindBot.exe" "%REPO%dist\Hivemind\"
-    echo [SUCCESS] Copied HivemindBot.exe to dist\Hivemind\
-) else if exist "%BUILD_DIR%\HivemindBot.exe" (
-    copy /y "%BUILD_DIR%\HivemindBot.exe" "%REPO%dist\Hivemind\"
-    echo [SUCCESS] Copied HivemindBot.exe to dist\Hivemind\
+:: 4. Copy to dist\Dash
+if exist "%BUILD_DIR%\Release\DashBot.exe" (
+    copy /y "%BUILD_DIR%\Release\DashBot.exe" "%REPO%dist\Dash\"
+    echo [SUCCESS] Copied DashBot.exe to dist\Dash\
+) else if exist "%BUILD_DIR%\DashBot.exe" (
+    copy /y "%BUILD_DIR%\DashBot.exe" "%REPO%dist\Dash\"
+    echo [SUCCESS] Copied DashBot.exe to dist\Dash\
 ) else (
-    echo [ERROR] Build did not produce HivemindBot.exe. Please check compiler output above.
+    echo [ERROR] Build did not produce DashBot.exe. Please check compiler output above.
     pause
     exit /b 1
 )
 
 echo =======================================================
-echo Build complete! Your dist\Hivemind folder is ready to zip and send.
+echo Build complete! Your dist\Dash folder is ready to zip and send.
 echo =======================================================
 pause

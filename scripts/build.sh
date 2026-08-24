@@ -23,8 +23,8 @@ cmake -S "$REPO/bot" -B "$BUILD_DIR" \
 	-DRLBOT_CPP_ENABLE_LTO=OFF
 
 echo "==> Building with $JOBS jobs"
-cmake --build "$BUILD_DIR" --parallel "$JOBS" --target HivemindBot
+cmake --build "$BUILD_DIR" --parallel "$JOBS" --target DashBot
 
 echo
-echo "Built: $BUILD_DIR/HivemindBot"
-echo "Try:   $BUILD_DIR/HivemindBot --help"
+echo "Built: $BUILD_DIR/DashBot"
+echo "Try:   $BUILD_DIR/DashBot --help"

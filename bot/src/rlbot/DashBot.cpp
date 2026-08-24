@@ -1,4 +1,4 @@
-#include "HivemindBot.h"
+#include "DashBot.h"
 
 #include "../env/Actions.h"
 #include "../env/Obs.h"
@@ -9,7 +9,7 @@
 
 using namespace RLGC;
 
-namespace Hive {
+namespace Dash {
 
 static std::string EnvOr(const char* key, const std::string& fallback) {
 	const char* v = std::getenv(key);
@@ -23,29 +23,29 @@ static int EnvIntOr(const char* key, int fallback) {
 	try {
 		return std::stoi(v);
 	} catch (...) {
-		std::fprintf(stderr, "[HivemindBot] WARNING: %s is not an integer, using %d\n", key, fallback);
+		std::fprintf(stderr, "[DashBot] WARNING: %s is not an integer, using %d\n", key, fallback);
 		return fallback;
 	}
 }
 
 BotSettings BotSettings::FromEnvironment() {
 	BotSettings s = {};
-	const std::string model = EnvOr("HIVE_MODEL", "");
+	const std::string model = EnvOr("DASH_MODEL", EnvOr("HIVE_MODEL", ""));
 	if (model.empty()) {
 		throw std::runtime_error(
-			"HIVE_MODEL is not set. Point it at a GigaLearn checkpoint folder, "
+			"DASH_MODEL is not set. Point it at a GigaLearn checkpoint folder, "
 			"e.g. checkpoints/main/50000000");
 	}
 	s.model = model;
 
-	s.collisionMeshes = EnvOr("HIVE_COLLISION_MESHES", "collision_meshes");
-	s.maxPlayersPerTeam = EnvIntOr("HIVE_MAX_PLAYERS_PER_TEAM", 1);
-	s.tickSkip = EnvIntOr("HIVE_TICK_SKIP", 8);
-	s.maskActions = EnvIntOr("HIVE_MASK_ACTIONS", 0) != 0;
+	s.collisionMeshes = EnvOr("DASH_COLLISION_MESHES", EnvOr("HIVE_COLLISION_MESHES", "collision_meshes"));
+	s.maxPlayersPerTeam = EnvIntOr("DASH_MAX_PLAYERS_PER_TEAM", EnvIntOr("HIVE_MAX_PLAYERS_PER_TEAM", 1));
+	s.tickSkip = EnvIntOr("DASH_TICK_SKIP", EnvIntOr("HIVE_TICK_SKIP", 8));
+	s.maskActions = EnvIntOr("DASH_MASK_ACTIONS", EnvIntOr("HIVE_MASK_ACTIONS", 0)) != 0;
 	s.obs = ObsMode::Default;
-	s.actionDelay = EnvIntOr("HIVE_ACTION_DELAY", 7);
-	s.deterministic = EnvIntOr("HIVE_DETERMINISTIC", 1) != 0;
-	s.useGPU = EnvIntOr("HIVE_USE_GPU", 1) != 0;
+	s.actionDelay = EnvIntOr("DASH_ACTION_DELAY", EnvIntOr("HIVE_ACTION_DELAY", 7));
+	s.deterministic = EnvIntOr("DASH_DETERMINISTIC", EnvIntOr("HIVE_DETERMINISTIC", 1)) != 0;
+	s.useGPU = EnvIntOr("DASH_USE_GPU", EnvIntOr("HIVE_USE_GPU", 1)) != 0;
 
 	return s;
 }
@@ -68,18 +68,18 @@ void SharedContext::Initialize(const BotSettings& s) {
 		obsBuilder.get(), obsSize, actionParser.get(), settings.modelShape, settings.useGPU);
 
 	policy->Load(settings.model);
-	std::printf("[HivemindBot] Loaded model from %s\n", settings.model.c_str());
+	std::printf("[DashBot] Loaded model from %s\n", settings.model.c_str());
 
-	std::printf("[HivemindBot] Observation size %d, tickSkip %d, actionDelay %d, %s\n",
+	std::printf("[DashBot] Observation size %d, tickSkip %d, actionDelay %d, %s\n",
 	            obsSize, settings.tickSkip, settings.actionDelay,
 	            settings.useGPU ? "GPU" : "CPU");
 }
 
-HivemindBot::HivemindBot(std::unordered_set<unsigned> indices,
-                         unsigned team,
-                         std::string name) noexcept
+DashBot::DashBot(std::unordered_set<unsigned> indices,
+                 unsigned team,
+                 std::string name) noexcept
 	: rlbot::Bot(std::move(indices), team, std::move(name)) {
-	std::printf("[HivemindBot] Team %u controlling %zu car(s):", team, this->indices.size());
+	std::printf("[DashBot] Team %u controlling %zu car(s):", team, this->indices.size());
 	for (unsigned idx : this->indices) {
 		std::printf(" %u", idx);
 		cars[idx] = {};
@@ -87,18 +87,18 @@ HivemindBot::HivemindBot(std::unordered_set<unsigned> indices,
 	std::printf("\n");
 }
 
-HivemindBot::~HivemindBot() noexcept = default;
+DashBot::~DashBot() noexcept = default;
 
-void HivemindBot::initialize(const rlbot::flat::ControllableTeamInfo* controllableTeamInfo,
-                             const rlbot::flat::FieldInfo* fieldInfo,
-                             const rlbot::flat::MatchConfiguration* matchConfiguration) noexcept {
+void DashBot::initialize(const rlbot::flat::ControllableTeamInfo* controllableTeamInfo,
+                         const rlbot::flat::FieldInfo* fieldInfo,
+                         const rlbot::flat::MatchConfiguration* matchConfiguration) noexcept {
 	converter.Initialize(fieldInfo);
 	converter.Reset();
 	prevSeconds = -1.f;
 }
 
-void HivemindBot::update(const rlbot::flat::GamePacket* packet,
-                         const rlbot::flat::BallPrediction* ballPrediction) noexcept {
+void DashBot::update(const rlbot::flat::GamePacket* packet,
+                     const rlbot::flat::BallPrediction* ballPrediction) noexcept {
 	try {
 		if (!packet || !packet->players()) {
 			for (unsigned idx : indices)
@@ -171,18 +171,18 @@ void HivemindBot::update(const rlbot::flat::GamePacket* packet,
 	} catch (const std::exception& e) {
 		if (!loggedError) {
 			loggedError = true;
-			std::fprintf(stderr, "[HivemindBot] ERROR in update(): %s\n", e.what());
+			std::fprintf(stderr, "[DashBot] ERROR in update(): %s\n", e.what());
 		}
 		for (unsigned idx : indices)
 			setOutput(idx, {});
 	} catch (...) {
 		if (!loggedError) {
 			loggedError = true;
-			std::fprintf(stderr, "[HivemindBot] ERROR in update(): unknown exception\n");
+			std::fprintf(stderr, "[DashBot] ERROR in update(): unknown exception\n");
 		}
 		for (unsigned idx : indices)
 			setOutput(idx, {});
 	}
 }
 
-}  // namespace Hive
+}  // namespace Dash

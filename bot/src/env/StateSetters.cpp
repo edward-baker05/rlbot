@@ -6,7 +6,7 @@
 using namespace RLGC;
 using RocketSim::Math::RandFloat;
 
-namespace Hive {
+namespace Dash {
 
 void InfiniteBoostState::ResetArena(Arena* arena) {
 	inner->ResetArena(arena);
@@ -27,4 +27,4 @@ void InfiniteBoostState::ResetArena(Arena* arena) {
 	}
 }
 
-}  // namespace Hive
+}  // namespace Dash

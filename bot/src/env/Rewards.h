@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace Hive {
+namespace Dash {
 
 struct RewardSpec {
 	std::string name;
@@ -20,4 +20,4 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg);
 
 std::vector<RLGC::WeightedReward> BuildGeneralRewards(const TrainConfig& cfg);
 
-}  // namespace Hive
+}  // namespace Dash

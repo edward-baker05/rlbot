@@ -4,7 +4,7 @@
 
 using namespace RLGC;
 
-namespace Hive {
+namespace Dash {
 
 std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig& cfg) {
 	const RewardBudget& b = cfg.rewards;
@@ -21,4 +21,4 @@ std::vector<WeightedReward> BuildGeneralRewards(const TrainConfig& cfg) {
 	return out;
 }
 
-}  // namespace Hive
+}  // namespace Dash

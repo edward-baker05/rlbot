@@ -1,4 +1,4 @@
-# Hivemind
+# Dash
 
 A Rocket League bot trained with [GigaLearn](https://github.com/ZealanL) on
 RocketSim, deployed through [RLBot v5](https://wiki.rlbot.org/v5/).
@@ -24,7 +24,7 @@ bot/                    Our code
   rlbot-config/          bot.toml, loadouts, match configs
   build/                 Build output (gitignored)
 external/
-  GigaLearnCPP-Leak/     GigaLearn + RLGymCPP + RocketSim
+  GigaLearnCPP/          GigaLearn + RLGymCPP + RocketSim
   cpp-interface/         RLBot v5 C++ interface
   RocketSimVis/          Live viewer
 libs/                    libtorch, NCCL, NVSHMEM (gitignored; scripts/setup_libs.sh)

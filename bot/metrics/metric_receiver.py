@@ -30,7 +30,7 @@ _csv_rows = []
 
 
 def _csv_dir():
-    return os.environ.get("HIVE_METRICS_DIR", "metrics")
+    return os.environ.get("DASH_METRICS_DIR", os.environ.get("HIVE_METRICS_DIR", "metrics"))
 
 
 def _id_sidecar(name):

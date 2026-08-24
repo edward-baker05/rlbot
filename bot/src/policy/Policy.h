@@ -6,7 +6,7 @@
 #include <memory>
 #include <vector>
 
-namespace Hive {
+namespace Dash {
 
 struct ModelShape {
 	std::vector<int> sharedHeadLayers = {512, 512};
@@ -43,4 +43,4 @@ private:
 	std::unique_ptr<GGL::InferUnit> unit;
 };
 
-}  // namespace Hive
+}  // namespace Dash

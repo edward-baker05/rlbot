@@ -19,7 +19,7 @@
 using namespace GGL;
 using namespace RLGC;
 
-namespace Hive {
+namespace Dash {
 
 static int64_t g_MaxSteps = 0;
 
@@ -221,7 +221,8 @@ static void RecordConfig(const TrainConfig &cfg) {
 }
 
 void RunTraining(const TrainConfig &cfg) {
-	const char *meshEnv = std::getenv("HIVE_COLLISION_MESHES");
+	const char *meshEnv = std::getenv("DASH_COLLISION_MESHES");
+	if (!meshEnv) meshEnv = std::getenv("HIVE_COLLISION_MESHES");
 	const std::string meshPath = meshEnv ? meshEnv : "collision_meshes";
 	RocketSim::Init(meshPath);
 
@@ -324,4 +325,4 @@ void RunTraining(const TrainConfig &cfg) {
 	learner.Start();
 }
 
-}  // namespace Hive
+}  // namespace Dash

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(HivemindBot VERSION 0.1.0 LANGUAGES CXX)
+project(DashBot VERSION 0.1.0 LANGUAGES CXX)
 
 # GigaLearnCPP and its vendored dependencies declare very old minimums that
 # CMake 4 warns about. Pin a floor for subprojects rather than editing upstream,
@@ -21,13 +21,13 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-set(HIVE_EXTERNAL "${CMAKE_CURRENT_SOURCE_DIR}/../external")
-set(HIVE_LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../libs")
+set(DASH_EXTERNAL "${CMAKE_CURRENT_SOURCE_DIR}/../external")
+set(DASH_LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../libs")
 
 # libtorch. Point CMAKE_PREFIX_PATH at the local copy so find_package(Torch)
 # inside GigaLearnCPP resolves without a system-wide install.
 if(NOT DEFINED CMAKE_PREFIX_PATH OR CMAKE_PREFIX_PATH STREQUAL "")
-	set(CMAKE_PREFIX_PATH "${HIVE_LIBS}/libtorch" CACHE PATH "" FORCE)
+	set(CMAKE_PREFIX_PATH "${DASH_LIBS}/libtorch" CACHE PATH "" FORCE)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ endif()
 # ---------------------------------------------------------------------------
 
 # GigaLearnCPP brings RLGymCPP and RocketSim with it.
-add_subdirectory("${HIVE_EXTERNAL}/GigaLearnCPP-Leak/GigaLearnCPP" gigalearn)
+add_subdirectory("${DASH_EXTERNAL}/GigaLearnCPP/GigaLearnCPP" gigalearn)
 
 # RLBot v5 C++ interface. Its own CMakeLists fetches flatbuffers, the RLBot
 # schema and liburing at configure time, so the first configure needs network
@@ -43,7 +43,7 @@ add_subdirectory("${HIVE_EXTERNAL}/GigaLearnCPP-Leak/GigaLearnCPP" gigalearn)
 #
 # Note: it builds examples (ATBA, ExampleBot) as well. They are small and
 # harmless, and skipping them would mean patching upstream.
-add_subdirectory("${HIVE_EXTERNAL}/cpp-interface" rlbot-cpp)
+add_subdirectory("${DASH_EXTERNAL}/cpp-interface" rlbot-cpp)
 
 # ---------------------------------------------------------------------------
 # Bot
@@ -51,7 +51,7 @@ add_subdirectory("${HIVE_EXTERNAL}/cpp-interface" rlbot-cpp)
 
 # Everything except main.cpp lives in a static library so the bot binary and
 # any future test binary share one compilation of the project sources.
-add_library(HiveCore STATIC
+add_library(DashCore STATIC
 	src/env/Actions.cpp
 	src/env/Actions.h
 	src/env/Env.cpp
@@ -67,8 +67,8 @@ add_library(HiveCore STATIC
 	src/policy/Policy.cpp
 	src/policy/Policy.h
 
-	src/rlbot/HivemindBot.cpp
-	src/rlbot/HivemindBot.h
+	src/rlbot/DashBot.cpp
+	src/rlbot/DashBot.h
 	src/rlbot/PacketConvert.cpp
 	src/rlbot/PacketConvert.h
 
@@ -78,15 +78,15 @@ add_library(HiveCore STATIC
 	src/Config.h
 )
 
-target_include_directories(HiveCore PUBLIC src)
+target_include_directories(DashCore PUBLIC src)
 
 # Train.cpp writes CONFIG_HISTORY.json; nlohmann is already vendored in
-# GigaLearnCPP-Leak.
-target_include_directories(HiveCore PRIVATE
-	"${HIVE_EXTERNAL}/GigaLearnCPP-Leak/GigaLearnCPP/libsrc/json"
+# GigaLearnCPP.
+target_include_directories(DashCore PRIVATE
+	"${DASH_EXTERNAL}/GigaLearnCPP/GigaLearnCPP/libsrc/json"
 )
 
-target_link_libraries(HiveCore PUBLIC
+target_link_libraries(DashCore PUBLIC
 	GigaLearnCPP
 	RLBotCPP-static
 )
@@ -98,7 +98,7 @@ target_link_libraries(HiveCore PUBLIC
 #
 # build.sh reapplies them, but nothing else did: a direct `cmake --build`, an
 # IDE build or a bare `make` never ran the script, so any of those could
-# silently compile against a reverted external/. Hanging the check off HiveCore
+# silently compile against a reverted external/. Hanging the check off DashCore
 # makes EVERY build path enforce it.
 #
 # --check, not the applying form, on purpose: mutating sources partway through
@@ -109,10 +109,10 @@ add_custom_target(check_external_patches
 	COMMENT "Checking external/ local patches"
 	VERBATIM)
 
-add_dependencies(HiveCore check_external_patches)
+add_dependencies(DashCore check_external_patches)
 
-add_executable(HivemindBot src/main.cpp)
-target_link_libraries(HivemindBot PRIVATE HiveCore)
+add_executable(DashBot src/main.cpp)
+target_link_libraries(DashBot PRIVATE DashCore)
 
 # ---------------------------------------------------------------------------
 # CUDA collective libraries
@@ -124,12 +124,12 @@ target_link_libraries(HivemindBot PRIVATE HiveCore)
 #
 # Neither is used at runtime on a single GPU -- this is purely to satisfy the
 # linker.
-set(HIVE_NCCL_LIB "${HIVE_LIBS}/nccl/nvidia/nccl/lib/libnccl.so.2")
-set(HIVE_NVSHMEM_LIB "${HIVE_LIBS}/nvshmem/nvidia/nvshmem/lib/libnvshmem_host.so.3")
+set(DASH_NCCL_LIB "${DASH_LIBS}/nccl/nvidia/nccl/lib/libnccl.so.2")
+set(DASH_NVSHMEM_LIB "${DASH_LIBS}/nvshmem/nvidia/nvshmem/lib/libnvshmem_host.so.3")
 
-foreach(EXTRA_LIB "${HIVE_NCCL_LIB}" "${HIVE_NVSHMEM_LIB}")
+foreach(EXTRA_LIB "${DASH_NCCL_LIB}" "${DASH_NVSHMEM_LIB}")
 	if(EXISTS "${EXTRA_LIB}")
-		target_link_libraries(HiveCore PUBLIC "${EXTRA_LIB}")
+		target_link_libraries(DashCore PUBLIC "${EXTRA_LIB}")
 	else()
 		message(WARNING "Expected CUDA library not found: ${EXTRA_LIB}\n"
 			"If linking fails with undefined ncclXxx / nvshmemXxx references, "
@@ -139,9 +139,9 @@ endforeach()
 
 # Bake the library paths into the binary so it runs without the caller having
 # to export LD_LIBRARY_PATH. RLBot launches the bot itself and will not set it.
-set_target_properties(HivemindBot PROPERTIES
-	BUILD_RPATH "${HIVE_LIBS}/libtorch/lib;${HIVE_LIBS}/nccl/nvidia/nccl/lib;${HIVE_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
-	INSTALL_RPATH "${HIVE_LIBS}/libtorch/lib;${HIVE_LIBS}/nccl/nvidia/nccl/lib;${HIVE_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
+set_target_properties(DashBot PROPERTIES
+	BUILD_RPATH "${DASH_LIBS}/libtorch/lib;${DASH_LIBS}/nccl/nvidia/nccl/lib;${DASH_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
+	INSTALL_RPATH "${DASH_LIBS}/libtorch/lib;${DASH_LIBS}/nccl/nvidia/nccl/lib;${DASH_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
 	BUILD_WITH_INSTALL_RPATH FALSE
 )
 
@@ -150,7 +150,7 @@ set_target_properties(HivemindBot PROPERTIES
 
 # Keep the binary next to the shared libraries it loads, so collision_meshes
 # also resolves relatively from the build dir.
-set_target_properties(HivemindBot PROPERTIES
+set_target_properties(DashBot PROPERTIES
 	RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
@@ -160,7 +160,7 @@ set_target_properties(HivemindBot PROPERTIES
 
 # RocketSim needs the collision meshes at runtime. Copy them next to the binary
 # so the default relative path works without any environment setup.
-add_custom_command(TARGET HivemindBot POST_BUILD
+add_custom_command(TARGET DashBot POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
 		"${CMAKE_CURRENT_SOURCE_DIR}/../tools/collision_meshes"
 		"${CMAKE_BINARY_DIR}/collision_meshes"
@@ -175,7 +175,7 @@ add_custom_command(TARGET HivemindBot POST_BUILD
 # GigaLearn's CMakeLists installs its version with configure_file at CONFIGURE
 # time; this runs at BUILD time and therefore wins.
 #
-# Deliberately NOT a POST_BUILD command on HivemindBot: POST_BUILD only fires
+# Deliberately NOT a POST_BUILD command on DashBot: POST_BUILD only fires
 # when the target actually relinks, so editing just the .py would leave the
 # stale copy in place and the next run would silently use it. An OUTPUT command
 # with DEPENDS re-copies whenever the source changes, regardless of whether any
@@ -183,20 +183,20 @@ add_custom_command(TARGET HivemindBot POST_BUILD
 #
 # Python also caches bytecode next to the module, and copy preserves the source
 # timestamp, so a stale .pyc can shadow a fresh .py. Clear it on every copy.
-set(HIVE_METRICS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/metrics/metric_receiver.py")
-set(HIVE_METRICS_DST "${CMAKE_BINARY_DIR}/python_scripts/metric_receiver.py")
+set(DASH_METRICS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/metrics/metric_receiver.py")
+set(DASH_METRICS_DST "${CMAKE_BINARY_DIR}/python_scripts/metric_receiver.py")
 
 # An OUTPUT-based rule does not work here either: GigaLearn's configure_file
 # rewrites the destination on every cmake configure, giving it a timestamp
 # newer than our source, so CMake would consider the copy up to date and skip
 # it -- leaving the stock receiver in place. A custom target has no output to
 # compare against and therefore always runs. The copy is a few kilobytes.
-add_custom_target(hive-metrics-receiver ALL
+add_custom_target(dash-metrics-receiver ALL
 	COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/python_scripts"
-	COMMAND ${CMAKE_COMMAND} -E copy "${HIVE_METRICS_SRC}" "${HIVE_METRICS_DST}"
-	COMMAND ${CMAKE_COMMAND} -E touch "${HIVE_METRICS_DST}"
+	COMMAND ${CMAKE_COMMAND} -E copy "${DASH_METRICS_SRC}" "${DASH_METRICS_DST}"
+	COMMAND ${CMAKE_COMMAND} -E touch "${DASH_METRICS_DST}"
 	COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_BINARY_DIR}/python_scripts/__pycache__"
 	COMMENT "Installing metrics receiver (CSV + optional wandb)"
 	VERBATIM
 )
-add_dependencies(HivemindBot hive-metrics-receiver)
+add_dependencies(DashBot dash-metrics-receiver)

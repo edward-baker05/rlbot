@@ -4,7 +4,7 @@
 
 using namespace RLGC;
 
-namespace Hive {
+namespace Dash {
 
 Policy::Policy(ObsBuilder* obsBuilder,
                int obsSize,
@@ -62,4 +62,4 @@ std::vector<Action> Policy::InferBatch(const std::vector<Player>& players,
 	return unit->BatchInferActions(players, states, deterministic, temperature);
 }
 
-}  // namespace Hive
+}  // namespace Dash

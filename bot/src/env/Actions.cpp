@@ -1,6 +1,6 @@
 #include "Actions.h"
 
-namespace Hive {
+namespace Dash {
 
 std::unique_ptr<RLGC::DefaultAction> MakeActionParser(bool masked) {
 	if (masked)
@@ -9,4 +9,4 @@ std::unique_ptr<RLGC::DefaultAction> MakeActionParser(bool masked) {
 	return std::make_unique<UnmaskedAction>();
 }
 
-}  // namespace Hive
+}  // namespace Dash

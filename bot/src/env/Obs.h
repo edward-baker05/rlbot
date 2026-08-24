@@ -4,7 +4,7 @@
 
 #include <memory>
 
-namespace Hive {
+namespace Dash {
 
 enum class ObsMode {
 	Default,
@@ -15,4 +15,4 @@ std::unique_ptr<RLGC::ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,
 
 int ProbeObsSize(int maxPlayersPerTeam, ObsMode mode);
 
-}  // namespace Hive
+}  // namespace Dash

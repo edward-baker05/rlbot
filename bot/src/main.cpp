@@ -1,5 +1,5 @@
 #include "Config.h"
-#include "rlbot/HivemindBot.h"
+#include "rlbot/DashBot.h"
 #include "train/Train.h"
 
 #include <rlbot/BotManager.h>
@@ -39,11 +39,11 @@ void PrintUsage(const char* argv0) {
 		"  --ts-per-version N   Snapshot the policy every N steps (default 5M)\n"
 		"\n"
 		"Environment (play):\n"
-		"  HIVE_MODEL           Checkpoint folder for the policy (required)\n"
+		"  DASH_MODEL           Checkpoint folder for the policy (required)\n"
 		"  RLBOT_AGENT_ID       Set by RLBot when it launches the bot\n"
 		"\n"
 		"Environment (both):\n"
-		"  HIVE_COLLISION_MESHES  Path to RocketSim collision meshes\n"
+		"  DASH_COLLISION_MESHES  Path to RocketSim collision meshes\n"
 		"                         (default: collision_meshes)\n",
 		argv0);
 }
@@ -61,20 +61,20 @@ int RunPlay(int argc, char* argv[]) {
 		std::fprintf(stderr,
 			"RLBOT_AGENT_ID is not set.\n"
 			"RLBot normally sets this when it launches the bot. To run by hand, set it to the\n"
-			"agent_id from bot.toml, e.g.:  RLBOT_AGENT_ID=hivemind/bot ./HivemindBot play\n");
+			"agent_id from bot.toml, e.g.:  RLBOT_AGENT_ID=dash/bot ./DashBot play\n");
 		return EXIT_FAILURE;
 	}
 
 	try {
 		// RLBot has a connection timeout that lazy GPU loading would trip.
-		Hive::Context().Initialize(Hive::BotSettings::FromEnvironment());
+		Dash::Context().Initialize(Dash::BotSettings::FromEnvironment());
 	} catch (const std::exception& e) {
 		std::fprintf(stderr, "Failed to initialize: %s\n", e.what());
 		return EXIT_FAILURE;
 	}
 
 	// batchHivemind = true delivers all our cars in one update(), for one batch.
-	rlbot::BotManager<Hive::HivemindBot> manager{true};
+	rlbot::BotManager<Dash::DashBot> manager{true};
 
 	if (!manager.connect(host, port, agentId, /*ballPrediction=*/false)) {
 		std::fprintf(stderr, "Failed to connect to RLBotServer at %s:%s\n", host, port);
@@ -85,7 +85,7 @@ int RunPlay(int argc, char* argv[]) {
 }
 
 int RunTrain(int argc, char* argv[]) {
-	Hive::TrainConfig cfg = {};
+	Dash::TrainConfig cfg = {};
 	bool fresh = false;
 
 	for (int i = 2; i < argc; i++) {
@@ -165,7 +165,8 @@ int RunTrain(int argc, char* argv[]) {
 			            archived.string().c_str());
 
 			// The receiver appends to an existing CSV, which would merge two runs silently.
-			const char* metricsEnv = std::getenv("HIVE_METRICS_DIR");
+			const char* metricsEnv = std::getenv("DASH_METRICS_DIR");
+			if (!metricsEnv) metricsEnv = std::getenv("HIVE_METRICS_DIR");
 			const std::filesystem::path metricsCsv =
 				std::filesystem::path(metricsEnv ? metricsEnv : "metrics") /
 				(cfg.RunName() + ".csv");
@@ -194,7 +195,7 @@ int RunTrain(int argc, char* argv[]) {
 	}
 
 	try {
-		Hive::RunTraining(cfg);
+		Dash::RunTraining(cfg);
 	} catch (const std::exception& e) {
 		std::fprintf(stderr, "Training failed: %s\n", e.what());
 		return EXIT_FAILURE;

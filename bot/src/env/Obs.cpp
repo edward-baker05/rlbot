@@ -7,7 +7,7 @@
 
 using namespace RLGC;
 
-namespace Hive {
+namespace Dash {
 
 std::unique_ptr<ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,
                                            ObsMode mode) {
@@ -42,4 +42,4 @@ int ProbeObsSize(int maxPlayersPerTeam, ObsMode mode) {
 	return size;
 }
 
-}  // namespace Hive
+}  // namespace Dash

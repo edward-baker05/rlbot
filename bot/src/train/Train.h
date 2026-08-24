@@ -2,8 +2,8 @@
 
 #include "../Config.h"
 
-namespace Hive {
+namespace Dash {
 
 void RunTraining(const TrainConfig& cfg);
 
-}  // namespace Hive
+}  // namespace Dash

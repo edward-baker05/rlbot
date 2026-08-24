@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace Hive {
+namespace Dash {
 
 struct BotSettings {
 	std::filesystem::path model;
@@ -41,10 +41,10 @@ struct SharedContext {
 
 SharedContext& Context();
 
-class HivemindBot final : public rlbot::Bot {
+class DashBot final : public rlbot::Bot {
 public:
-	HivemindBot(std::unordered_set<unsigned> indices, unsigned team, std::string name) noexcept;
-	~HivemindBot() noexcept override;
+	DashBot(std::unordered_set<unsigned> indices, unsigned team, std::string name) noexcept;
+	~DashBot() noexcept override;
 
 	void initialize(const rlbot::flat::ControllableTeamInfo* controllableTeamInfo,
 	                const rlbot::flat::FieldInfo* fieldInfo,
@@ -68,4 +68,4 @@ private:
 	bool loggedError = false;
 };
 
-}  // namespace Hive
+}  // namespace Dash

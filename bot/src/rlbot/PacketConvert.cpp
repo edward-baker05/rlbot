@@ -7,7 +7,7 @@
 
 using namespace RLGC;
 
-namespace Hive {
+namespace Dash {
 
 static inline Vec ToVec(const rlbot::flat::Vector3& v) {
 	return Vec(v.x(), v.y(), v.z());
@@ -165,4 +165,4 @@ GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 	return gs;
 }
 
-}  // namespace Hive
+}  // namespace Dash

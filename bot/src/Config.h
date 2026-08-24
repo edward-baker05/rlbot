@@ -8,7 +8,7 @@
 #include <filesystem>
 #include <string>
 
-namespace Hive {
+namespace Dash {
 
 struct RewardBudget {
 	float goal = 1.0f;
@@ -63,7 +63,7 @@ struct TrainConfig {
 	int64_t randomSeed = -1;
 
 	bool sendMetrics = true;
-	std::string wandbProject = "hivemind-rl";
+	std::string wandbProject = "dash-rl";
 	std::string wandbGroup = "dev";
 
 	bool renderMode = false;
@@ -79,4 +79,4 @@ struct TrainConfig {
 	}
 };
 
-} // namespace Hive
+} // namespace Dash

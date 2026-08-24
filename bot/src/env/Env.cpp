@@ -11,7 +11,7 @@
 
 using namespace RLGC;
 
-namespace Hive {
+namespace Dash {
 
 StateSetter* BuildSpawner(const TrainConfig& cfg) {
 	StateSetter* base = new RandomState(true, true, false);
@@ -40,4 +40,4 @@ EnvCreateResult CreateEnv(int index, const TrainConfig& cfg) {
 	return result;
 }
 
-}  // namespace Hive
+}  // namespace Dash

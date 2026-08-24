@@ -4,7 +4,7 @@
 
 #include <memory>
 
-namespace Hive {
+namespace Dash {
 
 class InfiniteBoostState : public RLGC::StateSetter {
 public:
@@ -21,4 +21,4 @@ private:
 	bool lastWasInfinite = false;
 };
 
-}  // namespace Hive
+}  // namespace Dash

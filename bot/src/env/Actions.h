@@ -4,7 +4,7 @@
 
 #include <memory>
 
-namespace Hive {
+namespace Dash {
 
 class UnmaskedAction : public RLGC::DefaultAction {
 public:
@@ -16,4 +16,4 @@ public:
 
 std::unique_ptr<RLGC::DefaultAction> MakeActionParser(bool masked);
 
-}  // namespace Hive
+}  // namespace Dash

@@ -12,10 +12,10 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$REPO/bot/build"
-BIN="$BUILD_DIR/HivemindBot"
+BIN="$BUILD_DIR/DashBot"
 
 if [[ ! -x "$BIN" ]]; then
-	echo "HivemindBot not built. Run scripts/build.sh first." >&2
+	echo "DashBot not built. Run scripts/build.sh first." >&2
 	exit 1
 fi
 
@@ -27,4 +27,3 @@ fi
 
 cd "$BUILD_DIR"
 "$BIN" train "$@"
-
