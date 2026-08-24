@@ -134,20 +134,87 @@ class AwkwardContactPenalty : public Reward {
 	}
 };
 
+// Rewards holding possession of the ball, scored as a contest between the two
+// teams' best-placed cars. Every car gets an estimated time to intercept the
+// ball -- position enters through the distance, velocity through the closing
+// speed -- and the team whose best car gets there sooner is in possession.
+// The whole team is paid the team's score, so a second man is credited for a
+// possession their teammate is holding.
 class PossessionReward : public Reward {
   public:
-	virtual float GetReward(const Player &player, const GameState &state,
-							bool isFinal) override {
-		float selfDot = player.pos.Dot(state.ball.pos);
-		float oppDot;
-		for (Player opponent : state.players) {
-			if (opponent.team == player.team)
+	// Constant acceleration used to model a car chasing the ball, roughly real
+	// throttle acceleration near zero speed. The model has no top-speed cap,
+	// so intercept times past ~3000uu come out optimistic; near the ball,
+	// which is where this signal has to be sharp, they are close to honest.
+	constexpr static float CHASE_ACCEL = 1600.f;
+
+	// Intercept times are clamped to this window before being compared. The
+	// floor keeps the ratio below from whipping around when both cars are
+	// sitting on the ball; the ceiling keeps a far-away opponent from pinning
+	// the reward near its maximum for a whole play.
+	constexpr static float MIN_TIME = 0.1f;
+	constexpr static float MAX_TIME = 4.0f;
+
+	// Estimated seconds for this car to reach the ball, assuming it holds a
+	// straight line and accelerates at CHASE_ACCEL from whatever closing speed
+	// it already has. Solves dist = v0*t + a*t^2/2 for the positive root.
+	//
+	// The discriminant can never go negative, so "won't intersect" needs no
+	// special case: a car driving away from the ball simply gets a long time,
+	// having to shed its speed and come back first.
+	static float TimeToBall(const Player &player, const GameState &state) {
+		Vec toBall = state.ball.pos - player.pos;
+
+		float surfaceDist = toBall.Length() - CommonValues::BALL_RADIUS;
+		float dist = RS_MAX(0.f, surfaceDist);
+
+		// Closing speed is taken relative to the ball, which is what makes
+		// this an intercept rather than a chase: running down a ball rolling
+		// away scores worse than the same geometry with it rolling towards us.
+		float v0 = (player.vel - state.ball.vel).Dot(toBall.Normalized());
+
+		float t = (-v0 + sqrtf(v0 * v0 + 2 * CHASE_ACCEL * dist)) / CHASE_ACCEL;
+		return RS_CLAMP(t, MIN_TIME, MAX_TIME);
+	}
+
+	virtual std::vector<float> GetAllRewards(const GameState &state,
+											 bool isFinal) override {
+		std::vector<float> rewards(state.players.size(), 0.f);
+
+		// Best (shortest) intercept time per team. Demoed cars are skipped so
+		// that a team getting demoed cedes possession rather than blanking the
+		// term -- their team is left on MAX_TIME, not excluded.
+		float teamTime[2] = {MAX_TIME, MAX_TIME};
+		bool teamExists[2] = {false, false};
+
+		for (const Player &player : state.players) {
+			int team = (int)player.team;
+			teamExists[team] = true;
+
+			if (player.isDemoed)
 				continue;
 
-			oppDot = RS_MIN(oppDot, opponent.pos.Dot(state.ball.pos));
+			float t = TimeToBall(player, state);
+			teamTime[team] = RS_MIN(teamTime[team], t);
 		}
 
-		return selfDot - oppDot;
+		// Possession only means anything as a contest.
+		if (!teamExists[0] || !teamExists[1])
+			return rewards;
+
+		for (int i = 0; i < state.players.size(); i++) {
+			int team = (int)state.players[i].team;
+
+			float selfTime = teamTime[team];
+			float oppTime = teamTime[1 - team];
+
+			// The denominator is at least 2*MIN_TIME, so this is always safe.
+			// Scale-free, zero at symmetry, and bounded by
+			// +-(MAX_TIME - MIN_TIME) / (MAX_TIME + MIN_TIME).
+			rewards[i] = (oppTime - selfTime) / (oppTime + selfTime);
+		}
+
+		return rewards;
 	}
 };
 

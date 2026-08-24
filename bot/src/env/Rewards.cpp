@@ -22,7 +22,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Save", b.save, [] { return new ZeroSumReward(new SaveReward(), 1); }},
 		{"Awkward Contact", b.awkwardContact,
 		 [] { return new AwkwardContactPenalty(); }},
-		// {"Possession", b.possession, [] { return new PossessionReward(); }},
+		{"Possession", b.possession, [] { return new PossessionReward(); }},
 	};
 }
 
