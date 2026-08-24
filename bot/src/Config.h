@@ -17,6 +17,7 @@ struct RewardBudget {
 	float velocityPlayerToBall = 0.002f;
 	float velocityBallToGoal = 0.005f;
 	float demo = 0.2f;
+	float faceBall = 0.001f;
 };
 
 struct SelfPlayConfig {

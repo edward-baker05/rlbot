@@ -9,14 +9,16 @@ namespace Dash {
 std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 	const RewardBudget &b = cfg.rewards;
 
-	return {{"Goal", b.goal, [] { return new GoalReward(); }},
-			{"Touch ball accel", b.touchAccel,
-			 [] { return new TouchAccelReward(); }},
-			{"Velocity: Player to Ball", b.velocityPlayerToBall,
-			 [] { return new VelocityPlayerToBallReward(); }},
-			{"Velocity: Ball to Goal", b.velocityBallToGoal,
-			 [] { return new VelocityBallToGoalReward(); }},
-			{"Demo", b.demo, [] { return new DemoReward(); }}};
+	return {
+		{"Goal", b.goal, [] { return new GoalReward(); }},
+		{"Ball Touch Acceleration", b.touchAccel,
+		 [] { return new TouchAccelReward(); }},
+		{"Velocity: Player to Ball", b.velocityPlayerToBall,
+		 [] { return new VelocityPlayerToBallReward(); }},
+		{"Velocity: Ball to Goal", b.velocityBallToGoal,
+		 [] { return new VelocityBallToGoalReward(); }},
+		{"Demo", b.demo, [] { return new DemoReward(); }},
+		{"Face Ball", b.faceBall, [] { return new RLGC::FaceBallReward(); }}};
 }
 
 std::vector<WeightedReward> BuildGeneralRewards(const TrainConfig &cfg) {
