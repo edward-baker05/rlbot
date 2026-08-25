@@ -2,6 +2,7 @@
 
 #include <RLGymCPP/CommonValues.h>
 
+#include <cmath>
 #include <cstdio>
 #include <limits>
 
@@ -57,6 +58,26 @@ void PacketConverter::Initialize(const rlbot::flat::FieldInfo* fieldInfo) {
 
 GameState PacketConverter::Convert(const rlbot::flat::GamePacket* packet) {
 	GameState gs = {};
+
+	// RocketSim's fixed physics rate. seconds_elapsed is the only clock the
+	// packet carries, and it is monotonic -- it ticks up through kickoffs,
+	// replays and pauses alike -- so it is a sound basis for a tick count.
+	//
+	// This matters because PredictiveObs caches its ball trajectory against
+	// this counter. Left at zero, every frame looks like tick 0 to the cache,
+	// the live ball never matches the slice it is compared against, and the
+	// predictor re-simulates from scratch on every inference. That is correct
+	// but it is a different code path from the one training exercises, which is
+	// exactly the asymmetry that hides bugs.
+	//
+	// A new match restarts seconds_elapsed near zero; BallPredictor treats a
+	// rewound clock as a new episode and re-simulates, so no reset is needed.
+	if (const auto* info = packet->match_info()) {
+		const float seconds = info->seconds_elapsed();
+		if (seconds > 0.f)
+			gs.lastTickCount = static_cast<uint64_t>(
+				std::llround(static_cast<double>(seconds) * 120.0));
+	}
 
 	if (packet->balls() && packet->balls()->size() > 0) {
 		const auto* phys = packet->balls()->Get(0)->physics();
