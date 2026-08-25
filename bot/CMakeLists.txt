@@ -57,6 +57,8 @@ add_library(DashCore STATIC
 	src/env/Actions.h
 	src/env/AdvancedObsPadded.cpp
 	src/env/AdvancedObsPadded.h
+	src/env/BallPredictor.cpp
+	src/env/BallPredictor.h
 	src/env/Env.cpp
 	src/env/Env.h
 	src/env/Obs.cpp
