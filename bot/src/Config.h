@@ -27,8 +27,8 @@ struct RewardBudget {
 	float save = 0.5f;
 	float velBtG = 0.05f;
 
-	float awkwardContact = 0.001f;
-	float possession = 0.000f;
+	float awkwardContact = 0.005f;
+	float possession = 0.001f;
 };
 
 struct AerialConfig {
@@ -120,9 +120,6 @@ struct TrainConfig {
 	TeamDistribution teamDistribution = {};
 
 	bool maskActions = true;
-	// Predictive = Advanced's 225 dims plus the 24-dim ball-prediction block.
-	// A checkpoint's shared head is sized by this, so changing it makes every
-	// existing checkpoint unloadable until run through `DashBot migrate-obs`.
 	ObsMode obs = ObsMode::Predictive;
 	float infiniteBoostChance = 0.1f;
 

@@ -60,7 +60,7 @@ class DirectionalTouchReward : public Reward {
 
 class ConditionalVelocityBallToGoalReward : public Reward {
   public:
-	bool ownGoal = false;
+	bool ownGoal;
 	ConditionalVelocityBallToGoalReward(bool ownGoal = false)
 		: ownGoal(ownGoal) {}
 
@@ -227,8 +227,6 @@ class ImprovedAirTouchReward : public AerialReward {
 	float minHeight;
 	float maxHeight;
 	float heightSpan;
-
-	constexpr static float DIR_OFFSET = 1.1f;
 
 	ImprovedAirTouchReward(float minHeight = 250.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight),
