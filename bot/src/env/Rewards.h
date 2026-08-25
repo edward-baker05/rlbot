@@ -28,6 +28,7 @@ struct RewardSpec {
 	std::function<RLGC::Reward *()> make;
 };
 
+// Should return power ^ 2 * direction ^ 2 when ball is hit
 class DirectionalTouchReward : public Reward {
   public:
 	constexpr static float MAX_REWARDED_HIT_VEL = RLGC::Math::KPHToVel(120);
@@ -60,6 +61,7 @@ class DirectionalTouchReward : public Reward {
 	}
 };
 
+// Should punish ball moving towards our goal if previous touch by opponent
 class ConditionalVelocityBallToGoalReward : public Reward {
   public:
 	bool ownGoal;
@@ -225,6 +227,8 @@ class AirLaunchReward : public AerialReward {
 	}
 };
 
+// Rewards air touches above a certain height relative to their power and
+// direction to net
 class ImprovedAirTouchReward : public AerialReward {
   public:
 	float minHeight;
@@ -268,6 +272,7 @@ class ImprovedAirTouchReward : public AerialReward {
 	}
 };
 
+// Should punish touching surface with part of the car that isn't wheels
 class AwkwardContactPenalty : public Reward {
   public:
 	virtual float GetReward(const Player &player, const GameState &state,
@@ -282,6 +287,7 @@ class AwkwardContactPenalty : public Reward {
 	}
 };
 
+// Should roughly reward being in a better position to get to the ball
 class PossessionReward : public Reward {
   public:
 	constexpr static float CHASE_ACCEL = 1600.f;
