@@ -85,8 +85,9 @@ class ConditionalVelocityBallToGoalReward : public Reward {
 										 : CommonValues::BLUE_GOAL_BACK;
 
 		Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
-		return -ballDirToGoal.Dot(state.ball.vel /
-								  CommonValues::BALL_MAX_SPEED);
+		return RS_CLAMP(
+			-ballDirToGoal.Dot(state.ball.vel / CommonValues::BALL_MAX_SPEED),
+			-1.f, 0.f);
 	}
 };
 
