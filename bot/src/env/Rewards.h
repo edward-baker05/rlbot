@@ -54,6 +54,9 @@ class DirectionalTouchReward : public Reward {
 		float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
 		float dirFactor = (alignment + DIR_OFFSET) / (1.f + DIR_OFFSET);
 
+		if (dirFactor < 0)
+			return 0;
+
 		return power * power * dirFactor * dirFactor;
 	}
 };
