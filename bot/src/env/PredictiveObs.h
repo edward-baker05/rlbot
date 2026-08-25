@@ -30,6 +30,10 @@ public:
 	RLGC::FList BuildObs(const RLGC::Player& player,
 	                     const RLGC::GameState& state) override;
 
+	// Full trajectory simulations run so far. For the performance gate: the
+	// amortized cost is entirely a function of how often the cache misses.
+	uint64_t SimulationCount() const { return predictor.SimulationCount(); }
+
 private:
 	BallPredictor predictor;
 };

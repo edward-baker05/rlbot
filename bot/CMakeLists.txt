@@ -82,6 +82,8 @@ add_library(DashCore STATIC
 	src/eval/MatchBench.h
 	src/eval/NectoBench.cpp
 	src/eval/NectoBench.h
+	src/eval/PredictBench.cpp
+	src/eval/PredictBench.h
 	src/eval/RewardProbe.cpp
 	src/eval/RewardProbe.h
 	src/eval/Spectate.cpp

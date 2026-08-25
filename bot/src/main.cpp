@@ -2,6 +2,7 @@
 #include "eval/Checkpoints.h"
 #include "eval/MatchBench.h"
 #include "eval/NectoBench.h"
+#include "eval/PredictBench.h"
 #include "eval/Spectate.h"
 #include "opponents/NectoSelfTest.h"
 #include "rlbot/DashBot.h"
@@ -27,6 +28,8 @@ void PrintUsage(const char *argv0) {
 		"  match            Play standard 5-minute head-to-head games between "
 		"two checkpoints\n"
 		"  benchmark        Score a checkpoint head-to-head against Necto\n"
+		"  predict-bench    Measure the throughput cost of the prediction obs "
+		"block\n"
 		"  necto-selftest   Dump the Necto observation for a fixed state, to "
 		"diff\n"
 		"                   against the Python reference\n"
@@ -751,6 +754,24 @@ int main(int argc, char *argv[]) {
 
 	if (command == "benchmark")
 		return RunBenchmark(argc, argv);
+
+	if (command == "predict-bench") {
+		int arenas = 64;
+		int steps = 400;
+		for (int i = 2; i < argc; i++) {
+			const std::string arg = argv[i];
+			if (arg == "--arenas" && i + 1 < argc)
+				arenas = std::atoi(argv[++i]);
+			else if (arg == "--steps" && i + 1 < argc)
+				steps = std::atoi(argv[++i]);
+			else {
+				std::fprintf(stderr, "Unknown option: %s\n", arg.c_str());
+				return EXIT_FAILURE;
+			}
+		}
+		RocketSim::Init(FindCollisionMeshes());
+		return Dash::RunPredictBench(arenas, steps);
+	}
 
 	if (command == "necto-selftest") {
 		// Optional output path; defaults to stdout.
