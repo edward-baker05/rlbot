@@ -8,7 +8,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 	const RewardBudget &b = cfg.rewards;
 
 	return {
-		{"Goal", b.goal, RewardKind::Event, [] { return new GoalReward(); }},
+		{"Goal", b.goal, RewardKind::Event,
+		 [] { return new GoalReward(-1, true); }},
 		{"Strong Touch", b.strongTouch, RewardKind::Event,
 		 [] { return new ZeroSumReward(new DirectionalTouchReward(), 1); }},
 		{"Air Touch", b.airTouch, RewardKind::Event,

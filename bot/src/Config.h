@@ -13,12 +13,12 @@ namespace Dash {
 
 struct RewardBudget {
 	float goal = 1.f;
-	float strongTouch = 0.45f;
-	float airTouch = 0.20f;
+	float strongTouch = 0.65f;
+	float airTouch = 0.40f;
 
 	float pickupBoost = 0.10f;
-	float saveBoost = 0.001f;
-	float wavedash = 0.1f;
+	float saveBoost = 0.002f;
+	float wavedash = 0.35f;
 	float speed = 0.001f;
 
 	float bump = 0.15f;
@@ -28,7 +28,7 @@ struct RewardBudget {
 	float velBtG = 0.05f;
 
 	float awkwardContact = 0.001f;
-	float possession = 0.005f;
+	float possession = 0.000f;
 };
 
 struct AerialConfig {
@@ -55,7 +55,7 @@ struct SelfPlayConfig {
 struct NectoConfig {
 	bool enabled = true;
 
-	float arenaFraction = 0.1f;
+	float arenaFraction = 0.2f;
 
 	float trainBeta = 0.5f;
 	float benchBeta = 1.0f;
@@ -120,7 +120,10 @@ struct TrainConfig {
 	TeamDistribution teamDistribution = {};
 
 	bool maskActions = true;
-	ObsMode obs = ObsMode::Advanced;
+	// Predictive = Advanced's 225 dims plus the 24-dim ball-prediction block.
+	// A checkpoint's shared head is sized by this, so changing it makes every
+	// existing checkpoint unloadable until run through `DashBot migrate-obs`.
+	ObsMode obs = ObsMode::Predictive;
 	float infiniteBoostChance = 0.1f;
 
 	RewardBudget rewards = {};
@@ -143,7 +146,7 @@ struct TrainConfig {
 	float entropyScale = 0.02f;
 	float entropyTarget = 0.0f;
 	float entropyAdjustRate = 0.15f;
-	float gaeGamma = 0.99f;
+	float gaeGamma = 0.995f;
 	float policyLR = 1e-4f;
 	float criticLR = 1e-4f;
 	int64_t maxSteps = 0;

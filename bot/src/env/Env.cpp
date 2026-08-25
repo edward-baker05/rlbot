@@ -1,5 +1,6 @@
 #include "Env.h"
 
+#include "../opponents/NectoArena.h"
 #include "Actions.h"
 #include "Obs.h"
 #include "Rewards.h"
@@ -7,7 +8,6 @@
 #include "StateSetters/CombinedState.h"
 #include "StateSetters/FuzzedKickoffState.h"
 #include "Terminal.h"
-#include "../opponents/NectoArena.h"
 
 #include <RLGymCPP/StateSetters/RandomState.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
@@ -20,7 +20,8 @@ namespace Dash {
 StateSetter *BuildSpawner(const TrainConfig &cfg) {
 	StateSetter *groundBase =
 		new CombinedState({{new RandomState(true, true, true), 0.7f},
-						   {new FuzzedKickoffState(), 0.3f}});
+						   {new FuzzedKickoffState(), 0.2f},
+						   {new AerialHoverState(), 0.1f}});
 
 	StateSetter *base = groundBase;
 
@@ -58,9 +59,9 @@ EnvCreateResult CreateEnv(int index, const TrainConfig &cfg) {
 	}
 
 	// Necto arenas are fixed at creation: a static assignment keeps the
-	// learner's once-per-iteration player split valid, and pins exactly half the
-	// Necto arenas to each side. Owned for the process lifetime, like the parser
-	// and obs builder below.
+	// learner's once-per-iteration player split valid, and pins exactly half
+	// the Necto arenas to each side. Owned for the process lifetime, like the
+	// parser and obs builder below.
 	NectoArenaState *nectoArena = nullptr;
 	if (cfg.necto.enabled) {
 		Team nectoTeam = Team::ORANGE;
@@ -75,7 +76,8 @@ EnvCreateResult CreateEnv(int index, const TrainConfig &cfg) {
 	EnvCreateResult result = {};
 	result.arena = arena;
 	result.userInfo = nectoArena;
-	result.actionParser = MakeActionParser(cfg.maskActions, nectoArena).release();
+	result.actionParser =
+		MakeActionParser(cfg.maskActions, nectoArena).release();
 	result.obsBuilder =
 		MakeObsBuilder(cfg.maxPlayersPerTeam, cfg.obs).release();
 	result.stateSetter = BuildSpawner(cfg);
