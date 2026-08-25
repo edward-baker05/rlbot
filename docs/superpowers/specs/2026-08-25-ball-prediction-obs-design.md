@@ -84,9 +84,30 @@ and distance to the intercept. Any fixed threshold would encode the wrong abstra
 A car-less `Arena::Create(GameMode::SOCCAR)` owned by the obs builder. Ball state is
 copied in from `state.ball` and the arena stepped forward.
 
-Deliberately **not** RLBot's `ballPrediction` packet parameter (`DashBot.h:54`), even
-though it is already plumbed in: it originates from a different pipeline, and any
-divergence would become a silent train/deploy mismatch that is very hard to diagnose.
+Deliberately **not** RLBot's `ballPrediction` packet parameter (`DashBot.h:54`), for a
+reason that has nothing to do with the quality of RLBot's predictor — which is purpose-built
+for this and perfectly good:
+
+**RLBot is not present during training.** Training runs 256 headless RocketSim arenas
+inside `Train.cpp`; there is no RLBot framework, no packet, and no `BallPrediction`
+anywhere in that process. A RocketSim predictor therefore has to exist regardless of what
+the deploy path does. It is not avoidable work being chosen over the built-in — it is the
+only way the feature can exist at all.
+
+Given that it must exist, using RLBot's at deploy would mean maintaining two predictors
+and hoping they agree. The observation vector is the network's entire world: if column 231
+means "ball position at 0.55s per RocketSim" across the whole training run and then means
+"per RLBot core" at deploy, the network is silently fed a different world, producing
+degraded play with no error anywhere. The saving would be nil, since the RocketSim
+predictor was written either way.
+
+The speed argument points the same direction. Prediction cost only matters in training,
+where RLBot is unavailable; at deploy it is one arena at 15 Hz on an otherwise idle
+machine, where 360 ball-only ticks is free.
+
+Note also that `main.cpp` currently connects with `ballPrediction=false`, so RLBot is not
+even sending it today — using it would mean turning that on as well.
+
 Owning the arena means training, `Spectate`, `MatchBench`, `NectoBench` and `DashBot` all
 derive identical features from one code path.
 
@@ -145,7 +166,7 @@ not work.
 
 ### Procedure
 
-An offline `--migrate-obs` mode in this repo. C++ rather than a Python round-trip,
+An offline `migrate-obs` subcommand in this repo (`main.cpp` dispatches subcommands, not flags). C++ rather than a Python round-trip,
 because the checkpoints are libtorch `torch::save(seq)` archives and the same `GGL::Model`
 class is already available here.
 
@@ -198,6 +219,16 @@ throughput cost.
 3. Over the first 10-20M steps of t3, the new columns acquire non-trivial weight
    magnitude in `seq[0]` — evidence the network is using them at all.
 4. Necto benchmark Elo for t3 exceeds frozen t1's over a comparable step budget.
+
+## Prior art in this repo
+
+Commit `2636cc2 "Removed lookahead"` deleted a `RolloutPlanner` that generated 32
+candidate actions and rolled each out 12 ticks in a scratch `Arena` to pick the best. That
+is a **different mechanism** — inference-time action search that overrode the policy's
+output — and it ran only on the deploy/eval paths, never in training. This proposal instead
+feeds the policy better inputs and lets training decide what to do with them. The relevant
+inheritance is the scratch-arena lifecycle pattern (`EnsureArenaInitialized`, arena deleted
+in the destructor), which this design reuses.
 
 ## Known risks
 
