@@ -4,8 +4,8 @@
 #include "../env/Obs.h"
 #include "../env/Rewards.h"
 #include "../eval/Checkpoints.h"
-#include "../eval/NectoBench.h"
 #include "../eval/MigrateObs.h"
+#include "../eval/NectoBench.h"
 #include "../opponents/NectoArena.h"
 #include "../opponents/NectoDriver.h"
 
@@ -246,7 +246,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"airTouch", b.airTouch},
 		{"pickupBoost", b.pickupBoost},
 		{"saveBoost", b.saveBoost},
-		{"wavedash", b.wavedash},
+		// {"wavedash", b.wavedash},
 		{"speed", b.speed},
 		{"bump", b.bump},
 		{"demo", b.demo},
@@ -424,8 +424,8 @@ void RunTraining(const TrainConfig &cfg) {
 		else if (sz == 3)
 			n3++;
 	}
-	std::cout << "Observation size: " << obsSize << " (mode="
-			  << ObsModeName(cfg.obs)
+	std::cout << "Observation size: " << obsSize
+			  << " (mode=" << ObsModeName(cfg.obs)
 			  << ", maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
 	std::cout << "Arenas:           " << cfg.numGames << " total (" << n1
 			  << "x 1v1, " << n2 << "x 2v2, " << n3 << "x 3v3)\n";
@@ -442,17 +442,20 @@ void RunTraining(const TrainConfig &cfg) {
 		const int savedObsSize = ReadSavedObsSize(resumeFrom, cfg.modelShape);
 		if (savedObsSize > 0 && savedObsSize != obsSize) {
 			std::cerr
-				<< "\nERROR: " << resumeFrom << " was saved with an input width of "
-				<< savedObsSize << ", but obs mode " << ObsModeName(cfg.obs)
-				<< " produces " << obsSize << ".\n"
+				<< "\nERROR: " << resumeFrom
+				<< " was saved with an input width of " << savedObsSize
+				<< ", but obs mode " << ObsModeName(cfg.obs) << " produces "
+				<< obsSize << ".\n"
 				<< "This run cannot resume from it. Either switch back to the "
 				   "obs mode it was\ntrained with, or widen it:\n\n"
-				<< "  DashBot migrate-obs --src <run> --dst <new run> --old-obs "
+				<< "  DashBot migrate-obs --src <run> --dst <new run> "
+				   "--old-obs "
 				<< savedObsSize << " --new-obs " << obsSize << "\n\n"
 				<< "Note migrate-obs must run over the whole run folder, not a "
 				   "single checkpoint:\npolicy_versions/ is size-checked on "
 				   "load too.\n";
-			throw std::runtime_error("obs size mismatch with existing checkpoint");
+			throw std::runtime_error(
+				"obs size mismatch with existing checkpoint");
 		}
 	}
 	std::cout << "Self-play:        "
