@@ -42,12 +42,37 @@ export DASH_MODEL
 # These MUST match what the model was trained with, or the bot will act on a
 # different cadence and read a differently-shaped observation than it learned.
 export DASH_COLLISION_MESHES="${DASH_COLLISION_MESHES:-${HIVE_COLLISION_MESHES:-$BUILD_DIR/collision_meshes}}"
-export DASH_MAX_PLAYERS_PER_TEAM="${DASH_MAX_PLAYERS_PER_TEAM:-${HIVE_MAX_PLAYERS_PER_TEAM:-1}}"
+
+# NOT the size of the match -- this is the observation's PADDING WIDTH, and it
+# is baked into the network's input layer.
+#
+# AdvancedObsPadded always emits slots for maxPlayersPerTeam opponents and
+# maxPlayersPerTeam - 1 teammates, zero-filling the ones no car occupies. The
+# actual number of cars is whatever RLBot puts in the match (match-1v1.toml),
+# and the bot never sees the difference. Training already works this way: it
+# plays pure 1v1 games (TeamDistribution::p1v1 = 1.0) with the obs padded to 3.
+#
+# So this must be 3 to match TrainConfig::maxPlayersPerTeam, even for a 1v1.
+# It was previously 1, which produced a 109-float observation against a
+# 225-float (now 249-float) input layer and could not load at all. Setting it
+# to 3 spawns nothing extra; it only restores the padding the model was trained
+# with -- and as a bonus the bot can then play 2v2 and 3v3, which a width of 1
+# rejects outright.
+export DASH_MAX_PLAYERS_PER_TEAM="${DASH_MAX_PLAYERS_PER_TEAM:-${HIVE_MAX_PLAYERS_PER_TEAM:-3}}"
+
 export DASH_TICK_SKIP="${DASH_TICK_SKIP:-${HIVE_TICK_SKIP:-8}}"
 export DASH_ACTION_DELAY="${DASH_ACTION_DELAY:-${HIVE_ACTION_DELAY:-7}}"
 
+# Observation builder. MUST match TrainConfig::obs -- it sets the input width,
+# so a mismatch fails loudly at model load rather than playing badly:
+#   default 89 / advanced 225 / predictive 249  (at padding width 3)
+export DASH_OBS="${DASH_OBS:-${HIVE_OBS:-predictive}}"
+
 # Action masking. MUST match the value training used (TrainConfig::maskActions).
-export DASH_MASK_ACTIONS="${DASH_MASK_ACTIONS:-${HIVE_MASK_ACTIONS:-0}}"
+# This one does NOT change the input width, so a mismatch loads fine and simply
+# plays worse: the action count is 90 either way, but unmasked lets the policy
+# pick actions that were suppressed as illegal throughout training.
+export DASH_MASK_ACTIONS="${DASH_MASK_ACTIONS:-${HIVE_MASK_ACTIONS:-1}}"
 
 # Deterministic play is meaningfully stronger than sampling in a real match.
 export DASH_DETERMINISTIC="${DASH_DETERMINISTIC:-${HIVE_DETERMINISTIC:-1}}"
