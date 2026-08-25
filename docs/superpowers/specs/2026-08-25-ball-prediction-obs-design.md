@@ -214,11 +214,84 @@ throughput cost.
 
 ## Success criteria
 
-1. Amortized prediction cost under ~15% SPS loss (gate — measured before anything else).
+1. ~~Amortized prediction cost under ~15% SPS loss~~ — **MEASURED, GATE MISSED.**
+   Budget raised to 25%; actual is ~33%. See "Measured cost" below.
 2. Migration acceptance test passes: bit-identical behaviour with zero columns.
+   **PASSED.** See "Measured migration" below.
 3. Over the first 10-20M steps of t3, the new columns acquire non-trivial weight
    magnitude in `seq[0]` — evidence the network is using them at all.
 4. Necto benchmark Elo for t3 exceeds frozen t1's over a comparable step budget.
+
+### Measured cost
+
+`DashBot predict-bench --arenas 64 --steps 400`, on the 3600, with t1 still
+training and competing for CPU. Three runs of the representative (driven) arm:
+
+| Arm | Loss | Ball-only ticks simulated per env-step |
+|---|---|---|
+| Idle (ball never touched — best case) | 22–41% | 14.4 |
+| Driven (random inputs — representative) | **31.3%, 35.4%, 35.4%** | 19.8 |
+
+The block simulates ~19.8 ball-only ticks per env-step against the game's own 8
+full-arena ticks. A ball-only tick costs ~32% of a full-arena tick, so the
+prediction does roughly four fifths as much physics as the game.
+
+Two of the plan's three tuning levers turned out not to exist:
+
+- **Shrinking the horizon makes it worse.** Runway 300 measured 21.3 ticks/step
+  and 50.9% loss against runway 408's 19.8 and ~33%. The cache is runway-bound,
+  not touch-bound: under random inputs the mean touch interval is ~600 ticks. The
+  optimum sits near runway 550 and is worth ~3%, inside the run-to-run spread, so
+  the original 6-second horizon stands.
+- **"Step 2 ticks and interpolate" is a no-op.** `Arena::Step(2)` runs two physics
+  ticks. The real version of that lever is `Arena::Create(..., tickRate=60)`,
+  which halves the work at the cost of ±8ms on bounce timing.
+
+The floor for any implementation is `deepest_sample × tickSkip / touch_interval`
+ball-only ticks per env-step. That is what makes the sample schedule, not the
+horizon, the thing that sets the cost:
+
+| Schedule | Deepest | Floor (ticks/step) | Best achievable loss |
+|---|---|---|---|
+| 6 samples (chosen) | 312 (2.60s) | 8.6 | ~24% |
+| 5 samples | 192 (1.60s) | 5.3 | ~17% |
+| 4 samples | 114 (0.95s) | 3.1 | ~12% |
+
+The gap between the 6-sample floor (~24%) and the measured ~33% is the fixed
+re-simulation strategy: every cache miss re-simulates the whole horizon from the
+present. Closing it needs a rolling-window cache that extends the trajectory in
+place instead — the one remaining lever that keeps all six samples.
+
+**Decision:** keep the six-sample schedule and accept the cost. The far samples
+were kept on the judgement that a 2.6s look-ahead is worth roughly a third of
+throughput on this hardware.
+
+### Measured migration
+
+t1 was snapshotted at **990,131,980** steps, not the 890,047,828 the design was
+written against — the run kept training while this was built. `migrate-obs`
+widened the newest checkpoint and all 16 policy versions from 225 to 249
+(`1024 x 249 = 254,976` parameters in the first Linear, verified in the archives).
+
+Acceptance: 100 deterministic 5-minute games, frozen t1 against migrated t3,
+32 arenas, CPU.
+
+| | frozen | migrated |
+|---|---|---|
+| Wins | 51 | 49 |
+| Goals | 472 | 475 |
+
+Goal differential **+0.03** (95% CI −0.58 to +0.64), binomial p = 0.920,
+paired t p = 0.924, Wilcoxon p = 0.933. No significant difference on any test —
+the two are the same function, as the zero-column argument predicts.
+
+Two supporting facts were confirmed directly rather than assumed:
+
+- `RUNNING_STATS.json` holds only `return_stat`, `run_id`, `skill_ratings`,
+  `total_iterations` and `total_timesteps` — no `obs_stat`. `standardizeObs` is
+  off, which is the precondition for zero-padding being exact.
+- A missing `SHARED_HEAD_OPTIM.lt` logs a warning and resets the optimizer
+  (`Models.cpp:165`) rather than failing, so dropping it does not block resume.
 
 ## Prior art in this repo
 
@@ -232,11 +305,18 @@ in the destructor), which this design reuses.
 
 ## Known risks
 
-- **Cost.** The dominant risk. Mitigated by the measurement gate at step 1.
+- **Cost.** The dominant risk, and it landed. Measured at ~33% throughput loss,
+  against a 15% budget that was raised to 25% and still missed. Accepted
+  deliberately rather than mitigated. Note this is the *shallow* end: a trained
+  policy touches the ball far more often than the benchmark's random inputs, which
+  shortens the cache lifetime and raises the cost further. Re-measure against a
+  real policy once t3 is running.
 - **Passivity.** A network that can see where the ball will land has an easy route to
   "drive to the bounce point and wait". Given the recent defense-oriented reward work
   this may be desirable or may be a failure mode; worth watching in `Spectate`.
 - **Horizon fiction.** The 1.60s and 2.60s samples are mostly counterfactual in 1v1.
   If success criterion 3 shows the far samples acquiring no weight, drop them.
 - **Optimizer state migration** (step 5) is the fiddliest part of the surgery and has an
-  identified fallback.
+  identified fallback. **Taken:** `migrate-obs` drops shared-head optimizer state
+  rather than padding it. Adam's moments re-estimate within a few hundred
+  iterations at `lr = 1e-4`.
