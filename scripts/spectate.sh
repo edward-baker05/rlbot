@@ -19,6 +19,19 @@
 #
 # Automatically launches RocketSimVis (scripts/vis.sh) in the background if
 # not already running, and terminates it when spectating ends.
+#
+# Reward debugging:
+#
+#   scripts/spectate.sh <run-label> --rewards
+#   scripts/spectate.sh <run-label> --reward-start-paused
+#
+# --rewards prints the training reward stack's per-step breakdown and hands the
+# clock to the keyboard: [space] pause/resume, [.] step one frame, [c] run
+# without auto-pausing, [b] dump the last 30 steps, [s] episode totals, [q]
+# quit. It auto-pauses when an event reward's weighted contribution exceeds
+# --reward-pause (default 0.25); the continuous shaping rewards are always
+# displayed but never trip it. Pausing just stops the UDP stream, which
+# RocketSimVis renders as a held frame.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -55,6 +68,15 @@ ARGS+=("$@")
 # Launch RocketSimVis in the background if not already active, and ensure clean exit.
 VIS_PID=""
 BOT_PID=""
+
+# --rewards puts the terminal in raw mode to read single keypresses. DashBot
+# restores it itself on exit and on SIGINT/SIGTERM, but a crash would leave the
+# shell with no echo, so keep a copy to restore from here too.
+STTY_SAVED=""
+if [[ -r /dev/tty ]]; then
+	STTY_SAVED="$(stty -g < /dev/tty 2>/dev/null || true)"
+fi
+
 cleanup() {
 	trap - EXIT INT TERM
 	if [[ -n "$BOT_PID" ]] && kill -0 "$BOT_PID" 2>/dev/null; then
@@ -64,6 +86,9 @@ cleanup() {
 	if [[ -n "$VIS_PID" ]] && kill -0 "$VIS_PID" 2>/dev/null; then
 		kill "$VIS_PID" 2>/dev/null || true
 		wait "$VIS_PID" 2>/dev/null || true
+	fi
+	if [[ -n "$STTY_SAVED" ]]; then
+		stty "$STTY_SAVED" < /dev/tty 2>/dev/null || true
 	fi
 }
 trap cleanup EXIT INT TERM
@@ -76,7 +101,16 @@ fi
 echo "Streaming to RocketSimVis on UDP 9273."
 # cd matters: RenderSender imports python_scripts.render_receiver relative to
 # the working directory, and collision meshes resolve from here too.
-(cd "$BUILD_DIR" && exec "$BIN" spectate "${ARGS[@]}") &
+#
+# stdin matters for --rewards: bash points a background command's stdin at
+# /dev/null, so without this redirect no keypress would ever reach DashBot.
+# Job control is off in a script, so the child shares this shell's (foreground)
+# process group and can read the terminal without taking SIGTTIN.
+if [[ -n "$STTY_SAVED" ]]; then
+	(cd "$BUILD_DIR" && exec "$BIN" spectate "${ARGS[@]}") < /dev/tty &
+else
+	(cd "$BUILD_DIR" && exec "$BIN" spectate "${ARGS[@]}") &
+fi
 BOT_PID=$!
 
 if [[ -n "$VIS_PID" ]]; then

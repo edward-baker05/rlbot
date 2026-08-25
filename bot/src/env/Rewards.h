@@ -16,9 +16,19 @@ using namespace RLGC;
 
 namespace Dash {
 
+// Whether a reward fires on discrete events (a touch, a goal, a demo) or
+// accrues on most steps. Spectate's --rewards probe only arms its auto-pause
+// on Event rewards: the Continuous ones swing constantly in normal play and
+// would trip it every step, but they are still always displayed.
+enum class RewardKind {
+	Event,
+	Continuous,
+};
+
 struct RewardSpec {
 	std::string name;
 	float weight;
+	RewardKind kind;
 	std::function<RLGC::Reward *()> make;
 };
 

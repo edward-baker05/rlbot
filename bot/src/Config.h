@@ -13,14 +13,14 @@ namespace Dash {
 
 struct RewardBudget {
 	float goal = 1.f;
-	float strongTouch = 0.25f;
-	float airTouch = 0.5f;
+	float strongTouch = 0.5f;
+	float airTouch = 1.0f;
 
 	float airVelToBall = 0.05f;
 	float airLaunch = 0.01f;
 
 	float pickupBoost = 0.15f;
-	float saveBoost = 0.0001f;
+	float saveBoost = 0.0000f;
 
 	float bump = 0.15f;
 	float demo = 0.5f;
@@ -28,7 +28,7 @@ struct RewardBudget {
 	float save = 0.6f;
 
 	float awkwardContact = 0.001f;
-	float possession = 0.001f;
+	float possession = 0.0001f;
 };
 
 struct AerialConfig {

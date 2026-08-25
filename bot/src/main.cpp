@@ -60,6 +60,19 @@ void PrintUsage(const char *argv0) {
 		"  --fresh              Start over instead of resuming --label's "
 		"checkpoints\n"
 		"\n"
+		"Spectate options:\n"
+		"  --rewards            Print the training reward breakdown each step "
+		"and\n"
+		"                       take keyboard control: [space] pause/resume, "
+		"[.]\n"
+		"                       step, [c] run, [b] history, [s] totals, [q] "
+		"quit\n"
+		"  --reward-start-paused  Imply --rewards and begin paused at step 0\n"
+		"  --reward-pause X     Auto-pause when an event reward's weighted\n"
+		"                       contribution exceeds X (default 0.25, 0 "
+		"disables)\n"
+		"  --reward-history N   Steps of breakdown kept for [b] (default 30)\n"
+		"\n"
 		"Benchmark options:\n"
 		"  --run LABEL          Score the newest checkpoint of this run\n"
 		"  --model PATH         Score this checkpoint folder instead\n"
@@ -355,6 +368,15 @@ int RunSpectate(int argc, char *argv[]) {
 			scfg.episodes = std::atoi(argv[++i]);
 		} else if (arg == "--seed" && i + 1 < argc) {
 			scfg.seed = std::atoll(argv[++i]);
+		} else if (arg == "--reward-pause" && i + 1 < argc) {
+			scfg.rewardPauseThreshold = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--reward-history" && i + 1 < argc) {
+			scfg.rewardHistorySteps = std::atoi(argv[++i]);
+		} else if (arg == "--rewards") {
+			scfg.debugRewards = true;
+		} else if (arg == "--reward-start-paused") {
+			scfg.debugRewards = true;
+			scfg.rewardStartPaused = true;
 		} else if (arg == "--deterministic") {
 			scfg.deterministic = true;
 		} else if (arg == "--gpu") {
@@ -368,7 +390,9 @@ int RunSpectate(int argc, char *argv[]) {
 		std::fprintf(stderr,
 		             "Usage: %s spectate --follow <label> | --model <ckpt>\n"
 		             "       [--spawns training|kickoff] [--deterministic]\n"
-		             "       [--time-scale X] [--episodes N] [--gpu]\n",
+		             "       [--time-scale X] [--episodes N] [--gpu]\n"
+		             "       [--rewards] [--reward-start-paused]\n"
+		             "       [--reward-pause X] [--reward-history N]\n",
 		             argv[0]);
 		return EXIT_FAILURE;
 	}

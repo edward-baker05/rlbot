@@ -6,6 +6,8 @@
 #include "../env/Obs.h"
 #include "../policy/Policy.h"
 #include "Checkpoints.h"
+#include "KeyPoller.h"
+#include "RewardProbe.h"
 
 #include <GigaLearnCPP/Util/RenderSender.h>
 
@@ -20,6 +22,7 @@
 #include <ctime>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 
 using namespace RLGC;
 namespace fs = std::filesystem;
@@ -27,6 +30,10 @@ namespace fs = std::filesystem;
 namespace Dash {
 
 namespace {
+
+constexpr const char *KEY_HELP =
+	"  [space] pause/resume  [.] step  [c] run  [b] history  [s] totals  "
+	"[q] quit";
 
 // Empty path when following a run that has not saved a checkpoint yet.
 fs::path ResolveCheckpoint(const SpectateConfig &cfg) {
@@ -95,7 +102,97 @@ void RunSpectate(const SpectateConfig &cfg) {
 				cfg.spawns == SpectateSpawns::Training ? "training"
 													   : "kickoff");
 
-	for (int episode = 0; cfg.episodes == 0 || episode < cfg.episodes;
+	// --rewards runs the training reward stack alongside the game and hands the
+	// clock to the keyboard. Both stay null otherwise, and every guard below is
+	// on `probe`, so plain spectating is untouched.
+	std::unique_ptr<RewardProbe> probe;
+	std::unique_ptr<KeyPoller> keys;
+	bool paused = false;
+	bool autoPause = true;
+	bool quit = false;
+
+	if (cfg.debugRewards) {
+		probe = std::make_unique<RewardProbe>(tcfg, cfg.rewardPauseThreshold,
+											  cfg.rewardHistorySteps);
+		keys = std::make_unique<KeyPoller>();
+		paused = cfg.rewardStartPaused;
+
+		if (cfg.rewardPauseThreshold > 0.f)
+			std::printf(
+				"Auto-pausing when an event reward exceeds %.4f (weighted).\n",
+				cfg.rewardPauseThreshold);
+		else
+			std::printf("Auto-pause disabled; stepping is manual.\n");
+
+		if (keys->Active()) {
+			std::printf("%s\n", KEY_HELP);
+		} else {
+			// Nothing could ever resume us, so pausing here would hang the
+			// spectator outright. Fall back to a plain log of every step,
+			// which is the more useful thing to pipe to a file anyway.
+			paused = false;
+			autoPause = false;
+			std::printf("stdin is not a terminal, so keyboard control is off. "
+						"Printing every step instead; run via "
+						"scripts/spectate.sh for pause and step.\n");
+		}
+		std::fflush(stdout);
+	}
+
+	const bool interactive = keys && keys->Active();
+
+	// Drains buffered keypresses and, while paused, blocks until the user
+	// resumes or asks for a single step. Returns false when the user quits.
+	// Pausing simply stops streaming: RocketSimVis clamps its interpolation
+	// ratio at 1, so it holds the last frame it received.
+	auto handleInput = [&]() -> bool {
+		for (;;) {
+			switch (keys->Poll()) {
+			case 'q':
+				return false;
+			case ' ':
+				paused = !paused;
+				if (paused) {
+					std::printf("%s%s\n",
+								probe->FormatLastStep("== PAUSED ==").c_str(),
+								KEY_HELP);
+				} else {
+					autoPause = true;
+					std::printf("-- running --\n");
+				}
+				std::fflush(stdout);
+				break;
+			case '.':
+				// Advance exactly one step, then come back here.
+				paused = true;
+				return true;
+			case 'c':
+				paused = false;
+				autoPause = false;
+				std::printf("-- running, auto-pause off until next keypress --\n");
+				std::fflush(stdout);
+				break;
+			case 'b':
+				std::printf("%s", probe->FormatHistory().c_str());
+				std::fflush(stdout);
+				break;
+			case 's':
+				std::printf("%s", probe->FormatEpisodeTotals().c_str());
+				std::fflush(stdout);
+				break;
+			default:
+				break;
+			}
+
+			if (!paused)
+				return true;
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+	};
+
+	for (int episode = 0;
+		 !quit && (cfg.episodes == 0 || episode < cfg.episodes);
 		 episode++) {
 		// Between episodes only: swapping the policy under a car mid-play
 		// misleads.
@@ -122,19 +219,33 @@ void RunSpectate(const SpectateConfig &cfg) {
 		else
 			arena->ResetToRandomKickoff();
 
-		// One GameState reused for the whole episode.
+		// One GameState reused for the whole episode, plus the state it
+		// replaced. Several rewards read state.prev and player.prev
+		// (DirectionalTouchReward, the aerial rewards), and silently report 0
+		// without it, so the probe would print fiction if this were not
+		// threaded through the way EnvSet does it.
 		GameState gs;
+		GameState prevGs;
+		prevGs.MakeEmpty();
 		gs.UpdateFromArena(arena, std::vector<Action>(2), nullptr);
 
 		noTouch.Reset(gs);
 		goalScored.Reset(gs);
+		if (probe)
+			probe->BeginEpisode(gs);
 
 		while (true) {
+			if (probe && !handleInput()) {
+				quit = true;
+				break;
+			}
+
 			auto acts = policy->InferBatch({gs.players[0], gs.players[1]},
 										   {gs, gs}, cfg.deterministic);
 
 			// Replay the training cadence exactly: hold the action for
 			// actionDelay ticks.
+			prevGs = gs;
 			gs.ResetBeforeStep();
 			arena->Step(tcfg.actionDelay);
 
@@ -145,12 +256,49 @@ void RunSpectate(const SpectateConfig &cfg) {
 				(*carItr)->controls = (CarControls)applied[i];
 			}
 			arena->Step(tcfg.tickSkip - tcfg.actionDelay);
-			gs.UpdateFromArena(arena, applied, nullptr);
+			gs.UpdateFromArena(arena, applied,
+							   prevGs.IsEmpty() ? nullptr : &prevGs);
 
 			sender.Send(gs); // Also paces to wall-clock.
 
-			if (goalScored.IsTerminal(gs) || noTouch.IsTerminal(gs))
+			// Both conditions are evaluated, never short-circuited: they are
+			// stateful and EnvSet guarantees each is called once per step.
+			const bool goalTerm = goalScored.IsTerminal(gs);
+			const bool noTouchTerm = noTouch.IsTerminal(gs);
+			const bool isFinal = goalTerm || noTouchTerm;
+
+			if (probe) {
+				probe->Step(gs, isFinal);
+
+				char header[128];
+				const float t = probe->StepCount() * tcfg.tickSkip / 120.f;
+
+				if (paused || !interactive) {
+					// Manual single-step, or the non-interactive log: always
+					// print, even an all-zero step, so every keypress (or
+					// every step) produces a visible frame marker.
+					std::snprintf(header, sizeof(header),
+								  "== ep %d  step %d  t=%.2fs ==", episode + 1,
+								  probe->StepCount(), t);
+					std::printf("%s", probe->FormatLastStep(header).c_str());
+				} else if (autoPause && probe->Tripped()) {
+					paused = true;
+					std::snprintf(header, sizeof(header),
+								  "== PAUSED  ep %d  step %d  t=%.2fs ==",
+								  episode + 1, probe->StepCount(), t);
+					std::printf("%s%s\n", probe->FormatLastStep(header).c_str(),
+								KEY_HELP);
+				}
+				std::fflush(stdout);
+			}
+
+			if (isFinal)
 				break;
+		}
+
+		if (probe && !quit) {
+			std::printf("%s", probe->FormatEpisodeTotals().c_str());
+			std::fflush(stdout);
 		}
 	}
 

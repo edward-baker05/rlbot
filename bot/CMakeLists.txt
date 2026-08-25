@@ -70,8 +70,12 @@ add_library(DashCore STATIC
 
 	src/eval/Checkpoints.cpp
 	src/eval/Checkpoints.h
+	src/eval/KeyPoller.cpp
+	src/eval/KeyPoller.h
 	src/eval/NectoBench.cpp
 	src/eval/NectoBench.h
+	src/eval/RewardProbe.cpp
+	src/eval/RewardProbe.h
 	src/eval/Spectate.cpp
 	src/eval/Spectate.h
 
