@@ -160,6 +160,18 @@ add_executable(DashBot src/main.cpp)
 target_link_libraries(DashBot PRIVATE DashCore)
 
 # ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+# doctest is vendored as a single header in tests/doctest. DashCore exists
+# precisely so the bot binary and this share one compilation of the sources.
+add_executable(DashTests
+	tests/test_main.cpp
+	tests/test_ballpredictor.cpp
+)
+target_link_libraries(DashTests PRIVATE DashCore)
+target_include_directories(DashTests PRIVATE tests)
+
+# ---------------------------------------------------------------------------
 # CUDA collective libraries
 # ---------------------------------------------------------------------------
 # libtorch_cuda.so references NCCL and NVSHMEM symbols even for single-GPU use,
@@ -184,7 +196,7 @@ endforeach()
 
 # Bake the library paths into the binary so it runs without the caller having
 # to export LD_LIBRARY_PATH. RLBot launches the bot itself and will not set it.
-set_target_properties(DashBot PROPERTIES
+set_target_properties(DashBot DashTests PROPERTIES
 	BUILD_RPATH "${DASH_LIBS}/libtorch/lib;${DASH_LIBS}/nccl/nvidia/nccl/lib;${DASH_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
 	INSTALL_RPATH "${DASH_LIBS}/libtorch/lib;${DASH_LIBS}/nccl/nvidia/nccl/lib;${DASH_LIBS}/nvshmem/nvidia/nvshmem/lib;${CMAKE_BINARY_DIR}"
 	BUILD_WITH_INSTALL_RPATH FALSE
@@ -195,7 +207,7 @@ set_target_properties(DashBot PROPERTIES
 
 # Keep the binary next to the shared libraries it loads, so collision_meshes
 # also resolves relatively from the build dir.
-set_target_properties(DashBot PROPERTIES
+set_target_properties(DashBot DashTests PROPERTIES
 	RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 

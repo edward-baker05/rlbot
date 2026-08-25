@@ -23,8 +23,12 @@ cmake -S "$REPO/bot" -B "$BUILD_DIR" \
 	-DRLBOT_CPP_ENABLE_LTO=OFF
 
 echo "==> Building with $JOBS jobs"
-cmake --build "$BUILD_DIR" --parallel "$JOBS" --target DashBot
+# DashTests as well as DashBot: both link the same DashCore, so the test binary
+# costs a couple of extra translation units and nothing more. Building it here
+# means a plain `scripts/build.sh` never leaves a stale test binary behind.
+cmake --build "$BUILD_DIR" --parallel "$JOBS" --target DashBot DashTests
 
 echo
 echo "Built: $BUILD_DIR/DashBot"
+echo "       $BUILD_DIR/DashTests"
 echo "Try:   $BUILD_DIR/DashBot --help"
