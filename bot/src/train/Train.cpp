@@ -5,6 +5,7 @@
 #include "../env/Rewards.h"
 #include "../eval/Checkpoints.h"
 #include "../eval/NectoBench.h"
+#include "../eval/MigrateObs.h"
 #include "../opponents/NectoArena.h"
 #include "../opponents/NectoDriver.h"
 
@@ -430,6 +431,30 @@ void RunTraining(const TrainConfig &cfg) {
 			  << "x 1v1, " << n2 << "x 2v2, " << n3 << "x 3v3)\n";
 	std::cout << "Run:              " << cfg.RunName() << "\n";
 	std::cout << "Checkpoints:      " << cfg.CheckpointFolder() << "\n";
+
+	// A checkpoint's shared head is sized by the obs mode that produced it, and
+	// GigaLearn's Model::Load reports a mismatch as two bare lists of parameter
+	// counts with no indication of the cause or the fix. Catch it here, where
+	// both numbers are known and migrate-obs can be named.
+	const std::filesystem::path resumeFrom =
+		FindLatestCheckpoint(cfg.CheckpointFolder());
+	if (!resumeFrom.empty()) {
+		const int savedObsSize = ReadSavedObsSize(resumeFrom, cfg.modelShape);
+		if (savedObsSize > 0 && savedObsSize != obsSize) {
+			std::cerr
+				<< "\nERROR: " << resumeFrom << " was saved with an input width of "
+				<< savedObsSize << ", but obs mode " << ObsModeName(cfg.obs)
+				<< " produces " << obsSize << ".\n"
+				<< "This run cannot resume from it. Either switch back to the "
+				   "obs mode it was\ntrained with, or widen it:\n\n"
+				<< "  DashBot migrate-obs --src <run> --dst <new run> --old-obs "
+				<< savedObsSize << " --new-obs " << obsSize << "\n\n"
+				<< "Note migrate-obs must run over the whole run folder, not a "
+				   "single checkpoint:\npolicy_versions/ is size-checked on "
+				   "load too.\n";
+			throw std::runtime_error("obs size mismatch with existing checkpoint");
+		}
+	}
 	std::cout << "Self-play:        "
 			  << (cfg.selfPlay.trainAgainstOldVersions
 					  ? "on (" +

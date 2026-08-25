@@ -6,6 +6,7 @@
 #include <torch/torch.h>
 
 #include <cstdio>
+#include <fstream>
 
 namespace Dash {
 
@@ -85,6 +86,35 @@ MigrateResult MigrateSharedHead(const std::filesystem::path& srcFolder,
 
 	return {true, "migrated " + std::to_string(oldObsSize) + " -> " +
 	              std::to_string(newObsSize)};
+}
+
+int ReadSavedObsSize(const std::filesystem::path& checkpointFolder,
+                     const ModelShape& shape) {
+	RG_NO_GRAD;
+
+	const std::filesystem::path path = checkpointFolder / "SHARED_HEAD.lt";
+	if (!std::filesystem::exists(path))
+		return -1;
+
+	// Deliberately torch::load on the Sequential rather than Model::Load: the
+	// latter hard-checks parameter sizes and aborts, which is the very failure
+	// this function exists to pre-empt. Torch resizes the modules to whatever
+	// the archive holds, so the placeholder width below is irrelevant.
+	GGL::Model probe("shared_head", MakeHeadConfig(1, shape), torch::kCPU);
+	try {
+		std::ifstream in(path, std::ios::binary);
+		if (!in.good())
+			return -1;
+		torch::load(probe.seq, in, torch::kCPU);
+	} catch (const std::exception&) {
+		return -1;
+	}
+
+	const auto params = probe.seq->parameters();
+	if (params.empty() || params[0].dim() != 2)
+		return -1;
+
+	return (int)params[0].size(1);
 }
 
 int RunMigrateObs(const std::filesystem::path& srcRun,
