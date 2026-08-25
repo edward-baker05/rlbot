@@ -31,7 +31,6 @@ struct RewardSpec {
 class DirectionalTouchReward : public Reward {
   public:
 	constexpr static float MAX_REWARDED_HIT_VEL = RLGC::Math::KPHToVel(120);
-
 	constexpr static float DIR_OFFSET = 0.f;
 
 	virtual float GetReward(const Player &player, const GameState &state,
@@ -85,9 +84,9 @@ class ConditionalVelocityBallToGoalReward : public Reward {
 										 : CommonValues::BLUE_GOAL_BACK;
 
 		Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
-		return RS_CLAMP(
-			-ballDirToGoal.Dot(state.ball.vel / CommonValues::BALL_MAX_SPEED),
-			-1.f, 0.f);
+		return RS_CLAMP(-ballDirToGoal.Dot(state.ball.vel.Normalized() /
+										   CommonValues::BALL_MAX_SPEED),
+						-1.f, 0.f);
 	}
 };
 
