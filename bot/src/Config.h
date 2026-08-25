@@ -16,11 +16,11 @@ struct RewardBudget {
 	float strongTouch = 0.25f;
 	float airTouch = 0.5f;
 
-	float airVelToBall = 0.10f;
+	float airVelToBall = 0.05f;
 	float airLaunch = 0.01f;
 
 	float pickupBoost = 0.15f;
-	float saveBoost = 0.001f;
+	float saveBoost = 0.0001f;
 
 	float bump = 0.15f;
 	float demo = 0.5f;
@@ -28,8 +28,7 @@ struct RewardBudget {
 	float save = 0.6f;
 
 	float awkwardContact = 0.001f;
-
-	float possession = 0.005f;
+	float possession = 0.001f;
 };
 
 struct AerialConfig {

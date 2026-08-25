@@ -874,7 +874,7 @@ def process(patch, check_only):
 	text = path.read_text()
 
 	if patch["marker"] in text:
-		return "ok", f"{name}: already applied"
+		return "ok", ""
 
 	if check_only:
 		return "absent", f"{name}: NOT APPLIED"

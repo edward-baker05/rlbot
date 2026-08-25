@@ -24,9 +24,9 @@ struct RewardSpec {
 
 class DirectionalTouchReward : public Reward {
   public:
-	constexpr static float MAX_REWARDED_HIT_VEL = RLGC::Math::KPHToVel(110);
+	constexpr static float MAX_REWARDED_HIT_VEL = RLGC::Math::KPHToVel(120);
 
-	constexpr static float DIR_OFFSET = 1.1f;
+	constexpr static float DIR_OFFSET = 0.f;
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
@@ -43,9 +43,7 @@ class DirectionalTouchReward : public Reward {
 		Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
 
 		float hitVel = deltaVel.Length();
-		// TODO Uncomment this at a later time
-		// float power = RS_MIN(1.f, hitVel / MAX_REWARDED_HIT_VEL);
-		float power = sqrt(RS_MIN(1.f, hitVel / MAX_REWARDED_HIT_VEL));
+		float power = RS_MIN(1.f, hitVel / MAX_REWARDED_HIT_VEL);
 
 		float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
 		float dirFactor = (alignment + DIR_OFFSET) / (1.f + DIR_OFFSET);
@@ -58,13 +56,33 @@ class AirFaceBallReward : public Reward {
   public:
 	float minHeight;
 	float maxHeight;
+	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
 
-	AirFaceBallReward(float minHeight = 750.f, float maxHeight = 1800.f)
+	std::vector<float> launchZ;
+
+	AirFaceBallReward(float minHeight = 500.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight) {}
+
+	virtual void Reset(const GameState &initialState) override {
+		launchZ.assign(initialState.players.size(), 0.f);
+		for (const Player &player : initialState.players)
+			launchZ[player.index] = player.pos.z;
+	}
+
+	virtual void PreStep(const GameState &state) override {
+		launchZ.resize(state.players.size(), 0.f);
+		for (const Player &player : state.players)
+			if (player.isOnGround)
+				launchZ[player.index] = player.pos.z;
+	}
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
 		if (player.isOnGround || state.ball.pos.z <= minHeight)
+			return 0.f;
+
+		if (player.index >= (int)launchZ.size() ||
+			launchZ[player.index] > MAX_GROUND_LAUNCH_Z)
 			return 0.f;
 
 		if ((player.pos - state.ball.pos).Length() >=
@@ -86,17 +104,33 @@ class AirVelToBallReward : public Reward {
   public:
 	float minHeight;
 	float maxHeight;
+	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
 
-	AirVelToBallReward(float minHeight = 750.f, float maxHeight = 1800.f)
+	std::vector<float> launchZ;
+
+	AirVelToBallReward(float minHeight = 500.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight) {}
+
+	virtual void Reset(const GameState &initialState) override {
+		launchZ.assign(initialState.players.size(), 0.f);
+		for (const Player &player : initialState.players)
+			launchZ[player.index] = player.pos.z;
+	}
+
+	virtual void PreStep(const GameState &state) override {
+		launchZ.resize(state.players.size(), 0.f);
+		for (const Player &player : state.players)
+			if (player.isOnGround)
+				launchZ[player.index] = player.pos.z;
+	}
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
 		if (player.isOnGround || state.ball.pos.z <= minHeight)
 			return 0.f;
 
-		if ((player.pos - state.ball.pos).Length() >=
-			(player.prev->pos - state.prev->ball.pos).Length())
+		if (player.index >= (int)launchZ.size() ||
+			launchZ[player.index] > MAX_GROUND_LAUNCH_Z)
 			return 0.f;
 
 		float heightFactor =
@@ -114,14 +148,34 @@ class AirVelToBallReward : public Reward {
 class AirLaunchReward : public Reward {
   public:
 	float minHeight;
-	constexpr static float MAX_AIR_TIME = 2.f;
+	constexpr static float MAX_AIR_TIME = 1.5f;
 	constexpr static float MAX_REWARDED_Z_VEL = 1000.f;
+	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
 
-	AirLaunchReward(float minHeight = 750.f) : minHeight(minHeight) {}
+	std::vector<float> launchZ;
+
+	AirLaunchReward(float minHeight = 500.f) : minHeight(minHeight) {}
+
+	virtual void Reset(const GameState &initialState) override {
+		launchZ.assign(initialState.players.size(), 0.f);
+		for (const Player &player : initialState.players)
+			launchZ[player.index] = player.pos.z;
+	}
+
+	virtual void PreStep(const GameState &state) override {
+		launchZ.resize(state.players.size(), 0.f);
+		for (const Player &player : state.players)
+			if (player.isOnGround)
+				launchZ[player.index] = player.pos.z;
+	}
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
 		if (player.isOnGround || state.ball.pos.z <= minHeight)
+			return 0.f;
+
+		if (player.index >= (int)launchZ.size() ||
+			launchZ[player.index] > MAX_GROUND_LAUNCH_Z)
 			return 0.f;
 
 		if (player.airTimeSinceJump > MAX_AIR_TIME || player.vel.z <= 0.f)
@@ -151,6 +205,7 @@ class ImprovedAirTouchReward : public Reward {
 	float heightSpan;
 
 	constexpr static float DIR_OFFSET = 1.1f;
+	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
 
 	std::vector<float> launchZ;
 
@@ -176,6 +231,10 @@ class ImprovedAirTouchReward : public Reward {
 		if (!player.ballTouchedStep || player.isOnGround ||
 			state.ball.pos.z <= minHeight)
 			return 0;
+
+		if (player.index >= (int)launchZ.size() ||
+			launchZ[player.index] > MAX_GROUND_LAUNCH_Z)
+			return 0.f;
 
 		float height = sqrt((state.ball.pos.z - minHeight) / heightSpan);
 		height = RS_CLAMP(height, 0.f, 1.f);

@@ -16,11 +16,6 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 			 return new ImprovedAirTouchReward(cfg.aerial.minBallHeight,
 											   cfg.aerial.maxBallHeight);
 		 }},
-		// {"Air Face Ball", b.airFaceBall,
-		//  [=] {
-		// 	 return new AirFaceBallReward(cfg.aerial.minBallHeight,
-		// 								  cfg.aerial.maxBallHeight);
-		//  }},
 		{"Air Vel to Ball", b.airVelToBall,
 		 [=] {
 			 return new AirVelToBallReward(cfg.aerial.minBallHeight,
