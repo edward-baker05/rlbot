@@ -190,19 +190,19 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 		}
 	}
 
-
 	auto &envSet = *learner->envSet;
 	if (!g_RewardLabels.empty()) {
 		std::vector<float> posTotals(g_RewardLabels.size(), 0.f);
 		int totalLearnerCars = 0;
 
-		for (size_t a = 0; a < states.size() && a < envSet.rewards.size(); a++) {
+		for (size_t a = 0; a < states.size() && a < envSet.rewards.size();
+			 a++) {
 			const auto &gs = states[a];
 			Team nectoTeam = Team::BLUE;
 			bool hasNecto = false;
 			if (g_NectoEnabled && a < envSet.userInfos.size()) {
-				const auto *nectoArena = static_cast<const NectoArenaState *>(
-					envSet.userInfos[a]);
+				const auto *nectoArena =
+					static_cast<const NectoArenaState *>(envSet.userInfos[a]);
 				if (nectoArena && nectoArena->active) {
 					hasNecto = true;
 					nectoTeam = nectoArena->nectoTeam;
@@ -219,7 +219,8 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				totalLearnerCars++;
 
 				for (size_t j = 0;
-					 j < arenaRewards.size() && j < g_RewardLabels.size(); j++) {
+					 j < arenaRewards.size() && j < g_RewardLabels.size();
+					 j++) {
 					posTotals[j] += GetSingleSidedReward(arenaRewards[j].reward,
 														 player, gs, terminal);
 				}
@@ -230,7 +231,8 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 			const float invCars = 1.f / static_cast<float>(totalLearnerCars);
 			for (size_t j = 0; j < g_RewardLabels.size(); j++) {
 				const float meanPos = posTotals[j] * invCars;
-				report.AddAvg("RewardPositive/" + g_RewardLabels[j].first, meanPos);
+				report.AddAvg("RewardPositive/" + g_RewardLabels[j].first,
+							  meanPos);
 				report.AddAvg("RewardMass/" + g_RewardLabels[j].first,
 							  meanPos * g_RewardLabels[j].second);
 			}
@@ -246,7 +248,6 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"goal", b.goal},
 		{"strongTouch", b.strongTouch},
 		{"airTouch", b.airTouch},
-		{"airFaceBall", b.airFaceBall},
 		{"airVelToBall", b.airVelToBall},
 		{"airLaunch", b.airLaunch},
 		{"pickupBoost", b.pickupBoost},

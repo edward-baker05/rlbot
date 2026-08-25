@@ -59,7 +59,7 @@ class AirFaceBallReward : public Reward {
 	float minHeight;
 	float maxHeight;
 
-	AirFaceBallReward(float minHeight = 350.f, float maxHeight = 1800.f)
+	AirFaceBallReward(float minHeight = 750.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight) {}
 
 	virtual float GetReward(const Player &player, const GameState &state,
@@ -67,7 +67,12 @@ class AirFaceBallReward : public Reward {
 		if (player.isOnGround || state.ball.pos.z <= minHeight)
 			return 0.f;
 
-		float heightFactor = (state.ball.pos.z - minHeight) / (maxHeight - minHeight);
+		if ((player.pos - state.ball.pos).Length() >=
+			(player.prev->pos - state.prev->ball.pos).Length())
+			return 0.f;
+
+		float heightFactor =
+			(state.ball.pos.z - minHeight) / (maxHeight - minHeight);
 		heightFactor = RS_CLAMP(heightFactor, 0.f, 1.f);
 
 		Vec dirToBall = (state.ball.pos - player.pos).Normalized();
@@ -82,7 +87,7 @@ class AirVelToBallReward : public Reward {
 	float minHeight;
 	float maxHeight;
 
-	AirVelToBallReward(float minHeight = 350.f, float maxHeight = 1800.f)
+	AirVelToBallReward(float minHeight = 750.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight) {}
 
 	virtual float GetReward(const Player &player, const GameState &state,
@@ -90,7 +95,12 @@ class AirVelToBallReward : public Reward {
 		if (player.isOnGround || state.ball.pos.z <= minHeight)
 			return 0.f;
 
-		float heightFactor = (state.ball.pos.z - minHeight) / (maxHeight - minHeight);
+		if ((player.pos - state.ball.pos).Length() >=
+			(player.prev->pos - state.prev->ball.pos).Length())
+			return 0.f;
+
+		float heightFactor =
+			(state.ball.pos.z - minHeight) / (maxHeight - minHeight);
 		heightFactor = RS_CLAMP(heightFactor, 0.f, 1.f);
 
 		Vec dirToBall = (state.ball.pos - player.pos).Normalized();
@@ -104,10 +114,10 @@ class AirVelToBallReward : public Reward {
 class AirLaunchReward : public Reward {
   public:
 	float minHeight;
-	constexpr static float MAX_AIR_TIME = 0.4f;
+	constexpr static float MAX_AIR_TIME = 2.f;
 	constexpr static float MAX_REWARDED_Z_VEL = 1000.f;
 
-	AirLaunchReward(float minHeight = 350.f) : minHeight(minHeight) {}
+	AirLaunchReward(float minHeight = 750.f) : minHeight(minHeight) {}
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
@@ -117,9 +127,15 @@ class AirLaunchReward : public Reward {
 		if (player.airTimeSinceJump > MAX_AIR_TIME || player.vel.z <= 0.f)
 			return 0.f;
 
+		if ((player.pos - state.ball.pos).Length() >=
+			(player.prev->pos - state.prev->ball.pos).Length())
+			return 0.f;
+
 		Vec dirXY = Vec(state.ball.pos.x - player.pos.x,
-						state.ball.pos.y - player.pos.y, 0.f).Normalized();
-		Vec fwdXY = Vec(player.rotMat.forward.x, player.rotMat.forward.y, 0.f).Normalized();
+						state.ball.pos.y - player.pos.y, 0.f)
+						.Normalized();
+		Vec fwdXY = Vec(player.rotMat.forward.x, player.rotMat.forward.y, 0.f)
+						.Normalized();
 
 		float xyAlign = RS_MAX(0.f, fwdXY.Dot(dirXY));
 		float zScale = RS_CLAMP(player.vel.z / MAX_REWARDED_Z_VEL, 0.f, 1.f);
@@ -169,18 +185,18 @@ class ImprovedAirTouchReward : public Reward {
 		float climb = (player.pos.z - launchZ[player.index]) / heightSpan;
 		climb = RS_CLAMP(climb, 0.f, 1.f);
 
-		float touchReward = height * (0.3f + 0.7f * climb);
+		float touchReward = height * (0.2f + 0.8f * climb);
 
 		if (state.prev) {
 			Vec deltaVel = state.ball.vel - state.prev->ball.vel;
 			if (deltaVel.Length() > 50.f) {
 				bool targetOrangeGoal = player.team == Team::BLUE;
-				Vec targetPos = targetOrangeGoal ? CommonValues::ORANGE_GOAL_BACK
-												 : CommonValues::BLUE_GOAL_BACK;
+				Vec targetPos = targetOrangeGoal
+									? CommonValues::ORANGE_GOAL_BACK
+									: CommonValues::BLUE_GOAL_BACK;
 				Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
 				float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
-				float dirFactor = (alignment + DIR_OFFSET) / (1.f + DIR_OFFSET);
-				touchReward *= dirFactor;
+				touchReward *= alignment;
 			}
 		}
 
