@@ -1,5 +1,7 @@
 #include "BallPredictor.h"
 
+#include <cmath>
+
 using namespace RLGC;
 
 namespace Dash {
@@ -69,6 +71,40 @@ void BallPredictor::Simulate(const RLGC::GameState& state) {
 		const RocketSim::BallState cur = arena->ball->GetState();
 		traj.pos[i] = cur.pos;
 		traj.vel[i] = cur.vel;
+
+		if (traj.bounceTick < 0) {
+			const RocketSim::Vec& prevVel = traj.vel[i - 1];
+			const float prevSpeed = prevVel.Length();
+			const float curSpeed = cur.vel.Length();
+
+			if (prevSpeed > BOUNCE_MIN_SPEED && curSpeed > BOUNCE_MIN_SPEED) {
+				const float cosAngle =
+					prevVel.Dot(cur.vel) / (prevSpeed * curSpeed);
+				const bool turned = cosAngle < BOUNCE_COS_THRESHOLD;
+				const bool jumped =
+					std::abs(curSpeed - prevSpeed) > BOUNCE_SPEED_JUMP;
+
+				if (turned || jumped) {
+					traj.bounceTick = i;
+					traj.bouncePos = cur.pos;
+				}
+			}
+		}
+
+		if (traj.goalTick < 0 && arena->IsBallScored()) {
+			traj.goalTick = i;
+			// RS_TEAM_FROM_Y's convention: the net the ball crossed into.
+			traj.goalTeam = cur.pos.y > 0 ? 1 : 0;
+
+			// Stop here. Past the goal line the simulation is meaningless --
+			// the real game would have reset -- so freeze the remainder rather
+			// than feeding the network an imaginary continuation.
+			for (int j = i + 1; j <= SIM_HORIZON_TICKS; j++) {
+				traj.pos[j] = cur.pos;
+				traj.vel[j] = {0, 0, 0};
+			}
+			break;
+		}
 	}
 
 	hasCache = true;

@@ -53,6 +53,18 @@ public:
 	static constexpr float POS_TOLERANCE = 1.0f;   // uu
 	static constexpr float VEL_TOLERANCE = 1.0f;   // uu/s
 
+	// A bounce is a tick where velocity direction turns sharply or speed jumps.
+	// Deliberately not "velocity minus gravity*dt": the ball has drag
+	// (MutatorConfig::ballDrag), so free flight is not exactly ballistic and an
+	// exact test would need to track that constant. Direction change needs no
+	// physics constants and works for floor, wall, ceiling and corner alike.
+	static constexpr float BOUNCE_COS_THRESHOLD = 0.966f;  // ~15 degrees
+	static constexpr float BOUNCE_SPEED_JUMP = 100.f;      // uu/s in one tick
+
+	// Below this speed, velocity direction is noise; a resting ball must not
+	// register bounces.
+	static constexpr float BOUNCE_MIN_SPEED = 50.f;        // uu/s
+
 	BallPredictor();
 	~BallPredictor();
 

@@ -140,3 +140,82 @@ TEST_CASE("BallPredictor::Reset forces the next call to re-simulate") {
 	pred.Get(next);
 	CHECK(pred.SimulationCount() == 2);
 }
+
+TEST_CASE("BallPredictor detects the first ground bounce") {
+	Dash::Test::EnsureRocketSim();
+	BallPredictor pred;
+
+	// Thrown straight down with no horizontal motion: the first bounce is
+	// on the floor, directly under the launch point.
+	//
+	// The downward velocity is not incidental. Arena::Step sleeps the ball
+	// whenever its linear AND angular velocity are both exactly zero
+	// (Arena.cpp:722), so a ball released from rest hangs in mid-air
+	// indefinitely rather than falling. That is right for the resting-ball
+	// case this suite also covers, but it means a drop test needs a push.
+	RLGC::GameState s = {};
+	s.ball.pos = {500, -700, 1000};
+	s.ball.vel = {0, 0, -500};
+	s.lastTickCount = 0;
+
+	const BallTrajectory& t = pred.Get(s);
+
+	REQUIRE(t.bounceTick > 0);
+	// ~907uu of travel from 500uu/s under 650uu/s^2 is a bit over a second.
+	CHECK(t.bounceTick < 200);
+	CHECK(t.bouncePos.x == doctest::Approx(500).epsilon(0.01));
+	CHECK(t.bouncePos.y == doctest::Approx(-700).epsilon(0.01));
+	// Contact happens at roughly one ball radius above the floor.
+	CHECK(t.bouncePos.z < 150.f);
+
+	// The bounce must reverse vertical velocity.
+	CHECK(t.vel[t.bounceTick - 1].z < 0);
+	CHECK(t.vel[t.bounceTick].z > 0);
+}
+
+TEST_CASE("BallPredictor reports no bounce for a ball that stays airborne") {
+	Dash::Test::EnsureRocketSim();
+	BallPredictor pred;
+
+	// Hovering near the ceiling with almost no velocity: within 6 seconds it
+	// falls, so instead use a ball already at rest on the floor, which never
+	// registers a fresh bounce.
+	RLGC::GameState s = {};
+	s.ball.pos = {0, 0, 93};
+	s.ball.vel = {0, 0, 0};
+	s.lastTickCount = 0;
+
+	const BallTrajectory& t = pred.Get(s);
+	CHECK(t.bounceTick == -1);
+}
+
+TEST_CASE("BallPredictor detects a goal and which net") {
+	Dash::Test::EnsureRocketSim();
+	BallPredictor pred;
+
+	// Rolling hard at the orange net (+y).
+	RLGC::GameState s = {};
+	s.ball.pos = {0, 3000, 93};
+	s.ball.vel = {0, 3000, 0};
+	s.lastTickCount = 0;
+
+	const BallTrajectory& t = pred.Get(s);
+
+	REQUIRE(t.goalTick > 0);
+	CHECK(t.goalTeam == 1);  // orange's net
+	CHECK(t.goalTick < BallPredictor::SIM_HORIZON_TICKS);
+}
+
+TEST_CASE("BallPredictor reports no goal for a ball going nowhere") {
+	Dash::Test::EnsureRocketSim();
+	BallPredictor pred;
+
+	RLGC::GameState s = {};
+	s.ball.pos = {0, 0, 93};
+	s.ball.vel = {0, 0, 0};
+	s.lastTickCount = 0;
+
+	const BallTrajectory& t = pred.Get(s);
+	CHECK(t.goalTick == -1);
+	CHECK(t.goalTeam == -1);
+}
