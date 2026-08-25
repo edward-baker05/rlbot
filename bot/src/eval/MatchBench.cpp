@@ -210,6 +210,8 @@ BotSpec LoadBotSpecFromConfig(const fs::path &checkpointPath) {
 						spec.obsMode = ObsMode::Default;
 					else if (obsStr == "Advanced" || obsStr == "advanced")
 						spec.obsMode = ObsMode::Advanced;
+					else if (obsStr == "Predictive" || obsStr == "predictive")
+						spec.obsMode = ObsMode::Predictive;
 				}
 				if (e.contains("maxPlayersPerTeam") && e["maxPlayersPerTeam"].is_number_integer()) {
 					spec.maxPlayersPerTeam = e["maxPlayersPerTeam"].get<int>();

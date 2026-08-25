@@ -63,6 +63,8 @@ add_library(DashCore STATIC
 	src/env/Env.h
 	src/env/Obs.cpp
 	src/env/Obs.h
+	src/env/PredictiveObs.cpp
+	src/env/PredictiveObs.h
 	src/env/RelativeObs.cpp
 	src/env/RelativeObs.h
 	src/env/Rewards.cpp
@@ -169,6 +171,7 @@ target_link_libraries(DashBot PRIVATE DashCore)
 add_executable(DashTests
 	tests/test_main.cpp
 	tests/test_ballpredictor.cpp
+	tests/test_predictiveobs.cpp
 )
 target_link_libraries(DashTests PRIVATE DashCore)
 target_include_directories(DashTests PRIVATE tests)

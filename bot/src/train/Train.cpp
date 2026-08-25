@@ -278,7 +278,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 	j["env"] = {
 		{"maxPlayersPerTeam", cfg.maxPlayersPerTeam},
 		{"maskActions", cfg.maskActions},
-		{"obs", cfg.obs == ObsMode::Advanced ? "Advanced" : "Default"},
+		{"obs", ObsModeName(cfg.obs)},
 		{"infiniteBoostChance", cfg.infiniteBoostChance},
 		{"teamSpirit", cfg.teamSpirit},
 		{"noTouchTimeoutSeconds", cfg.noTouchTimeoutSeconds},
@@ -424,7 +424,7 @@ void RunTraining(const TrainConfig &cfg) {
 			n3++;
 	}
 	std::cout << "Observation size: " << obsSize << " (mode="
-			  << (cfg.obs == ObsMode::Advanced ? "Advanced" : "Default")
+			  << ObsModeName(cfg.obs)
 			  << ", maxPlayersPerTeam=" << cfg.maxPlayersPerTeam << ")\n";
 	std::cout << "Arenas:           " << cfg.numGames << " total (" << n1
 			  << "x 1v1, " << n2 << "x 2v2, " << n3 << "x 3v3)\n";

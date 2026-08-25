@@ -46,6 +46,8 @@ BotSettings BotSettings::FromEnvironment() {
 	const std::string obsStr = EnvOr("DASH_OBS", EnvOr("HIVE_OBS", "advanced"));
 	if (obsStr == "default" || obsStr == "Default") {
 		s.obs = ObsMode::Default;
+	} else if (obsStr == "predictive" || obsStr == "Predictive") {
+		s.obs = ObsMode::Predictive;
 	} else {
 		s.obs = ObsMode::Advanced;
 	}

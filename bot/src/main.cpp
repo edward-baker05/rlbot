@@ -1,8 +1,8 @@
 #include "Config.h"
-#include "eval/Spectate.h"
 #include "eval/Checkpoints.h"
 #include "eval/MatchBench.h"
 #include "eval/NectoBench.h"
+#include "eval/Spectate.h"
 #include "opponents/NectoSelfTest.h"
 #include "rlbot/DashBot.h"
 #include "train/Train.h"
@@ -24,15 +24,17 @@ void PrintUsage(const char *argv0) {
 		"  train            Train the policy\n"
 		"  play             Connect to RLBot v5 and play a match\n"
 		"  spectate         Watch a checkpoint or live run in RocketSimVis\n"
-		"  match            Play standard 5-minute head-to-head games between two checkpoints\n"
+		"  match            Play standard 5-minute head-to-head games between "
+		"two checkpoints\n"
 		"  benchmark        Score a checkpoint head-to-head against Necto\n"
-		"  necto-selftest   Dump the Necto observation for a fixed state, to diff\n"
+		"  necto-selftest   Dump the Necto observation for a fixed state, to "
+		"diff\n"
 		"                   against the Python reference\n"
 		"\n"
 		"Training options:\n"
 		"  --games N            Number of simultaneous games (default 128)\n"
-		"  --obs MODE           Observation builder: default or advanced "
-		"(default: advanced)\n"
+		"  --obs MODE           Observation builder: default, advanced or "
+		"predictive (default: advanced)\n"
 		"  --p1 X               Weight/probability of 1v1 arenas (default: "
 		"1.0)\n"
 		"  --p2 X               Weight/probability of 2v2 arenas (default: "
@@ -57,7 +59,8 @@ void PrintUsage(const char *argv0) {
 		"                       policy, for calibration probes\n"
 		"  --aerial-spawns X    Fraction of episodes in aerial state (default: "
 		"0.65)\n"
-		"  --aerial-hover-frac X Fraction of aerial spawns in hover state (default: "
+		"  --aerial-hover-frac X Fraction of aerial spawns in hover state "
+		"(default: "
 		"0.60)\n"
 		"  --fresh              Start over instead of resuming --label's "
 		"checkpoints\n"
@@ -81,34 +84,42 @@ void PrintUsage(const char *argv0) {
 		"  --arenas N           Parallel arenas, also the goals per round\n"
 		"                       (default 16)\n"
 		"  --rounds N           Play N rounds (default 1)\n"
-		"  --necto-beta X       Necto temperature (default 1.0 = deterministic)\n"
+		"  --necto-beta X       Necto temperature (default 1.0 = "
+		"deterministic)\n"
 		"\n"
 		"Match options (head-to-head standard games):\n"
-		"  --m1 / --p1 PATH     First checkpoint path or run label (default: t1)\n"
-		"  --m2 / --p2 PATH     Second checkpoint path or run label (default: t2)\n"
+		"  --m1 / --p1 PATH     First checkpoint path or run label (default: "
+		"t1)\n"
+		"  --m2 / --p2 PATH     Second checkpoint path or run label (default: "
+		"t2)\n"
 		"  --label1 NAME        Label for bot 1 (default: folder name)\n"
 		"  --label2 NAME        Label for bot 2 (default: folder name)\n"
 		"  --games N            Total 5-minute games to play (default: 500)\n"
 		"  --arenas N           Parallel arenas (default: 64)\n"
-		"  --game-time X        Game clock length in seconds (default: 300 = 5 min)\n"
-		"  --overtime           Enable sudden death overtime on ties (default: true)\n"
+		"  --game-time X        Game clock length in seconds (default: 300 = 5 "
+		"min)\n"
+		"  --overtime           Enable sudden death overtime on ties (default: "
+		"true)\n"
 		"  --no-overtime        Disable overtime (allow ties)\n"
 		"  --deterministic      Use argmax actions (default: true)\n"
 		"  --stochastic         Sample actions with temperature\n"
-		"  --temp X             Temperature for stochastic sampling (default: 1.0)\n"
+		"  --temp X             Temperature for stochastic sampling (default: "
+		"1.0)\n"
 		"  --cpu                Run on CPU instead of CUDA\n"
 		"  --json PATH          Export full per-game results to JSON\n"
 		"\n"
 		"Necto opponent:\n"
 		"  --necto              Put Necto in a slice of the training arenas\n"
-		"  --necto-fraction X   Fraction of ARENAS with Necto in them (default\n"
+		"  --necto-fraction X   Fraction of ARENAS with Necto in them "
+		"(default\n"
 		"                       0.20). The share of training DATA is X/(2-X),\n"
 		"                       since only the learner's half of those arenas\n"
 		"                       produces trajectories\n"
 		"  --necto-beta X       Necto sampling temperature: 0.5 is on-policy\n"
 		"                       sampling (default), 1.0 is deterministic\n"
 		"  --no-necto-bench     Skip the periodic head-to-head benchmark\n"
-		"  --necto-bench-interval N  Iterations between benchmarks (default 100)\n"
+		"  --necto-bench-interval N  Iterations between benchmarks (default "
+		"100)\n"
 		"  --necto-bench-arenas N    Arenas per benchmark round (default 16)\n"
 		"\n"
 		"Self-play options:\n"
@@ -122,8 +133,8 @@ void PrintUsage(const char *argv0) {
 		"\n"
 		"Environment (play):\n"
 		"  DASH_MODEL           Checkpoint folder for the policy (required)\n"
-		"  DASH_OBS             Observation builder: default or advanced "
-		"(default: advanced)\n"
+		"  DASH_OBS             Observation builder: default, advanced or "
+		"predictive (default: advanced)\n"
 		"  RLBOT_AGENT_ID       Set by RLBot when it launches the bot\n"
 		"\n"
 		"Environment (both):\n"
@@ -161,8 +172,6 @@ int RunPlay(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	// batchHivemind = true delivers all our cars in one update(), for one
-	// batch.
 	rlbot::BotManager<Dash::DashBot> manager{true};
 
 	if (!manager.connect(host, port, agentId, /*ballPrediction=*/false)) {
@@ -189,11 +198,13 @@ int RunTrain(int argc, char *argv[]) {
 				cfg.obs = Dash::ObsMode::Default;
 			} else if (modeStr == "advanced" || modeStr == "Advanced") {
 				cfg.obs = Dash::ObsMode::Advanced;
+			} else if (modeStr == "predictive" || modeStr == "Predictive") {
+				cfg.obs = Dash::ObsMode::Predictive;
 			} else {
-				std::fprintf(
-					stderr,
-					"Unknown obs mode: %s (expected 'default' or 'advanced')\n",
-					modeStr.c_str());
+				std::fprintf(stderr,
+							 "Unknown obs mode: %s (expected 'default', "
+							 "'advanced' or 'predictive')\n",
+							 modeStr.c_str());
 				return EXIT_FAILURE;
 			}
 		} else if ((arg == "--p1" || arg == "--prob-1v1") && i + 1 < argc) {
@@ -231,8 +242,7 @@ int RunTrain(int argc, char *argv[]) {
 			cfg.aerial.aerialSpawnChance =
 				static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--aerial-hover-frac" && i + 1 < argc) {
-			cfg.aerial.hoverFraction =
-				static_cast<float>(std::atof(argv[++i]));
+			cfg.aerial.hoverFraction = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--fresh") {
 			fresh = true;
 		} else if (arg == "--self-play") {
@@ -247,8 +257,7 @@ int RunTrain(int argc, char *argv[]) {
 			cfg.necto.enabled = true;
 		} else if (arg == "--necto-fraction" && i + 1 < argc) {
 			cfg.necto.enabled = true;
-			cfg.necto.arenaFraction =
-				static_cast<float>(std::atof(argv[++i]));
+			cfg.necto.arenaFraction = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--necto-beta" && i + 1 < argc) {
 			cfg.necto.trainBeta = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--no-necto-bench") {
@@ -387,7 +396,8 @@ int RunSpectate(int argc, char *argv[]) {
 		} else if (arg == "--seed" && i + 1 < argc) {
 			scfg.seed = std::atoll(argv[++i]);
 		} else if (arg == "--reward-pause" && i + 1 < argc) {
-			scfg.rewardPauseThreshold = static_cast<float>(std::atof(argv[++i]));
+			scfg.rewardPauseThreshold =
+				static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--reward-history" && i + 1 < argc) {
 			scfg.rewardHistorySteps = std::atoi(argv[++i]);
 		} else if (arg == "--rewards") {
@@ -406,12 +416,12 @@ int RunSpectate(int argc, char *argv[]) {
 	}
 	if (scfg.model.empty() == scfg.followRun.empty()) {
 		std::fprintf(stderr,
-		             "Usage: %s spectate --follow <label> | --model <ckpt>\n"
-		             "       [--spawns training|kickoff] [--deterministic]\n"
-		             "       [--time-scale X] [--episodes N] [--gpu]\n"
-		             "       [--rewards] [--reward-start-paused]\n"
-		             "       [--reward-pause X] [--reward-history N]\n",
-		             argv[0]);
+					 "Usage: %s spectate --follow <label> | --model <ckpt>\n"
+					 "       [--spawns training|kickoff] [--deterministic]\n"
+					 "       [--time-scale X] [--episodes N] [--gpu]\n"
+					 "       [--rewards] [--reward-start-paused]\n"
+					 "       [--reward-pause X] [--reward-history N]\n",
+					 argv[0]);
 		return EXIT_FAILURE;
 	}
 	try {
@@ -429,10 +439,13 @@ std::string FindCollisionMeshes() {
 	const char *meshEnv = std::getenv("DASH_COLLISION_MESHES");
 	if (!meshEnv)
 		meshEnv = std::getenv("HIVE_COLLISION_MESHES");
-	if (meshEnv && std::filesystem::exists(std::filesystem::path(meshEnv) / "soccar"))
+	if (meshEnv &&
+		std::filesystem::exists(std::filesystem::path(meshEnv) / "soccar"))
 		return meshEnv;
 
-	for (const auto &p : {"collision_meshes", "tools/collision_meshes", "bot/build/collision_meshes", "../tools/collision_meshes", "../collision_meshes"}) {
+	for (const auto &p : {"collision_meshes", "tools/collision_meshes",
+						  "bot/build/collision_meshes",
+						  "../tools/collision_meshes", "../collision_meshes"}) {
 		if (std::filesystem::exists(std::filesystem::path(p) / "soccar"))
 			return p;
 	}
@@ -516,9 +529,13 @@ int RunMatch(int argc, char *argv[]) {
 
 	for (int i = 2; i < argc; i++) {
 		const std::string arg = argv[i];
-		if ((arg == "--m1" || arg == "--p1" || arg == "--run1" || arg == "--bot1") && i + 1 < argc) {
+		if ((arg == "--m1" || arg == "--p1" || arg == "--run1" ||
+			 arg == "--bot1") &&
+			i + 1 < argc) {
 			m1Input = argv[++i];
-		} else if ((arg == "--m2" || arg == "--p2" || arg == "--run2" || arg == "--bot2") && i + 1 < argc) {
+		} else if ((arg == "--m2" || arg == "--p2" || arg == "--run2" ||
+					arg == "--bot2") &&
+				   i + 1 < argc) {
 			m2Input = argv[++i];
 		} else if (arg == "--label1" && i + 1 < argc) {
 			cfg.label1 = argv[++i];
@@ -540,7 +557,8 @@ int RunMatch(int argc, char *argv[]) {
 			cfg.deterministic = true;
 		} else if (arg == "--stochastic") {
 			cfg.deterministic = false;
-		} else if ((arg == "--temp" || arg == "--temperature") && i + 1 < argc) {
+		} else if ((arg == "--temp" || arg == "--temperature") &&
+				   i + 1 < argc) {
 			cfg.temperature = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--cpu") {
 			cfg.useGPU = false;
@@ -563,30 +581,41 @@ int RunMatch(int argc, char *argv[]) {
 
 	cfg.model1 = Dash::ResolveCheckpoint(m1Input);
 	if (cfg.model1.empty()) {
-		std::fprintf(stderr, "Error: Could not resolve checkpoint for model 1: '%s'\n", m1Input.c_str());
+		std::fprintf(stderr,
+					 "Error: Could not resolve checkpoint for model 1: '%s'\n",
+					 m1Input.c_str());
 		return EXIT_FAILURE;
 	}
 
 	cfg.model2 = Dash::ResolveCheckpoint(m2Input);
 	if (cfg.model2.empty()) {
-		std::fprintf(stderr, "Error: Could not resolve checkpoint for model 2: '%s'\n", m2Input.c_str());
+		std::fprintf(stderr,
+					 "Error: Could not resolve checkpoint for model 2: '%s'\n",
+					 m2Input.c_str());
 		return EXIT_FAILURE;
 	}
 
 	RocketSim::Init(FindCollisionMeshes());
 
-	std::printf("================================================================================\n");
+	std::printf("=============================================================="
+				"==================\n");
 	std::printf("HEAD-TO-HEAD MATCH EVALUATION\n");
-	std::printf("  Bot 1 (%s): %s\n", cfg.label1.c_str(), cfg.model1.string().c_str());
-	std::printf("  Bot 2 (%s): %s\n", cfg.label2.c_str(), cfg.model2.string().c_str());
-	std::printf("  Volume: %d games across %d arenas (%.1f min regulation games)\n",
-				cfg.totalGames, cfg.arenas, cfg.gameDuration / 60.0f);
+	std::printf("  Bot 1 (%s): %s\n", cfg.label1.c_str(),
+				cfg.model1.string().c_str());
+	std::printf("  Bot 2 (%s): %s\n", cfg.label2.c_str(),
+				cfg.model2.string().c_str());
+	std::printf(
+		"  Volume: %d games across %d arenas (%.1f min regulation games)\n",
+		cfg.totalGames, cfg.arenas, cfg.gameDuration / 60.0f);
 	std::printf("  Overtime: %s (max %.1f min), Device: %s, Inference: %s\n",
 				cfg.suddenDeathOvertime ? "Sudden Death" : "Off",
-				cfg.maxOvertime / 60.0f,
-				cfg.useGPU ? "GPU (CUDA)" : "CPU",
-				cfg.deterministic ? "Deterministic (Argmax)" : ("Stochastic (T=" + std::to_string(cfg.temperature) + ")").c_str());
-	std::printf("================================================================================\n");
+				cfg.maxOvertime / 60.0f, cfg.useGPU ? "GPU (CUDA)" : "CPU",
+				cfg.deterministic
+					? "Deterministic (Argmax)"
+					: ("Stochastic (T=" + std::to_string(cfg.temperature) + ")")
+						  .c_str());
+	std::printf("=============================================================="
+				"==================\n");
 
 	Dash::MatchBench matchBench(cfg);
 	Dash::MatchSummaryResult result = matchBench.Run();
@@ -596,69 +625,102 @@ int RunMatch(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	std::printf("\n================================================================================\n");
+	std::printf("\n============================================================"
+				"====================\n");
 	std::printf("MATCH RESULTS SUMMARY (%d Games Played)\n", result.totalGames);
-	std::printf("================================================================================\n");
+	std::printf("=============================================================="
+				"==================\n");
 	std::printf("  %-10s : %4d wins (%.2f%%) [95%% CI: %.2f%% - %.2f%%]\n",
-				result.label1.c_str(), result.bot1Wins, result.bot1WinRate * 100.0f,
-				(1.0f - result.winRateCiUpper95) * 100.0f, (1.0f - result.winRateCiLower95) * 100.0f);
+				result.label1.c_str(), result.bot1Wins,
+				result.bot1WinRate * 100.0f,
+				(1.0f - result.winRateCiUpper95) * 100.0f,
+				(1.0f - result.winRateCiLower95) * 100.0f);
 	std::printf("  %-10s : %4d wins (%.2f%%) [95%% CI: %.2f%% - %.2f%%]\n",
-				result.label2.c_str(), result.bot2Wins, result.bot2WinRate * 100.0f,
-				result.winRateCiLower95 * 100.0f, result.winRateCiUpper95 * 100.0f);
+				result.label2.c_str(), result.bot2Wins,
+				result.bot2WinRate * 100.0f, result.winRateCiLower95 * 100.0f,
+				result.winRateCiUpper95 * 100.0f);
 	if (result.ties > 0) {
-		std::printf("  Ties       : %4d (%.2f%%)\n", result.ties, (result.ties * 100.0f) / result.totalGames);
+		std::printf("  Ties       : %4d (%.2f%%)\n", result.ties,
+					(result.ties * 100.0f) / result.totalGames);
 	}
 
 	std::printf("\n--- GOALS & SCORING ---\n");
 	std::printf("  %-10s : %4d total goals (Mean: %.2f +/- %.2f per game)\n",
-				result.label1.c_str(), result.bot1Goals, result.bot1MeanGoals, result.bot1StdGoals);
+				result.label1.c_str(), result.bot1Goals, result.bot1MeanGoals,
+				result.bot1StdGoals);
 	std::printf("  %-10s : %4d total goals (Mean: %.2f +/- %.2f per game)\n",
-				result.label2.c_str(), result.bot2Goals, result.bot2MeanGoals, result.bot2StdGoals);
-	std::printf("  Goal Diff  : %+.2f (%s minus %s) [95%% CI: %+.2f to %+.2f]\n",
-				result.meanGoalDiff, result.label2.c_str(), result.label1.c_str(),
-				result.goalDiffCiLower95, result.goalDiffCiUpper95);
+				result.label2.c_str(), result.bot2Goals, result.bot2MeanGoals,
+				result.bot2StdGoals);
+	std::printf(
+		"  Goal Diff  : %+.2f (%s minus %s) [95%% CI: %+.2f to %+.2f]\n",
+		result.meanGoalDiff, result.label2.c_str(), result.label1.c_str(),
+		result.goalDiffCiLower95, result.goalDiffCiUpper95);
 
 	std::printf("\n--- STATISTICAL SIGNIFICANCE TESTS ---\n");
-	std::printf("  Binomial Test (H0: p = 0.5)      : p = %.4e %s\n",
-				result.binomialPValue,
-				result.binomialPValue < 0.001 ? "(p < 0.001, highly significant)" :
-				(result.binomialPValue < 0.01 ? "(p < 0.01, highly significant)" :
-				(result.binomialPValue < 0.05 ? "(p < 0.05, statistically significant)" : "(not statistically significant at alpha=0.05)")));
-	std::printf("  Paired t-test (Goal Differential): p = %.4e\n", result.pairedTPValue);
-	std::printf("  Wilcoxon Signed-Rank Test        : p = %.4e\n", result.wilcoxonPValue);
+	std::printf(
+		"  Binomial Test (H0: p = 0.5)      : p = %.4e %s\n",
+		result.binomialPValue,
+		result.binomialPValue < 0.001
+			? "(p < 0.001, highly significant)"
+			: (result.binomialPValue < 0.01
+				   ? "(p < 0.01, highly significant)"
+				   : (result.binomialPValue < 0.05
+						  ? "(p < 0.05, statistically significant)"
+						  : "(not statistically significant at alpha=0.05)")));
+	std::printf("  Paired t-test (Goal Differential): p = %.4e\n",
+				result.pairedTPValue);
+	std::printf("  Wilcoxon Signed-Rank Test        : p = %.4e\n",
+				result.wilcoxonPValue);
 
 	std::printf("\n--- OVERTIME & SIDE ANALYSIS ---\n");
 	std::printf("  Overtime Games: %d / %d (%.1f%%), Mean OT Duration: %.1fs\n",
 				result.overtimeGames, result.totalGames,
-				(result.overtimeGames * 100.0f) / result.totalGames, result.meanOtDuration);
-	std::printf("    OT Wins: %s: %d, %s: %d\n",
-				result.label1.c_str(), result.bot1OtWins,
-				result.label2.c_str(), result.bot2OtWins);
+				(result.overtimeGames * 100.0f) / result.totalGames,
+				result.meanOtDuration);
+	std::printf("    OT Wins: %s: %d, %s: %d\n", result.label1.c_str(),
+				result.bot1OtWins, result.label2.c_str(), result.bot2OtWins);
 	std::printf("  Side Balance:\n");
-	std::printf("    %s as BLUE:   %d/%d (%.1f%%) | %s as ORANGE: %d/%d (%.1f%%)\n",
-				result.label1.c_str(), result.bot1BlueWins, result.bot1BlueGames,
-				result.bot1BlueGames > 0 ? (result.bot1BlueWins * 100.0f) / result.bot1BlueGames : 0.f,
-				result.label1.c_str(), result.bot1OrangeWins, result.bot1OrangeGames,
-				result.bot1OrangeGames > 0 ? (result.bot1OrangeWins * 100.0f) / result.bot1OrangeGames : 0.f);
-	std::printf("    %s as BLUE:   %d/%d (%.1f%%) | %s as ORANGE: %d/%d (%.1f%%)\n",
-				result.label2.c_str(), result.bot2BlueWins, result.bot2BlueGames,
-				result.bot2BlueGames > 0 ? (result.bot2BlueWins * 100.0f) / result.bot2BlueGames : 0.f,
-				result.label2.c_str(), result.bot2OrangeWins, result.bot2OrangeGames,
-				result.bot2OrangeGames > 0 ? (result.bot2OrangeWins * 100.0f) / result.bot2OrangeGames : 0.f);
+	std::printf(
+		"    %s as BLUE:   %d/%d (%.1f%%) | %s as ORANGE: %d/%d (%.1f%%)\n",
+		result.label1.c_str(), result.bot1BlueWins, result.bot1BlueGames,
+		result.bot1BlueGames > 0
+			? (result.bot1BlueWins * 100.0f) / result.bot1BlueGames
+			: 0.f,
+		result.label1.c_str(), result.bot1OrangeWins, result.bot1OrangeGames,
+		result.bot1OrangeGames > 0
+			? (result.bot1OrangeWins * 100.0f) / result.bot1OrangeGames
+			: 0.f);
+	std::printf(
+		"    %s as BLUE:   %d/%d (%.1f%%) | %s as ORANGE: %d/%d (%.1f%%)\n",
+		result.label2.c_str(), result.bot2BlueWins, result.bot2BlueGames,
+		result.bot2BlueGames > 0
+			? (result.bot2BlueWins * 100.0f) / result.bot2BlueGames
+			: 0.f,
+		result.label2.c_str(), result.bot2OrangeWins, result.bot2OrangeGames,
+		result.bot2OrangeGames > 0
+			? (result.bot2OrangeWins * 100.0f) / result.bot2OrangeGames
+			: 0.f);
 	std::printf("    Overall Blue Win Rate: %.1f%% | Orange Win Rate: %.1f%%\n",
 				result.blueWinRate * 100.0f, result.orangeWinRate * 100.0f);
 
-	std::printf("\n================================================================================\n");
+	std::printf("\n============================================================"
+				"====================\n");
 	if (result.binomialPValue < 0.05) {
-		const std::string &winner = (result.bot2Wins > result.bot1Wins) ? result.label2 : result.label1;
-		float winRate = std::max(result.bot1WinRate, result.bot2WinRate) * 100.0f;
-		std::printf("VERDICT: %s is STATISTICALLY SIGNIFICANTLY BETTER (Win Rate: %.2f%%, p = %.2e)\n",
+		const std::string &winner =
+			(result.bot2Wins > result.bot1Wins) ? result.label2 : result.label1;
+		float winRate =
+			std::max(result.bot1WinRate, result.bot2WinRate) * 100.0f;
+		std::printf("VERDICT: %s is STATISTICALLY SIGNIFICANTLY BETTER (Win "
+					"Rate: %.2f%%, p = %.2e)\n",
 					winner.c_str(), winRate, result.binomialPValue);
 	} else {
-		std::printf("VERDICT: NO STATISTICALLY SIGNIFICANT DIFFERENCE detected between %s and %s (p = %.4f)\n",
-					result.label1.c_str(), result.label2.c_str(), result.binomialPValue);
+		std::printf("VERDICT: NO STATISTICALLY SIGNIFICANT DIFFERENCE detected "
+					"between %s and %s (p = %.4f)\n",
+					result.label1.c_str(), result.label2.c_str(),
+					result.binomialPValue);
 	}
-	std::printf("================================================================================\n\n");
+	std::printf("=============================================================="
+				"==================\n\n");
 
 	return EXIT_SUCCESS;
 }

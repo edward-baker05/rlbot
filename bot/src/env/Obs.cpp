@@ -1,5 +1,6 @@
 #include "Obs.h"
 #include "AdvancedObsPadded.h"
+#include "PredictiveObs.h"
 #include "RelativeObs.h"
 
 #include <RLGymCPP/Gamestates/GameState.h>
@@ -23,6 +24,8 @@ std::unique_ptr<ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,
 		return std::make_unique<AdvancedObsPadded>(maxPlayersPerTeam);
 	case ObsMode::Relative:
 		return std::make_unique<RelativeObs>(maxPlayersPerTeam);
+	case ObsMode::Predictive:
+		return std::make_unique<PredictiveObs>(maxPlayersPerTeam);
 	default:
 		throw std::runtime_error("MakeObsBuilder(): unknown ObsMode");
 	}
@@ -51,6 +54,16 @@ int ProbeObsSize(int maxPlayersPerTeam, ObsMode mode) {
 		throw std::runtime_error("ProbeObsSize(): obs builder produced an empty observation");
 
 	return size;
+}
+
+const char* ObsModeName(ObsMode mode) {
+	switch (mode) {
+	case ObsMode::Default:    return "Default";
+	case ObsMode::Advanced:   return "Advanced";
+	case ObsMode::Relative:   return "Relative";
+	case ObsMode::Predictive: return "Predictive";
+	}
+	return "Unknown";
 }
 
 }  // namespace Dash
