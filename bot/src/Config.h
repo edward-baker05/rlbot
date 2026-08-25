@@ -13,26 +13,26 @@ namespace Dash {
 
 struct RewardBudget {
 	float goal = 1.f;
-	float strongTouch = 0.5f;
-	float airTouch = 1.0f;
+	float strongTouch = 0.45f;
+	float airTouch = 0.20f;
 
-	float airVelToBall = 0.05f;
-	float airLaunch = 0.01f;
-
-	float pickupBoost = 0.15f;
-	float saveBoost = 0.0000f;
+	float pickupBoost = 0.10f;
+	float saveBoost = 0.001f;
+	float wavedash = 0.1f;
+	float speed = 0.001f;
 
 	float bump = 0.15f;
-	float demo = 0.5f;
+	float demo = 0.4f;
 
-	float save = 0.6f;
+	float save = 0.5f;
+	float velBtG = 0.05f;
 
 	float awkwardContact = 0.001f;
-	float possession = 0.0001f;
+	float possession = 0.005f;
 };
 
 struct AerialConfig {
-	float aerialSpawnChance = 0.65f;
+	float aerialSpawnChance = 0.0f;
 	float hoverFraction = 0.60f;
 	float minBallHeight = 350.f;
 	float maxBallHeight = 1800.f;
@@ -40,12 +40,12 @@ struct AerialConfig {
 };
 
 struct SelfPlayConfig {
-	bool trainAgainstOldVersions = false;
-	float trainAgainstOldChance = 0.3f;
+	bool trainAgainstOldVersions = true;
+	float trainAgainstOldChance = 0.2f;
 	int64_t tsPerVersion = 25'000'000;
 	int maxOldVersions = 16;
 
-	bool trackSkill = false;
+	bool trackSkill = true;
 	int skillArenas = 8;
 	int skillUpdateInterval = 100;
 	float skillSimTime = 45.f;
@@ -121,7 +121,7 @@ struct TrainConfig {
 
 	bool maskActions = true;
 	ObsMode obs = ObsMode::Advanced;
-	float infiniteBoostChance = 0.f;
+	float infiniteBoostChance = 0.1f;
 
 	RewardBudget rewards = {};
 	AerialConfig aerial = {};
@@ -140,7 +140,7 @@ struct TrainConfig {
 	int miniBatchSize = 50'000;
 	int epochs = 2;
 
-	float entropyScale = 0.03f;
+	float entropyScale = 0.02f;
 	float entropyTarget = 0.0f;
 	float entropyAdjustRate = 0.15f;
 	float gaeGamma = 0.99f;
@@ -150,7 +150,7 @@ struct TrainConfig {
 
 	std::filesystem::path checkpointRoot = "checkpoints";
 	std::string runLabel = {};
-	int64_t tsPerSave = 5'000'000;
+	int64_t tsPerSave = 10'000'000;
 	int checkpointsToKeep = 16;
 	int64_t randomSeed = -1;
 

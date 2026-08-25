@@ -9,6 +9,7 @@ namespace Dash {
 enum class ObsMode {
 	Default,
 	Advanced,
+	Relative,
 };
 
 std::unique_ptr<RLGC::ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,

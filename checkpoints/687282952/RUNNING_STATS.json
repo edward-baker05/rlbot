@@ -1,0 +1,10 @@
+{
+    "return_stat": {
+        "count": 884550,
+        "mean": 1.7051543064610248,
+        "var": 2801461.3536280543
+    },
+    "run_id": "kssxtu77",
+    "total_iterations": 5897,
+    "total_timesteps": 687282952
+}

@@ -16,10 +16,6 @@ using namespace RLGC;
 
 namespace Dash {
 
-// Whether a reward fires on discrete events (a touch, a goal, a demo) or
-// accrues on most steps. Spectate's --rewards probe only arms its auto-pause
-// on Event rewards: the Continuous ones swing constantly in normal play and
-// would trip it every step, but they are still always displayed.
 enum class RewardKind {
 	Event,
 	Continuous,
@@ -58,32 +54,46 @@ class DirectionalTouchReward : public Reward {
 		float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
 		float dirFactor = (alignment + DIR_OFFSET) / (1.f + DIR_OFFSET);
 
-		return power * dirFactor;
+		return power * power * dirFactor * dirFactor;
 	}
 };
 
-// Shared takeoff bookkeeping and the "is this actually an aerial?" test.
-//
-// Being off the ground is not the same as aerialing: a flip for ground speed
-// leaves the car airborne for the better part of a second, and whenever the
-// ball happened to be high that was enough to collect every air reward below.
-// A real aerial is a car that left the floor (not a wall or the ceiling),
-// climbed meaningfully above it, and is flying under boost rather than
-// coasting through a dodge arc.
+class ConditionalVelocityBallToGoalReward : public Reward {
+  public:
+	bool ownGoal = false;
+	ConditionalVelocityBallToGoalReward(bool ownGoal = false)
+		: ownGoal(ownGoal) {}
+
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) {
+		for (Player players : state.players) {
+			if (state.lastTouchCarID == players.carId) {
+				if (players.team == player.team)
+					return 0;
+				break;
+			}
+		}
+
+		bool targetOrangeGoal = player.team == Team::BLUE;
+		if (ownGoal)
+			targetOrangeGoal = !targetOrangeGoal;
+
+		Vec targetPos = targetOrangeGoal ? CommonValues::ORANGE_GOAL_BACK
+										 : CommonValues::BLUE_GOAL_BACK;
+
+		Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
+		return ballDirToGoal.Dot(state.ball.vel / CommonValues::BALL_MAX_SPEED);
+	}
+};
+
 class AerialReward : public Reward {
   public:
-	// Launching from above this is a wall or ceiling takeoff, not an aerial.
 	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
 
-	// Climb needed before the car counts as flying rather than hopping.
 	constexpr static float MIN_CLIMB = 150.f;
 
-	// A jump apexes near 260uu and dodging spends whatever upward speed is
-	// left, so a car this high with a dodge behind it can only have boosted its
-	// way up: above this a flip is an aerial dodge, below it it is a speed flip.
 	constexpr static float MIN_DODGE_CLIMB = 300.f;
 
-	// Height of the surface each car last left, indexed by player.
 	std::vector<float> launchZ;
 
 	virtual void Reset(const GameState &initialState) override {
@@ -99,9 +109,6 @@ class AerialReward : public Reward {
 				launchZ[player.index] = player.pos.z;
 	}
 
-	// Height gained since leaving the floor, or -1 when the car is not airborne
-	// off the floor at all: on the ground, scraping a surface, or launched from
-	// somewhere that was never the floor.
 	float GetClimb(const Player &player) const {
 		if (player.isOnGround || player.worldContact.hasContact)
 			return -1.f;
@@ -116,17 +123,12 @@ class AerialReward : public Reward {
 		return player.pos.z - launch;
 	}
 
-	// minClimb is relaxed by the takeoff reward, which has to pay out before
-	// any height has been gained; everything that rewards being up there wants
-	// the full climb.
 	bool IsAerialing(const Player &player, float minClimb = MIN_CLIMB) const {
 		float climb = GetClimb(player);
 
 		if (climb < minClimb)
 			return false;
 
-		// hasFlipped stays set for the rest of the airborne stint, so a speed
-		// flip earns nothing from the dodge until the car lands again.
 		return !player.hasFlipped || climb >= MIN_DODGE_CLIMB;
 	}
 };
@@ -194,9 +196,6 @@ class AirLaunchReward : public AerialReward {
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		// The takeoff is rewarded from the ground up, so this is the one gate
-		// that cannot ask for climb; the dodge test is what separates an aerial
-		// takeoff from the jump that precedes a speed flip.
 		if (!IsAerialing(player, 0.f) || state.ball.pos.z <= minHeight)
 			return 0.f;
 
@@ -216,10 +215,6 @@ class AirLaunchReward : public AerialReward {
 		float xyAlign = RS_MAX(0.f, fwdXY.Dot(dirXY));
 		float zScale = RS_CLAMP(player.vel.z / MAX_REWARDED_Z_VEL, 0.f, 1.f);
 
-		// Nose above the horizon, which is what a car climbing on boost looks
-		// like and what a car lining up a flip does not. Combined with the
-		// XY alignment above this peaks around a 45 degree takeoff: pointing
-		// straight up leaves nothing to align in XY.
 		float pitchUp = RS_MAX(0.f, player.rotMat.forward.z);
 
 		return xyAlign * zScale * pitchUp;

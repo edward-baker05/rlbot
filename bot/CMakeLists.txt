@@ -61,6 +61,8 @@ add_library(DashCore STATIC
 	src/env/Env.h
 	src/env/Obs.cpp
 	src/env/Obs.h
+	src/env/RelativeObs.cpp
+	src/env/RelativeObs.h
 	src/env/Rewards.cpp
 	src/env/Rewards.h
 	src/env/StateSetters.cpp
@@ -72,6 +74,8 @@ add_library(DashCore STATIC
 	src/eval/Checkpoints.h
 	src/eval/KeyPoller.cpp
 	src/eval/KeyPoller.h
+	src/eval/MatchBench.cpp
+	src/eval/MatchBench.h
 	src/eval/NectoBench.cpp
 	src/eval/NectoBench.h
 	src/eval/RewardProbe.cpp

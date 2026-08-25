@@ -51,10 +51,6 @@ static void SaveAndExit(Learner *learner, const char *reason) {
 	std::_Exit(0);
 }
 
-// Per-iteration metrics for one arena that has Necto in it.
-//
-// Everything is AddAvg, so each key comes out as a mean over whatever it was
-// recorded against -- per step for the rate signals, per episode for the rest.
 static void RecordNectoArena(const GameState &gs, const NectoArenaState &arena,
 							 bool terminal, int episodeAge, Report &report) {
 	const Team learnerTeam =
@@ -71,7 +67,6 @@ static void RecordNectoArena(const GameState &gs, const NectoArenaState &arena,
 		report.AddAvg("Necto/Train/TouchRate",
 					  static_cast<float>(touches) / learnerCars);
 
-	// Blue defends -y. The direct read on "is it being pinned back".
 	const bool ballInOwnHalf =
 		(learnerTeam == Team::BLUE) ? (gs.ball.pos.y < 0) : (gs.ball.pos.y > 0);
 	report.AddAvg("Necto/Train/BallInOwnHalfFrac", ballInOwnHalf ? 1.f : 0.f);
@@ -248,13 +243,14 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"goal", b.goal},
 		{"strongTouch", b.strongTouch},
 		{"airTouch", b.airTouch},
-		{"airVelToBall", b.airVelToBall},
-		{"airLaunch", b.airLaunch},
 		{"pickupBoost", b.pickupBoost},
 		{"saveBoost", b.saveBoost},
+		{"wavedash", b.wavedash},
+		{"speed", b.speed},
 		{"bump", b.bump},
 		{"demo", b.demo},
 		{"save", b.save},
+		{"velBtG", b.velBtG},
 		{"awkwardContact", b.awkwardContact},
 		{"possession", b.possession},
 	};
