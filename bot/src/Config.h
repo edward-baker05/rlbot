@@ -17,7 +17,7 @@ struct RewardBudget {
 	float airTouch = 0.40f;
 
 	float pickupBoost = 0.10f;
-	float saveBoost = 0.002f;
+	float saveBoost = 0.0002f;
 	float wavedash = 0.35f;
 	float speed = 0.001f;
 

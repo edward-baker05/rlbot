@@ -86,9 +86,9 @@ class ConditionalVelocityBallToGoalReward : public Reward {
 										 : CommonValues::BLUE_GOAL_BACK;
 
 		Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
-		return RS_CLAMP(-ballDirToGoal.Dot(state.ball.vel.Normalized() /
-										   CommonValues::BALL_MAX_SPEED),
-						-1.f, 0.f);
+		return RS_CLAMP(
+			-ballDirToGoal.Dot(state.ball.vel / CommonValues::BALL_MAX_SPEED),
+			-1.f, 0.f);
 	}
 };
 
@@ -288,6 +288,9 @@ class AwkwardContactPenalty : public Reward {
 };
 
 // Should roughly reward being in a better position to get to the ball
+// TODO Probably worth giving full reward if the player is close to the
+// ball, as possession ends up being calculated weirdly on dribbles where
+// the ball is technically moving away from you
 class PossessionReward : public Reward {
   public:
 	constexpr static float CHASE_ACCEL = 1600.f;
