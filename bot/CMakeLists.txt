@@ -82,6 +82,8 @@ add_library(DashCore STATIC
 	src/eval/MatchBench.h
 	src/eval/NectoBench.cpp
 	src/eval/NectoBench.h
+	src/eval/MigrateObs.cpp
+	src/eval/MigrateObs.h
 	src/eval/PredictBench.cpp
 	src/eval/PredictBench.h
 	src/eval/RewardProbe.cpp
@@ -115,8 +117,13 @@ target_include_directories(DashCore PUBLIC src)
 
 # Train.cpp writes CONFIG_HISTORY.json; nlohmann is already vendored in
 # GigaLearnCPP.
-target_include_directories(DashCore PRIVATE
+# PUBLIC, not PRIVATE: DashTests includes private/GigaLearnCPP/Util/Models.h
+# to exercise the checkpoint surgery against the same Model class the learner
+# uses. GigaLearnCPP declares src/private as a PRIVATE include dir of its own,
+# so the path is added here rather than by editing external/.
+target_include_directories(DashCore PUBLIC
 	"${DASH_EXTERNAL}/GigaLearnCPP/GigaLearnCPP/libsrc/json"
+	"${DASH_EXTERNAL}/GigaLearnCPP/GigaLearnCPP/src"
 )
 
 # libtorch, by explicit path. GigaLearnCPP links torch PRIVATE, so DashCore
@@ -129,7 +136,10 @@ target_include_directories(DashCore PRIVATE
 # LANGUAGES CXX. GigaLearnCPP gets away with it inside its own project() scope.
 # The paths are hard-coded here the same way the NCCL and NVSHMEM ones are
 # below, and libtorch/lib is already on the binary's RPATH.
-target_include_directories(DashCore PRIVATE
+# PUBLIC for the same reason as the block above: private/GigaLearnCPP's
+# Models.h pulls in ATen, so any target including it needs libtorch's headers
+# on its own include path, not just DashCore's.
+target_include_directories(DashCore PUBLIC
 	"${DASH_LIBS}/libtorch/include"
 	"${DASH_LIBS}/libtorch/include/torch/csrc/api/include"
 )
@@ -174,6 +184,7 @@ add_executable(DashTests
 	tests/test_main.cpp
 	tests/test_ballpredictor.cpp
 	tests/test_predictiveobs.cpp
+	tests/test_migrateobs.cpp
 )
 target_link_libraries(DashTests PRIVATE DashCore)
 target_include_directories(DashTests PRIVATE tests)

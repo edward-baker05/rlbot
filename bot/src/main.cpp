@@ -1,6 +1,7 @@
 #include "Config.h"
 #include "eval/Checkpoints.h"
 #include "eval/MatchBench.h"
+#include "eval/MigrateObs.h"
 #include "eval/NectoBench.h"
 #include "eval/PredictBench.h"
 #include "eval/Spectate.h"
@@ -30,6 +31,8 @@ void PrintUsage(const char *argv0) {
 		"  benchmark        Score a checkpoint head-to-head against Necto\n"
 		"  predict-bench    Measure the throughput cost of the prediction obs "
 		"block\n"
+		"  migrate-obs      Widen a checkpoint's input layer for a new obs "
+		"mode\n"
 		"  necto-selftest   Dump the Necto observation for a fixed state, to "
 		"diff\n"
 		"                   against the Python reference\n"
@@ -754,6 +757,39 @@ int main(int argc, char *argv[]) {
 
 	if (command == "benchmark")
 		return RunBenchmark(argc, argv);
+
+	if (command == "migrate-obs") {
+		std::filesystem::path src, dst;
+		int oldObs = 225, newObs = 249;
+		for (int i = 2; i < argc; i++) {
+			const std::string arg = argv[i];
+			if (arg == "--src" && i + 1 < argc)
+				src = argv[++i];
+			else if (arg == "--dst" && i + 1 < argc)
+				dst = argv[++i];
+			else if (arg == "--old-obs" && i + 1 < argc)
+				oldObs = std::atoi(argv[++i]);
+			else if (arg == "--new-obs" && i + 1 < argc)
+				newObs = std::atoi(argv[++i]);
+			else {
+				std::fprintf(stderr, "Unknown option: %s\n", arg.c_str());
+				return EXIT_FAILURE;
+			}
+		}
+		if (src.empty() || dst.empty()) {
+			std::fprintf(stderr,
+						 "Usage: %s migrate-obs --src <run folder> "
+						 "--dst <run folder>\n"
+						 "       [--old-obs N] [--new-obs N]\n", argv[0]);
+			return EXIT_FAILURE;
+		}
+		if (std::filesystem::exists(dst)) {
+			std::fprintf(stderr, "Refusing to overwrite existing %s\n",
+						 dst.string().c_str());
+			return EXIT_FAILURE;
+		}
+		return Dash::RunMigrateObs(src, dst, oldObs, newObs);
+	}
 
 	if (command == "predict-bench") {
 		int arenas = 64;
