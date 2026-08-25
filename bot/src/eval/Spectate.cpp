@@ -145,7 +145,24 @@ void RunSpectate(const SpectateConfig &cfg) {
 	// resumes or asks for a single step. Returns false when the user quits.
 	// Pausing simply stops streaming: RocketSimVis clamps its interpolation
 	// ratio at 1, so it holds the last frame it received.
-	auto handleInput = [&]() -> bool {
+	//
+	// Leaving a pause resends the CURRENT state first. RocketSimVis paces its
+	// interpolation by recv_interval, the wall-clock gap between the last two
+	// packets, so after a long pause the next packet would be interpolated
+	// over that whole pause -- the car would drift to its new position over
+	// several seconds instead of stepping to it. Resending the unchanged state
+	// costs nothing visually (read_from_json shifts next into prev, so prev
+	// and next match and nothing moves) but resets that clock, leaving the
+	// step's real packet a gap of milliseconds to interpolate across.
+	auto handleInput = [&](const GameState &current) -> bool {
+		const bool wasPaused = paused;
+
+		auto resume = [&]() {
+			if (wasPaused)
+				sender.Send(current);
+			return true;
+		};
+
 		for (;;) {
 			switch (keys->Poll()) {
 			case 'q':
@@ -165,7 +182,7 @@ void RunSpectate(const SpectateConfig &cfg) {
 			case '.':
 				// Advance exactly one step, then come back here.
 				paused = true;
-				return true;
+				return resume();
 			case 'c':
 				paused = false;
 				autoPause = false;
@@ -185,7 +202,7 @@ void RunSpectate(const SpectateConfig &cfg) {
 			}
 
 			if (!paused)
-				return true;
+				return resume();
 
 			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		}
@@ -235,7 +252,7 @@ void RunSpectate(const SpectateConfig &cfg) {
 			probe->BeginEpisode(gs);
 
 		while (true) {
-			if (probe && !handleInput()) {
+			if (probe && !handleInput(gs)) {
 				quit = true;
 				break;
 			}

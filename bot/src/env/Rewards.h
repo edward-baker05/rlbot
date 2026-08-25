@@ -62,16 +62,29 @@ class DirectionalTouchReward : public Reward {
 	}
 };
 
-class AirFaceBallReward : public Reward {
+// Shared takeoff bookkeeping and the "is this actually an aerial?" test.
+//
+// Being off the ground is not the same as aerialing: a flip for ground speed
+// leaves the car airborne for the better part of a second, and whenever the
+// ball happened to be high that was enough to collect every air reward below.
+// A real aerial is a car that left the floor (not a wall or the ceiling),
+// climbed meaningfully above it, and is flying under boost rather than
+// coasting through a dodge arc.
+class AerialReward : public Reward {
   public:
-	float minHeight;
-	float maxHeight;
+	// Launching from above this is a wall or ceiling takeoff, not an aerial.
 	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
 
-	std::vector<float> launchZ;
+	// Climb needed before the car counts as flying rather than hopping.
+	constexpr static float MIN_CLIMB = 150.f;
 
-	AirFaceBallReward(float minHeight = 500.f, float maxHeight = 1800.f)
-		: minHeight(minHeight), maxHeight(maxHeight) {}
+	// A jump apexes near 260uu and dodging spends whatever upward speed is
+	// left, so a car this high with a dodge behind it can only have boosted its
+	// way up: above this a flip is an aerial dodge, below it it is a speed flip.
+	constexpr static float MIN_DODGE_CLIMB = 300.f;
+
+	// Height of the surface each car last left, indexed by player.
+	std::vector<float> launchZ;
 
 	virtual void Reset(const GameState &initialState) override {
 		launchZ.assign(initialState.players.size(), 0.f);
@@ -86,13 +99,49 @@ class AirFaceBallReward : public Reward {
 				launchZ[player.index] = player.pos.z;
 	}
 
+	// Height gained since leaving the floor, or -1 when the car is not airborne
+	// off the floor at all: on the ground, scraping a surface, or launched from
+	// somewhere that was never the floor.
+	float GetClimb(const Player &player) const {
+		if (player.isOnGround || player.worldContact.hasContact)
+			return -1.f;
+
+		if (player.index < 0 || player.index >= (int)launchZ.size())
+			return -1.f;
+
+		float launch = launchZ[player.index];
+		if (launch > MAX_GROUND_LAUNCH_Z)
+			return -1.f;
+
+		return player.pos.z - launch;
+	}
+
+	// minClimb is relaxed by the takeoff reward, which has to pay out before
+	// any height has been gained; everything that rewards being up there wants
+	// the full climb.
+	bool IsAerialing(const Player &player, float minClimb = MIN_CLIMB) const {
+		float climb = GetClimb(player);
+
+		if (climb < minClimb)
+			return false;
+
+		// hasFlipped stays set for the rest of the airborne stint, so a speed
+		// flip earns nothing from the dodge until the car lands again.
+		return !player.hasFlipped || climb >= MIN_DODGE_CLIMB;
+	}
+};
+
+class AirFaceBallReward : public AerialReward {
+  public:
+	float minHeight;
+	float maxHeight;
+
+	AirFaceBallReward(float minHeight = 500.f, float maxHeight = 1800.f)
+		: minHeight(minHeight), maxHeight(maxHeight) {}
+
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		if (player.isOnGround || state.ball.pos.z <= minHeight)
-			return 0.f;
-
-		if (player.index >= (int)launchZ.size() ||
-			launchZ[player.index] > MAX_GROUND_LAUNCH_Z)
+		if (!IsAerialing(player) || state.ball.pos.z <= minHeight)
 			return 0.f;
 
 		if ((player.pos - state.ball.pos).Length() >=
@@ -110,37 +159,17 @@ class AirFaceBallReward : public Reward {
 	}
 };
 
-class AirVelToBallReward : public Reward {
+class AirVelToBallReward : public AerialReward {
   public:
 	float minHeight;
 	float maxHeight;
-	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
-
-	std::vector<float> launchZ;
 
 	AirVelToBallReward(float minHeight = 500.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight) {}
 
-	virtual void Reset(const GameState &initialState) override {
-		launchZ.assign(initialState.players.size(), 0.f);
-		for (const Player &player : initialState.players)
-			launchZ[player.index] = player.pos.z;
-	}
-
-	virtual void PreStep(const GameState &state) override {
-		launchZ.resize(state.players.size(), 0.f);
-		for (const Player &player : state.players)
-			if (player.isOnGround)
-				launchZ[player.index] = player.pos.z;
-	}
-
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		if (player.isOnGround || state.ball.pos.z <= minHeight)
-			return 0.f;
-
-		if (player.index >= (int)launchZ.size() ||
-			launchZ[player.index] > MAX_GROUND_LAUNCH_Z)
+		if (!IsAerialing(player) || state.ball.pos.z <= minHeight)
 			return 0.f;
 
 		float heightFactor =
@@ -155,37 +184,20 @@ class AirVelToBallReward : public Reward {
 	}
 };
 
-class AirLaunchReward : public Reward {
+class AirLaunchReward : public AerialReward {
   public:
 	float minHeight;
 	constexpr static float MAX_AIR_TIME = 1.5f;
 	constexpr static float MAX_REWARDED_Z_VEL = 1000.f;
-	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
-
-	std::vector<float> launchZ;
 
 	AirLaunchReward(float minHeight = 500.f) : minHeight(minHeight) {}
 
-	virtual void Reset(const GameState &initialState) override {
-		launchZ.assign(initialState.players.size(), 0.f);
-		for (const Player &player : initialState.players)
-			launchZ[player.index] = player.pos.z;
-	}
-
-	virtual void PreStep(const GameState &state) override {
-		launchZ.resize(state.players.size(), 0.f);
-		for (const Player &player : state.players)
-			if (player.isOnGround)
-				launchZ[player.index] = player.pos.z;
-	}
-
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		if (player.isOnGround || state.ball.pos.z <= minHeight)
-			return 0.f;
-
-		if (player.index >= (int)launchZ.size() ||
-			launchZ[player.index] > MAX_GROUND_LAUNCH_Z)
+		// The takeoff is rewarded from the ground up, so this is the one gate
+		// that cannot ask for climb; the dodge test is what separates an aerial
+		// takeoff from the jump that precedes a speed flip.
+		if (!IsAerialing(player, 0.f) || state.ball.pos.z <= minHeight)
 			return 0.f;
 
 		if (player.airTimeSinceJump > MAX_AIR_TIME || player.vel.z <= 0.f)
@@ -204,54 +216,40 @@ class AirLaunchReward : public Reward {
 		float xyAlign = RS_MAX(0.f, fwdXY.Dot(dirXY));
 		float zScale = RS_CLAMP(player.vel.z / MAX_REWARDED_Z_VEL, 0.f, 1.f);
 
-		return xyAlign * zScale;
+		// Nose above the horizon, which is what a car climbing on boost looks
+		// like and what a car lining up a flip does not. Combined with the
+		// XY alignment above this peaks around a 45 degree takeoff: pointing
+		// straight up leaves nothing to align in XY.
+		float pitchUp = RS_MAX(0.f, player.rotMat.forward.z);
+
+		return xyAlign * zScale * pitchUp;
 	}
 };
 
-class ImprovedAirTouchReward : public Reward {
+class ImprovedAirTouchReward : public AerialReward {
   public:
 	float minHeight;
 	float maxHeight;
 	float heightSpan;
 
 	constexpr static float DIR_OFFSET = 1.1f;
-	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
-
-	std::vector<float> launchZ;
 
 	ImprovedAirTouchReward(float minHeight = 250.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight),
 		  heightSpan(maxHeight - minHeight) {}
 
-	virtual void Reset(const GameState &initialState) override {
-		launchZ.assign(initialState.players.size(), 0.f);
-		for (const Player &player : initialState.players)
-			launchZ[player.index] = player.pos.z;
-	}
-
-	virtual void PreStep(const GameState &state) override {
-		launchZ.resize(state.players.size(), 0.f);
-		for (const Player &player : state.players)
-			if (player.isOnGround)
-				launchZ[player.index] = player.pos.z;
-	}
-
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		if (!player.ballTouchedStep || player.isOnGround ||
+		if (!player.ballTouchedStep || !IsAerialing(player) ||
 			state.ball.pos.z <= minHeight)
 			return 0;
-
-		if (player.index >= (int)launchZ.size() ||
-			launchZ[player.index] > MAX_GROUND_LAUNCH_Z)
-			return 0.f;
 
 		float height = sqrt((state.ball.pos.z - minHeight) / heightSpan);
 		height = RS_CLAMP(height, 0.f, 1.f);
 		if (height <= 0)
 			return 0;
 
-		float climb = (player.pos.z - launchZ[player.index]) / heightSpan;
+		float climb = GetClimb(player) / heightSpan;
 		climb = RS_CLAMP(climb, 0.f, 1.f);
 
 		float touchReward = height * (0.2f + 0.8f * climb);
