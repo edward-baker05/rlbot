@@ -17,17 +17,17 @@ struct RewardBudget {
 	float strongTouch = 0.2f;
 	float airTouch = 0.3f;
 	float dribbleFlick = 0.003f;
-	float onTarget = 0.3f;
+	float onTarget = 0.2f;
 
 	float pickupBoost = 0.01f;
-	float saveBoost = 0.001f;
+	float saveBoost = 0.00025f;
 	float speed = 0.0005f;
 
 	float bump = 0.025f;
 	float demo = 0.5f;
 
 	float save = 0.25f;
-	float ballToOwnGoal = -0.025f;
+	float ballToOwnGoal = -0.005f;
 
 	float awkwardContact = 0.003f;
 	float possession = 0.0003f;
