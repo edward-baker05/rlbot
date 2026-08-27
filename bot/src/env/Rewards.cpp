@@ -14,7 +14,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 
 	return {
 		{"Goal", b.goal, RewardKind::Event,
-		 [] { return new GoalReward(-1, true); }},
+		 [] { return new GoalReward(-0.8, true); }},
 
 		{"Strong Touch", b.strongTouch, RewardKind::Event,
 		 [] { return new ZeroSumReward(new DirectionalTouchReward(), 1); }},

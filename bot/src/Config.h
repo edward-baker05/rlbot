@@ -19,8 +19,8 @@ struct RewardBudget {
 	float dribbleFlick = 0.003f;
 	float onTarget = 0.3f;
 
-	float pickupBoost = 0.1f;
-	float saveBoost = 0.0005f;
+	float pickupBoost = 0.01f;
+	float saveBoost = 0.001f;
 	float speed = 0.0005f;
 
 	float bump = 0.025f;
