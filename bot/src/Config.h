@@ -27,7 +27,7 @@ struct RewardBudget {
 	float demo = 0.5f;
 
 	float save = 0.25f;
-	float ballToOwnGoal = -0.01f;
+	float ballToOwnGoal = -0.025f;
 
 	float awkwardContact = 0.003f;
 	float possession = 0.0003f;

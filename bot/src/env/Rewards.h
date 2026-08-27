@@ -82,43 +82,16 @@ class DirectionalTouchReward : public Reward {
 	}
 };
 
-// Should punish ball moving towards our goal if previous touch by opponent
-class ConditionalVelocityBallToGoalReward : public Reward {
-  public:
-	bool ownGoal;
-	ConditionalVelocityBallToGoalReward(bool ownGoal = false)
-		: ownGoal(ownGoal) {}
-
-	virtual float GetReward(const Player &player, const GameState &state,
-							bool isFinal) {
-		for (const Player &other : state.players) {
-			if (state.lastTouchCarID == other.carId) {
-				if (other.team == player.team)
-					return 0;
-				break;
-			}
-		}
-
-		bool targetOrangeGoal = player.team == Team::BLUE;
-		if (ownGoal)
-			targetOrangeGoal = !targetOrangeGoal;
-
-		Vec targetPos = targetOrangeGoal ? CommonValues::ORANGE_GOAL_BACK
-										 : CommonValues::BLUE_GOAL_BACK;
-
-		Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
-		return RS_CLAMP(
-			-ballDirToGoal.Dot(state.ball.vel / CommonValues::BALL_MAX_SPEED),
-			-1.f, 0.f);
-	}
-};
-
-// Returns a positive magnitude and is applied with a negative weight, like
-// GoalsidePunishment.
+// Rate at which the ball closes on our own net, as a dense stand-in for the
+// sparse concede reward. Returns a positive magnitude and is applied with a
+// negative weight, like GoalsidePunishment.
 class OwnGoalThreatPunishment : public Reward {
 	virtual float GetReward(const Player &player, const GameState &state,
-							bool isFinal) {
-		return onTarget(state, player.team);
+							bool isFinal) override {
+		Vec ownGoal =
+			(player.team == Team::BLUE) ? BLUE_GOAL_BACK : ORANGE_GOAL_BACK;
+		Vec ballDirToGoal = (ownGoal - state.ball.pos).Normalized();
+		return RS_MAX(0.f, ballDirToGoal.Dot(state.ball.vel) / BALL_MAX_SPEED);
 	}
 };
 

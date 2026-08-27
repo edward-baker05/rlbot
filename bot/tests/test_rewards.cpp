@@ -126,6 +126,10 @@ Scenario BallAwayFromBlueNet() {
 						Vec(0, -4200, 100), Vec(0, 3000, 0));
 }
 
+float OwnGoalThreat(const TrainConfig &cfg, Scenario &scenario, int playerIdx) {
+	return WeightedContribution(cfg, "Own Goal Threat", scenario, playerIdx);
+}
+
 } // namespace
 
 TEST_CASE("onTarget's team argument names the goal being shot at") {
@@ -135,17 +139,52 @@ TEST_CASE("onTarget's team argument names the goal being shot at") {
 	CHECK_FALSE(onTarget(scenario.state, Team::ORANGE));
 }
 
-TEST_CASE("a ball on target at our own net is a punishment") {
+TEST_CASE("a ball closing on our own net is a punishment") {
 	TrainConfig cfg = {};
 	Scenario threatened = BallAtBlueNet();
 
-	const float blue =
-		WeightedContribution(cfg, "Own Goal Threat", threatened, BLUE);
-	const float orange =
-		WeightedContribution(cfg, "Own Goal Threat", threatened, ORANGE);
+	CHECK(OwnGoalThreat(cfg, threatened, BLUE) < 0.f);
+	CHECK(OwnGoalThreat(cfg, threatened, ORANGE) == doctest::Approx(0.f));
+}
 
-	CHECK(blue < 0.f);
-	CHECK(orange == doctest::Approx(0.f));
+TEST_CASE("a ball leaving our own net is not punished") {
+	TrainConfig cfg = {};
+	Scenario cleared = BallAwayFromBlueNet();
+
+	CHECK(OwnGoalThreat(cfg, cleared, BLUE) == doctest::Approx(0.f));
+}
+
+// The bug this replaces paid out per step regardless of speed, so a slow ball
+// left to trickle in scored the same as a rocket -- and scored more the longer
+// it was left alone.
+TEST_CASE("own goal threat scales with closing speed, not with time") {
+	TrainConfig cfg = {};
+
+	Scenario slow = MakeScenario(Vec(0, -4000, 100), Vec(0, -300, 0),
+								 Vec(0, -3980, 100), Vec(0, -300, 0));
+	Scenario fast = BallAtBlueNet();
+
+	CHECK(OwnGoalThreat(cfg, fast, BLUE) < OwnGoalThreat(cfg, slow, BLUE));
+	CHECK(OwnGoalThreat(cfg, slow, BLUE) < 0.f);
+}
+
+// The gate this replaces zeroed the punishment whenever our own team touched
+// last, which made hitting it in ourselves cheaper than conceding a shot.
+TEST_CASE("own goal threat does not care who touched last") {
+	TrainConfig cfg = {};
+
+	Scenario blueTouched = BallAtBlueNet();
+	blueTouched.state.lastTouchCarID = blueTouched.state.players[BLUE].carId;
+	blueTouched.prev.lastTouchCarID = blueTouched.state.lastTouchCarID;
+
+	Scenario orangeTouched = BallAtBlueNet();
+	orangeTouched.state.lastTouchCarID =
+		orangeTouched.state.players[ORANGE].carId;
+	orangeTouched.prev.lastTouchCarID = orangeTouched.state.lastTouchCarID;
+
+	CHECK(OwnGoalThreat(cfg, blueTouched, BLUE) ==
+		  doctest::Approx(OwnGoalThreat(cfg, orangeTouched, BLUE)));
+	CHECK(OwnGoalThreat(cfg, blueTouched, BLUE) < 0.f);
 }
 
 TEST_CASE("the whole stack prefers the ball leaving our own net") {
