@@ -302,9 +302,10 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"goal", b.goal},
 		{"strongTouch", b.strongTouch},
 		{"airTouch", b.airTouch},
+		{"dribbleFlick", b.dribbleFlick},
+		{"onTarget", b.onTarget},
 		{"pickupBoost", b.pickupBoost},
 		{"saveBoost", b.saveBoost},
-		// {"wavedash", b.wavedash},
 		{"speed", b.speed},
 		{"bump", b.bump},
 		{"demo", b.demo},
@@ -312,6 +313,8 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"ballToOwnGoal", b.ballToOwnGoal},
 		{"awkwardContact", b.awkwardContact},
 		{"possession", b.possession},
+		{"kickoff", b.kickoff},
+		{"goalside", b.goalside},
 	};
 
 	j["aerial"] = {
