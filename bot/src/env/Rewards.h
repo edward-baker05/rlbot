@@ -392,6 +392,7 @@ class ShotOnTargetReward : public Reward {
 
 	bool armed[2] = {true, true};
 	float offTargetTime[2] = {RE_ARM_SECONDS, RE_ARM_SECONDS};
+	std::vector<bool> paying;
 
 	bool IsLiveShot(const GameState &state, Team shootingTeam) const {
 		return state.ball.vel.Length() >= MIN_SHOT_THRESHOLD &&
@@ -403,9 +404,15 @@ class ShotOnTargetReward : public Reward {
 			armed[team] = true;
 			offTargetTime[team] = RE_ARM_SECONDS;
 		}
+		paying.assign(initialState.players.size(), false);
 	}
 
+	// The latch is resolved here, not in GetReward: the training metrics call
+	// GetReward a second time on this same object after the env has stepped it,
+	// so anything that mutates there reports zero forever after.
 	virtual void PreStep(const GameState &state) override {
+		paying.assign(state.players.size(), false);
+
 		for (int team = 0; team < 2; team++) {
 			if (IsLiveShot(state, (Team)team)) {
 				offTargetTime[team] = 0.f;
@@ -420,17 +427,27 @@ class ShotOnTargetReward : public Reward {
 		for (const Player &player : state.players)
 			if (player.ballTouchedStep)
 				armed[(int)RS_OPPOSITE_TEAM(player.team)] = true;
+
+		for (const Player &player : state.players) {
+			const int team = (int)player.team;
+			if (!armed[team] || !player.ballTouchedStep ||
+				!IsLiveShot(state, player.team))
+				continue;
+
+			armed[team] = false;
+			if (player.index >= 0 &&
+				static_cast<size_t>(player.index) < paying.size())
+				paying[player.index] = true;
+		}
 	}
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		const int team = (int)player.team;
-		if (!armed[team] || !player.ballTouchedStep ||
-			!IsLiveShot(state, player.team))
+		if (player.index < 0 ||
+			static_cast<size_t>(player.index) >= paying.size())
 			return 0.f;
 
-		armed[team] = false;
-		return 1.f;
+		return paying[player.index] ? 1.f : 0.f;
 	}
 };
 

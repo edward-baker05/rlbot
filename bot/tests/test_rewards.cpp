@@ -202,6 +202,15 @@ std::vector<float> RunSequence(const TrainConfig &cfg, const std::string &name,
 constexpr Vec ON_TARGET_FAST = Vec(0, 3000, 0);
 constexpr Vec OFF_TARGET_FAST = Vec(3000, 0, 0);
 
+// Blue striking an on-target shot, off a step where the ball was not one.
+Scenario ShotScenario() {
+	Scenario scenario;
+	scenario.prev = ShotStep(OFF_TARGET_FAST, -1);
+	scenario.state = ShotStep(ON_TARGET_FAST, BLUE);
+	scenario.Link();
+	return scenario;
+}
+
 } // namespace
 
 TEST_CASE("air touch rewards aim, and never rewards missing") {
@@ -381,4 +390,48 @@ TEST_CASE("the whole stack prefers the ball leaving our own net") {
 	const float clearedTotal = StackTotals(cfg, cleared)[BLUE];
 
 	CHECK(threatenedTotal < clearedTotal);
+}
+
+// Train.cpp's StepCallback calls GetReward a SECOND time, on the same live
+// reward objects EnvSet just stepped, to build the RewardMass metrics. A reward
+// that mutates its own state in GetReward therefore reports zero forever after,
+// while training itself looks fine -- which is exactly what the shot latch did.
+TEST_CASE("GetReward is repeatable for the same state") {
+	TrainConfig cfg = {};
+
+	Scenario shot = ShotScenario();
+	Scenario aerial = AerialTouch(Vec(0, 1000, 0), Vec(0, 0, 0));
+	Scenario threatened = BallAtBlueNet();
+
+	for (Scenario *scenario : {&shot, &aerial, &threatened}) {
+		scenario->Link();
+		for (const RewardSpec &spec : GeneralRewardSpecs(cfg)) {
+			std::unique_ptr<Reward> reward(spec.make());
+			reward->Reset(scenario->prev);
+			reward->PreStep(scenario->prev);
+			reward->GetAllRewards(scenario->prev, false);
+			reward->PreStep(scenario->state);
+
+			const std::vector<float> first =
+				reward->GetAllRewards(scenario->state, false);
+			const std::vector<float> second =
+				reward->GetAllRewards(scenario->state, false);
+
+			REQUIRE(first.size() == second.size());
+			for (size_t i = 0; i < first.size(); i++) {
+				INFO("reward: " << spec.name << " player " << i);
+				CHECK(first[i] == doctest::Approx(second[i]));
+			}
+		}
+	}
+}
+
+// Guards the test above from going vacuous: it only proves anything while the
+// scenario actually makes the latched reward fire.
+TEST_CASE("the shot scenario actually pays out, twice over") {
+	TrainConfig cfg = {};
+	Scenario shot = ShotScenario();
+
+	CHECK(WeightedContribution(cfg, "On Target", shot, BLUE) > 0.f);
+	CHECK(WeightedContribution(cfg, "On Target", shot, BLUE) > 0.f);
 }
