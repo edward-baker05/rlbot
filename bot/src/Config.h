@@ -32,7 +32,7 @@ struct RewardBudget {
 	float awkwardContact = 0.0025f;
 	float possession = 0.0005f;
 	float kickoff = 0.025f;
-	float goalside = -0.005f;
+	float goalside = -0.0001f;
 };
 
 struct AerialConfig {
