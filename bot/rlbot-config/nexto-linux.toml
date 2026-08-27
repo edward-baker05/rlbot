@@ -1,0 +1,29 @@
+#:schema https://rlbot.org/schemas/agent.json
+#
+# Linux launch shim for the vendored Nexto agent -- the same fix as
+# necto-linux.toml, for the same reason.
+#
+# libs/opponents/NectoFamily/nexto/bot.toml DOES declare a run_command_linux,
+# but it is an absolute path into this specific clone
+# (/home/edwardb/Documents/RLBotDev/...), which breaks the moment the repo moves
+# and is not something a vendored upstream file should be carrying. This shim
+# uses the same relative `../.venv/bin/python` form as the Necto one, so both
+# opponents launch identically and a re-clone of libs/opponents cannot silently
+# revert either.
+#
+# Same venv, same reason: torch 2.4.1 has no wheels for the system Python 3.14.
+
+[settings]
+name = "Nexto"
+root_dir = "../../libs/opponents/NectoFamily/nexto"
+loadout_file = "loadout.toml"
+agent_id = "rlgym/nexto"
+run_command = "uv run bot.py"
+run_command_linux = "../.venv/bin/python bot.py"
+
+[details]
+description = "Nexto, version 2 of the RLGym community bot -- roughly GC1 in 1s/2s/3s. Vendored; launched here via a native Linux command."
+developer = "Rolv, Soren, and several contributors"
+source_link = "https://github.com/Rolv-Arild/Necto"
+language = "python"
+tags = ["1v1", "teamplay"]

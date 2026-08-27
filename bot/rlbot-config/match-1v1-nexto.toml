@@ -1,0 +1,44 @@
+# 1v1: Dash against Nexto, in the real game.
+#
+# THIS is the benchmark that matches the project's goal, not the Necto one.
+# Per Rolv's own README for the family:
+#
+#   V1: Necto  -- around DIAMOND level
+#   V2: Nexto  -- approximately GRAND CHAMPION 1 in 1v1, 2v2 and 3v3
+#
+# The goal is a bot that beats a GC1 player, so Nexto is the anchor that sits at
+# the target and Necto sits roughly two ranks below it. A rising win rate against
+# Necto is compatible with never getting near the actual objective.
+#
+#   scripts/play.sh match-1v1-nexto.toml
+#
+# Pick the version explicitly, as with the Necto config:
+#
+#   export DASH_MODEL=$PWD/bot/build/checkpoints/t3/policy_versions/1400134888
+#
+# Nexto's bot.toml already carries an absolute run_command_linux pointing at the
+# NectoFamily venv, so it does not re-resolve deps the way Necto's `uv run` does.
+
+[rlbot]
+launcher = "Steam"
+auto_start_agents = true
+wait_for_agents = true
+
+[match]
+game_mode = "Soccar"
+game_map_upk = "Stadium_P"
+existing_match_behavior = "Restart"
+enable_state_setting = true
+enable_rendering = true
+skip_replays = false
+auto_save_replay = true
+
+[[cars]]
+team = "Blue"
+type = "RLBot"
+config_file = "nexto-linux.toml"
+
+[[cars]]
+team = "Orange"
+type = "RLBot"
+config_file = "bot.toml"

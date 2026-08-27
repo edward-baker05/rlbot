@@ -1,0 +1,45 @@
+# 1v1: Dash against Necto, in the real game.
+#
+# This is the ground-truth check on NectoBench. The in-sim benchmark reports an
+# Elo, and an Elo of -54 implies a ~42% win rate -- if that is not what this
+# match looks like, the benchmark is wrong, not the eyes.
+#
+#   scripts/play.sh match-1v1-necto.toml
+#
+# To pick which Dash version plays, export an ABSOLUTE path before launching:
+#
+#   export DASH_MODEL=$PWD/bot/build/checkpoints/t3/policy_versions/1050151124
+#   scripts/play.sh match-1v1-necto.toml
+#
+# run.sh defaults DASH_MODEL to the most recently written checkpoint, which is
+# almost never the one you meant when you are comparing two versions.
+#
+# Necto is launched by RLBot from libs/opponents/NectoFamily/necto/bot.toml via
+# `uv run bot.py`, so uv resolves its own deps (torch cpu, rlgym_compat) on
+# first run -- expect a slow first launch and no output for a while.
+#
+# Rendering is ON here, unlike the other match configs: the point is to watch.
+
+[rlbot]
+launcher = "Steam"
+auto_start_agents = true
+wait_for_agents = true
+
+[match]
+game_mode = "Soccar"
+game_map_upk = "Stadium_P"
+existing_match_behavior = "Restart"
+enable_state_setting = true
+enable_rendering = true
+skip_replays = false
+auto_save_replay = true
+
+[[cars]]
+team = "Blue"
+type = "RLBot"
+config_file = "necto-linux.toml"
+
+[[cars]]
+team = "Orange"
+type = "RLBot"
+config_file = "bot.toml"

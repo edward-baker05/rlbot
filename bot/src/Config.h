@@ -13,12 +13,11 @@ namespace Dash {
 
 struct RewardBudget {
 	float goal = 1.f;
-	float strongTouch = 0.65f;
+	float strongTouch = 0.75f;
 	float airTouch = 0.40f;
 
 	float pickupBoost = 0.10f;
-	float saveBoost = 0.0002f;
-	float wavedash = 0.35f;
+	float saveBoost = 0.001f;
 	float speed = 0.001f;
 
 	float bump = 0.15f;
@@ -32,8 +31,32 @@ struct RewardBudget {
 };
 
 struct AerialConfig {
-	float aerialSpawnChance = 0.0f;
-	float hoverFraction = 0.60f;
+	// Fraction of arena resets that use an AERIAL scenario rather than the
+	// ground mix.
+	//
+	// Was 0.0, which did more damage than it looks. BuildSpawner only constructs
+	// HighBallPopUpState inside `if (aerialSpawnChance > 0)`, so at zero that
+	// setter was never built at all, and the only aerial exposure was the
+	// AerialHoverState sitting at weight 0.1 inside groundBase.
+	//
+	// Those two scenarios are not interchangeable. AerialHoverState spawns the car
+	// ALREADY AIRBORNE (z 400-1200, already moving at the ball). HighBallPopUpState
+	// spawns it ON THE GROUND -- cs.pos.z = 17 -- with the ball popped upward at
+	// 850-1650. Only the second teaches the TAKEOFF: jump, then boost to climb.
+	//
+	// So the policy had never once practised leaving the ground for a ball. A
+	// single jump and a flip is sufficient when you start at z=800, and that is
+	// exactly the aerial game observed in the 2026-08-25 Nexto match -- Dash never
+	// boosted upward, and losing the air was the difference in a 13-4.
+	float aerialSpawnChance = 0.15f;
+
+	// Split of the aerial budget: hover drills vs ground-start pop-ups.
+	//
+	// Lowered from 0.60 because the deficit is specifically takeoff, and hover is
+	// the half the bot already gets from groundBase. At 0.35 with the chance above,
+	// resets come out roughly 14% hover / 10% pop-up / 76% ground, so takeoff gets
+	// real practice without crowding out the ordinary game the bot has to win.
+	float hoverFraction = 0.35f;
 	float minBallHeight = 350.f;
 	float maxBallHeight = 1800.f;
 	float initialBoost = 100.f;
@@ -41,7 +64,7 @@ struct AerialConfig {
 
 struct SelfPlayConfig {
 	bool trainAgainstOldVersions = true;
-	float trainAgainstOldChance = 0.2f;
+	float trainAgainstOldChance = 0.1f;
 	int64_t tsPerVersion = 25'000'000;
 	int maxOldVersions = 16;
 
@@ -55,7 +78,7 @@ struct SelfPlayConfig {
 struct NectoConfig {
 	bool enabled = true;
 
-	float arenaFraction = 0.2f;
+	float arenaFraction = 0.1f;
 
 	float trainBeta = 0.5f;
 	float benchBeta = 1.0f;
@@ -125,7 +148,7 @@ struct TrainConfig {
 
 	RewardBudget rewards = {};
 	AerialConfig aerial = {};
-	float teamSpirit = 0.0f;
+	float teamSpirit = 0.f;
 	ModelShape modelShape = {};
 	SelfPlayConfig selfPlay = {};
 	NectoConfig necto = {};
@@ -141,16 +164,95 @@ struct TrainConfig {
 	int epochs = 2;
 
 	float entropyScale = 0.02f;
-	float entropyTarget = 0.0f;
+	float entropyTarget = 0.f;
 	float entropyAdjustRate = 0.15f;
+
+	// Normalise entropy against the actions actually LEGAL in each state
+	// (log of the valid count) rather than against log(90).
+	//
+	// With this off -- GigaLearn's default -- measured entropy conflates two
+	// unrelated things: how sharp the policy is, and how many actions the mask
+	// happened to allow. A bot that spends more time airborne has more legal
+	// actions and so reads as higher entropy without the policy changing at
+	// all. That makes `Policy Entropy` a poor diagnostic and makes it unusable
+	// as a controlled variable, since a controller would chase changes in
+	// flight time.
+	//
+	// NOTE: this changes the SCALE of every entropy number. Dividing by
+	// log(validCount) instead of log(90) yields larger values, so entropy
+	// readings before and after this flag are not comparable, and any
+	// entropyTarget has to be recalibrated against fresh measurements.
+	bool maskEntropy = true;
+
+	// PPO's vf_coef: scales the critic loss where it is summed with the policy
+	// loss, i.e. where the SHARED TRUNK takes its gradient from.
+	//
+	// Left at 1.0 (GigaLearn's implicit value, and what 1.42B steps of this
+	// lineage trained under) because the argument for lowering it did not hold
+	// up. Recording why, so it is not re-derived wrongly later:
+	//
+	//   The case for 0.5 was that `Critic Loss` >> `Policy Loss`, so the trunk
+	//   was supposedly learning to predict value rather than to act. But the
+	//   policy loss is near zero BY CONSTRUCTION: we standardize advantages, so
+	//   they are mean-zero, and -mean(min(ratio*A, clipped*A)) ~= -mean(A) ~= 0
+	//   whenever ratio ~= 1. Its gradient scales with std(A) = 1, not with the
+	//   loss value. Comparing the two loss magnitudes measures nothing about
+	//   which one moves the network.
+	//
+	// The knob is still real, and still worth an experiment later: the trunk's
+	// gradient is g_policy + criticLossScale * g_critic, so this changes the
+	// DIRECTION of the combined gradient. What it does not do is change the
+	// critic head's step size -- see criticLR below.
+	//
+	// Decide it from `GAE/Explained Variance` plus `Policy Update Magnitude` vs
+	// `Critic Update Magnitude`, not from the loss values.
+	float criticLossScale = 1.f;
+
+	// KL-targeting LR controller. 0 = off; policyLR stays fixed.
+	//
+	// CALIBRATED 2026-08-25 on the `calib` branch of the t3 lineage (17
+	// iterations from 1.4005B, this exact config, controller off):
+	//
+	//   Mean KL Divergence       median 0.00217  range 0.00169 - 0.00299
+	//   SB3 Clip Fraction        median 0.0207   range 0.0158  - 0.0302
+	//   GAE/Explained Variance   median 0.781    range 0.767   - 0.795
+	//   Policy Entropy           median 0.488    range 0.483   - 0.492
+	//
+	// The target is set to the MEASURED MEDIAN on purpose. The controller's job
+	// here is not to push the update size somewhere new -- 0.0022 is what this
+	// config demonstrably sustains, with a healthy clip fraction and a critic
+	// explaining ~78% of its target's variance. Its job is to stop that value
+	// DECAYING, which is the failure this project has actually hit: KL sliding
+	// 1.25e-3 -> 6.9e-4 while the run looked alive and learned nothing.
+	//
+	// So this is a stabiliser, not an intervention. Raising it above 0.0022 asks
+	// for larger updates than this lineage has ever taken and is a separate,
+	// deliberate experiment -- not a knob to nudge while changing other things.
+	//
+	// Note the textbook target of 0.01 is ~5x this. That figure assumes ~10 PPO
+	// epochs; we run 2, so our natural KL is correspondingly smaller. Do not
+	// "correct" this number toward 0.01.
+	float klTarget = 0.0022f;
+	float klAdjustRate = 0.3f;
 	float gaeGamma = 0.995f;
 	float policyLR = 1e-4f;
+
+	// Deliberately unchanged alongside criticLossScale. Scaling a loss does NOT
+	// scale Adam's step: the update is m / (sqrt(v) + eps), and a constant factor
+	// on the gradient scales m and sqrt(v) together, so it cancels. For any
+	// parameter whose gradient comes from one loss only -- which is every
+	// parameter in the critic HEAD -- criticLossScale is invisible.
+	//
+	// It only bites on the shared trunk, where two gradients are summed and the
+	// factor changes their ratio rather than the overall magnitude. So there is
+	// no criticLR compensation to make; changing it would be a real, unjustified
+	// change of the critic's step size.
 	float criticLR = 1e-4f;
 	int64_t maxSteps = 0;
 
 	std::filesystem::path checkpointRoot = "checkpoints";
 	std::string runLabel = {};
-	int64_t tsPerSave = 10'000'000;
+	int64_t tsPerSave = 25'000'000;
 	int checkpointsToKeep = 16;
 	int64_t randomSeed = -1;
 

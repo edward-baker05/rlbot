@@ -42,9 +42,20 @@ class NectoPolicy {
 	// Training uses 0.5: a deterministic opponent is memorisable, and memorising
 	// it is the failure mode this is meant to avoid. The benchmark uses 1.0,
 	// which wants the opposite -- low variance.
+	//
+	// useGPU puts the model on CUDA when one is available. During training that
+	// is what you want: this forward runs in preStepFn, which is serial on the
+	// collection thread with every worker idle, and the GPU measures ~11% busy
+	// through collection. It falls back to CPU silently if CUDA is absent, so
+	// callers that must not touch the GPU should pass false rather than rely on
+	// that.
 	NectoPolicy(const std::filesystem::path &modelPath, float beta,
-				int64_t seed);
+				int64_t seed, bool useGPU);
 	~NectoPolicy();
+
+	// Where the model actually ended up -- false when the GPU was asked for and
+	// CUDA was not available.
+	bool OnGPU() const { return onGPU; }
 
 	NectoPolicy(const NectoPolicy &) = delete;
 	NectoPolicy &operator=(const NectoPolicy &) = delete;
@@ -81,6 +92,7 @@ class NectoPolicy {
 
 	float beta;
 	float logitScale;
+	bool onGPU = false;
 	std::mt19937 rng;
 
 	// Reused across steps so a training loop does not reallocate every tick.

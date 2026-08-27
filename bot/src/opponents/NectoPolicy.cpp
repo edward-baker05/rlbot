@@ -2,6 +2,7 @@
 
 #include <RLGymCPP/CommonValues.h>
 
+#include <torch/cuda.h>
 #include <torch/script.h>
 
 #include <algorithm>
@@ -46,28 +47,39 @@ constexpr int MAX_HEAD_SIZE = 3;
 
 struct NectoPolicy::Module {
 	torch::jit::script::Module mod;
+	torch::Device device = torch::kCPU;
 };
 
 NectoPolicy::NectoPolicy(const std::filesystem::path &modelPath, float beta,
-						 int64_t seed)
+						 int64_t seed, bool useGPU)
 	: beta(std::clamp(beta, 0.f, 1.f)),
 	  rng(seed < 0 ? std::random_device{}() : static_cast<uint32_t>(seed)) {
 	if (!std::filesystem::is_regular_file(modelPath))
 		throw std::runtime_error("NectoPolicy: no model file at " +
 								 modelPath.string());
 
-	// Necto runs on CPU on purpose: training owns the GPU, and a batch of ~50
-	// costs ~3ms here, which is nothing against the sim and the PPO update.
+	// The device is the caller's call, and during training it should be the GPU.
 	//
-	// Note it does NOT call at::set_num_threads(). Necto's own agent.py does,
-	// because under RLBot it must not steal the game's CPU -- but that setting
-	// is process-global in libtorch, so calling it here throttled PPO's own
-	// inference and update to a single thread. Measured cost of getting this
-	// wrong: collection throughput roughly halved.
+	// This was originally CPU-only, on the reasoning that training owns the GPU
+	// and ~3ms for a batch of ~50 is nothing. That was wrong about where the
+	// 3ms lands: this forward runs from preStepFn, which the learner calls
+	// AFTER envSet->Sync() and BEFORE StepSecondHalf -- serial on the collection
+	// thread, with all twelve arena workers parked. So it is 3ms added to every
+	// env step, not 3ms hidden in the noise. Measured against the same GPU
+	// sitting at ~11% utilisation for the whole collection phase.
+	//
+	// Note this still does NOT call at::set_num_threads(), which matters for the
+	// CPU fallback below. Necto's own agent.py does, because under RLBot it must
+	// not steal the game's CPU -- but that setting is process-global in libtorch,
+	// so calling it here throttled PPO's own inference and update to a single
+	// thread. Measured cost of getting this wrong: collection throughput roughly
+	// halved.
+	onGPU = useGPU && torch::cuda::is_available();
 
 	module = std::make_unique<Module>();
+	module->device = onGPU ? torch::Device(torch::kCUDA) : torch::Device(torch::kCPU);
 	try {
-		module->mod = torch::jit::load(modelPath.string(), torch::kCPU);
+		module->mod = torch::jit::load(modelPath.string(), module->device);
 		module->mod.eval();
 	} catch (const std::exception &e) {
 		throw std::runtime_error("NectoPolicy: failed to load " +
@@ -287,11 +299,25 @@ void NectoPolicy::InferBatch(const std::vector<NectoRequest> &requests,
 		c10::IValue out;
 		{
 			torch::NoGradGuard noGrad;
-			std::vector<c10::IValue> tup{
-				torch::from_blob(qBuf.data(), {b, 1, Q_SIZE}, torch::kFloat32),
-				torch::from_blob(kvBuf.data(), {b, n, FEATURES},
-								 torch::kFloat32),
-				torch::from_blob(maskBuf.data(), {b, n}, torch::kFloat32)};
+
+			// from_blob aliases the reused buffers rather than copying, so on
+			// CPU this stays allocation-free. On GPU the .to() is the copy --
+			// about 200KB per step for a 1v1 batch of ~50, against the ~3ms of
+			// serial CPU forward it replaces.
+			auto tQ =
+				torch::from_blob(qBuf.data(), {b, 1, Q_SIZE}, torch::kFloat32);
+			auto tKV = torch::from_blob(kvBuf.data(), {b, n, FEATURES},
+										torch::kFloat32);
+			auto tMask =
+				torch::from_blob(maskBuf.data(), {b, n}, torch::kFloat32);
+
+			if (onGPU) {
+				tQ = tQ.to(module->device);
+				tKV = tKV.to(module->device);
+				tMask = tMask.to(module->device);
+			}
+
+			std::vector<c10::IValue> tup{tQ, tKV, tMask};
 			out = module->mod.forward({c10::ivalue::Tuple::create(tup)});
 		}
 
@@ -304,10 +330,10 @@ void NectoPolicy::InferBatch(const std::vector<NectoRequest> &requests,
 		std::vector<torch::Tensor> heads;
 		if (outer[0].isTuple()) {
 			for (const auto &e : outer[0].toTuple()->elements())
-				heads.push_back(e.toTensor().contiguous());
+				heads.push_back(e.toTensor());
 		} else if (outer[0].isTensorList()) {
 			for (const auto &t : outer[0].toTensorList())
-				heads.push_back(torch::Tensor(t).contiguous());
+				heads.push_back(torch::Tensor(t));
 		} else {
 			throw std::runtime_error("NectoPolicy: unexpected head container '" +
 									 std::string(outer[0].tagKind()) + "'");
@@ -317,6 +343,13 @@ void NectoPolicy::InferBatch(const std::vector<NectoRequest> &requests,
 			throw std::runtime_error("NectoPolicy: expected " +
 									 std::to_string(NUM_HEADS) + " heads, got " +
 									 std::to_string(heads.size()));
+
+		// SampleAction reads these through data_ptr, so they have to be host
+		// memory. A no-op when the model is already on the CPU. The logits are
+		// tiny -- five heads of at most 3 values per car -- so this is a handful
+		// of bytes back across the bus, not a real transfer.
+		for (torch::Tensor &head : heads)
+			head = head.to(torch::kCPU).contiguous();
 
 		const float *headPtrs[NUM_HEADS];
 		int headSizes[NUM_HEADS];

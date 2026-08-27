@@ -19,7 +19,7 @@ namespace Dash {
 
 StateSetter *BuildSpawner(const TrainConfig &cfg) {
 	StateSetter *groundBase =
-		new CombinedState({{new RandomState(true, true, true), 0.7f},
+		new CombinedState({{new RandomState(true, true, true), 0.6f},
 						   {new FuzzedKickoffState(), 0.2f},
 						   {new AerialHoverState(), 0.1f}});
 

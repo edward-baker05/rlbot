@@ -19,7 +19,7 @@ namespace Dash {
 class NectoDriver {
   public:
 	NectoDriver(const std::filesystem::path &modelPath, float beta,
-				int64_t seed);
+				int64_t seed, bool useGPU);
 
 	// externalPlayerMaskFn. Flags every car on Necto's side, in the learner's
 	// flat player indexing.
@@ -29,6 +29,9 @@ class NectoDriver {
 	void Step(RLGC::EnvSet *envSet);
 
 	int NumControlledCars() const { return numControlledCars; }
+
+	// Whether the opponent forward actually runs on the GPU.
+	bool OnGPU() const { return policy.OnGPU(); }
 
   private:
 	// Where a queued action belongs, so the scatter matches the gather.

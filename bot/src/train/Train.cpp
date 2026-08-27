@@ -103,28 +103,32 @@ static void RecordNectoArena(const GameState &gs, const NectoArenaState &arena,
 	report.AddAvg("Necto/Train/GoalDiffPerEp", learnerScored ? 1.f : -1.f);
 }
 
-// Single-sided positive reward for a player from any reward function,
-// peeling through ZeroSumReward wrappers and symmetric rewards.
-static float GetSingleSidedReward(Reward *r, const Player &player,
-								  const GameState &gs, bool isTerminal) {
-	if (auto *zeroSum = dynamic_cast<ZeroSumReward *>(r)) {
-		if (player.index < zeroSum->_lastRewards.size())
-			return RS_MAX(0.f, zeroSum->_lastRewards[player.index]);
-		return 0.f;
-	}
-	if (dynamic_cast<GoalReward *>(r)) {
-		if (gs.goalScored && player.team != RS_TEAM_FROM_Y(gs.ball.pos.y))
-			return 1.f;
-		return 0.f;
-	}
-	if (auto *possession = dynamic_cast<PossessionReward *>(r)) {
-		auto all = possession->GetAllRewards(gs, isTerminal);
-		if (player.index < all.size())
-			return RS_MAX(0.f, all[player.index]);
-		return 0.f;
-	}
-	return RS_MAX(0.f, r->GetReward(player, gs, isTerminal));
+// How a single-sided positive reward is read out of one reward function.
+//
+// This used to be a chain of dynamic_casts evaluated per (arena, player,
+// reward) -- roughly 25,000 casts every step at 256 arenas and 12 rewards,
+// which measured as the bulk of the ~1.6ms/step this callback cost. The answer
+// is a property of the reward object, and reward objects live for the whole
+// run, so it is resolved once instead.
+enum class RewardProbe : uint8_t {
+	Plain,      // Ask the reward, per player.
+	ZeroSum,    // Already computed this step by EnvSet::StepSecondHalf.
+	Goal,       // Derivable from the game state alone.
+	Possession, // One whole-arena evaluation covers every player.
+};
+
+static RewardProbe ClassifyReward(Reward *r) {
+	if (dynamic_cast<ZeroSumReward *>(r))
+		return RewardProbe::ZeroSum;
+	if (dynamic_cast<GoalReward *>(r))
+		return RewardProbe::Goal;
+	if (dynamic_cast<PossessionReward *>(r))
+		return RewardProbe::Possession;
+	return RewardProbe::Plain;
 }
+
+// [arena][reward], filled on the first callback.
+static std::vector<std::vector<RewardProbe>> g_RewardProbes;
 
 static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 						 Report &report) {
@@ -188,8 +192,19 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 
 	auto &envSet = *learner->envSet;
 	if (!g_RewardLabels.empty()) {
+		if (g_RewardProbes.size() != envSet.rewards.size()) {
+			g_RewardProbes.assign(envSet.rewards.size(), {});
+			for (size_t a = 0; a < envSet.rewards.size(); a++)
+				for (const auto &weighted : envSet.rewards[a])
+					g_RewardProbes[a].push_back(
+						ClassifyReward(weighted.reward));
+		}
+
 		std::vector<float> posTotals(g_RewardLabels.size(), 0.f);
 		int totalLearnerCars = 0;
+
+		// Reused across arenas so the per-arena loop does no allocation.
+		std::vector<const Player *> learnerCars;
 
 		for (size_t a = 0; a < states.size() && a < envSet.rewards.size();
 			 a++) {
@@ -205,20 +220,63 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				}
 			}
 
+			// Resolved once for the whole arena instead of re-tested inside
+			// every reward's loop.
+			learnerCars.clear();
+			for (const Player &player : gs.players)
+				if (!(hasNecto && player.team == nectoTeam))
+					learnerCars.push_back(&player);
+
+			if (learnerCars.empty())
+				continue;
+			totalLearnerCars += static_cast<int>(learnerCars.size());
+
 			const auto &arenaRewards = envSet.rewards[a];
+			const auto &probes = g_RewardProbes[a];
 			const bool terminal = a < es.terminals.size() && es.terminals[a];
 
-			for (const Player &player : gs.players) {
-				if (hasNecto && player.team == nectoTeam)
-					continue; // Only attribute to learner cars
+			for (size_t j = 0;
+				 j < arenaRewards.size() && j < g_RewardLabels.size(); j++) {
+				Reward *r = arenaRewards[j].reward;
 
-				totalLearnerCars++;
-
-				for (size_t j = 0;
-					 j < arenaRewards.size() && j < g_RewardLabels.size();
-					 j++) {
-					posTotals[j] += GetSingleSidedReward(arenaRewards[j].reward,
-														 player, gs, terminal);
+				switch (probes[j]) {
+				case RewardProbe::ZeroSum: {
+					// Free: StepSecondHalf already ran this reward for this
+					// exact step and left the pre-zero-sum values behind.
+					const auto &last =
+						static_cast<ZeroSumReward *>(r)->_lastRewards;
+					for (const Player *p : learnerCars)
+						if (p->index >= 0 &&
+							static_cast<size_t>(p->index) < last.size())
+							posTotals[j] += RS_MAX(0.f, last[p->index]);
+					break;
+				}
+				case RewardProbe::Goal: {
+					if (!gs.goalScored)
+						break;
+					const Team conceding = RS_TEAM_FROM_Y(gs.ball.pos.y);
+					for (const Player *p : learnerCars)
+						posTotals[j] += (p->team != conceding) ? 1.f : 0.f;
+					break;
+				}
+				case RewardProbe::Possession: {
+					// One whole-arena evaluation, not one per player: this is
+					// a GetAllRewards, so calling it per player recomputed
+					// every car's time-to-ball once per car.
+					const auto all =
+						static_cast<PossessionReward *>(r)->GetAllRewards(
+							gs, terminal);
+					for (const Player *p : learnerCars)
+						if (p->index >= 0 &&
+							static_cast<size_t>(p->index) < all.size())
+							posTotals[j] += RS_MAX(0.f, all[p->index]);
+					break;
+				}
+				case RewardProbe::Plain:
+					for (const Player *p : learnerCars)
+						posTotals[j] +=
+							RS_MAX(0.f, r->GetReward(*p, gs, terminal));
+					break;
 				}
 			}
 		}
@@ -271,6 +329,10 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"entropyScale", cfg.entropyScale},
 		{"entropyTarget", cfg.entropyTarget},
 		{"entropyAdjustRate", cfg.entropyAdjustRate},
+		{"maskEntropy", cfg.maskEntropy},
+		{"criticLossScale", cfg.criticLossScale},
+		{"klTarget", cfg.klTarget},
+		{"klAdjustRate", cfg.klAdjustRate},
 		{"gaeGamma", cfg.gaeGamma},
 		{"policyLR", cfg.policyLR},
 		{"criticLR", cfg.criticLR},
@@ -518,6 +580,10 @@ void RunTraining(const TrainConfig &cfg) {
 
 	lc.ppo.entropyTarget = cfg.entropyTarget;
 	lc.ppo.entropyAdjustRate = cfg.entropyAdjustRate;
+	lc.ppo.maskEntropy = cfg.maskEntropy;
+	lc.ppo.criticLossScale = cfg.criticLossScale;
+	lc.ppo.klTarget = cfg.klTarget;
+	lc.ppo.klAdjustRate = cfg.klAdjustRate;
 	lc.ppo.gaeGamma = cfg.gaeGamma;
 	lc.ppo.policyLR = cfg.policyLR;
 	lc.ppo.criticLR = cfg.criticLR;
@@ -564,8 +630,10 @@ void RunTraining(const TrainConfig &cfg) {
 		if (const char *envModel = std::getenv("DASH_NECTO_MODEL"))
 			modelPath = envModel;
 
+		// Same device as the learner: preStepFn is serial on the collection
+		// thread, so a CPU forward here is dead time for every arena worker.
 		nectoDriver = std::make_unique<NectoDriver>(
-			modelPath, cfg.necto.trainBeta, cfg.randomSeed);
+			modelPath, cfg.necto.trainBeta, cfg.randomSeed, cfg.useGPU);
 
 		NectoDriver *driver = nectoDriver.get();
 		lc.externalPlayerMaskFn = [driver](RLGC::EnvSet *envSet,
@@ -573,6 +641,9 @@ void RunTraining(const TrainConfig &cfg) {
 			driver->BuildMask(envSet, mask);
 		};
 		lc.preStepFn = [driver](RLGC::EnvSet *envSet) { driver->Step(envSet); };
+
+		std::cout << "Necto device:     "
+				  << (nectoDriver->OnGPU() ? "GPU" : "CPU") << "\n";
 	}
 	g_NectoEnabled = cfg.necto.enabled;
 

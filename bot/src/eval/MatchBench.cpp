@@ -183,6 +183,14 @@ BotSpec LoadBotSpecFromConfig(const fs::path &checkpointPath) {
 	if (!fs::exists(configPath, ec)) {
 		configPath = checkpointPath / "CONFIG.json";
 	}
+	if (!fs::exists(configPath, ec)) {
+		// A saved policy version lives at <run>/policy_versions/<timesteps>/, so the
+		// run's CONFIG.json is two levels up, not one. Without this the spec falls
+		// back to defaults -- Advanced obs -- and a Predictive-obs lineage then
+		// loads into the wrong input width, or worse, the right width with the
+		// wrong meaning. Silent, and it would poison every matrix cell.
+		configPath = checkpointPath.parent_path().parent_path() / "CONFIG.json";
+	}
 	if (fs::exists(configPath, ec)) {
 		try {
 			std::ifstream in(configPath);

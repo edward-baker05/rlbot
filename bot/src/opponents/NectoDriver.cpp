@@ -5,8 +5,8 @@ using namespace RLGC;
 namespace Dash {
 
 NectoDriver::NectoDriver(const std::filesystem::path &modelPath, float beta,
-						 int64_t seed)
-	: policy(modelPath, beta, seed) {}
+						 int64_t seed, bool useGPU)
+	: policy(modelPath, beta, seed, useGPU) {}
 
 void NectoDriver::BuildMask(EnvSet *envSet, std::vector<uint8_t> &outMask) {
 	outMask.assign(envSet->state.numPlayers, 0);

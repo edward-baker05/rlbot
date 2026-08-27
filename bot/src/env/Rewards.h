@@ -28,11 +28,10 @@ struct RewardSpec {
 	std::function<RLGC::Reward *()> make;
 };
 
-// Should return power ^ 2 * direction ^ 2 when ball is hit
+// Should return power * direction when ball is hit
 class DirectionalTouchReward : public Reward {
   public:
 	constexpr static float MAX_REWARDED_HIT_VEL = RLGC::Math::KPHToVel(120);
-	constexpr static float DIR_OFFSET = 0.f;
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
@@ -52,12 +51,8 @@ class DirectionalTouchReward : public Reward {
 		float power = RS_MIN(1.f, hitVel / MAX_REWARDED_HIT_VEL);
 
 		float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
-		float dirFactor = (alignment + DIR_OFFSET) / (1.f + DIR_OFFSET);
 
-		if (dirFactor < 0)
-			return 0;
-
-		return power * power * dirFactor * dirFactor;
+		return power * RS_MAX(alignment, 0.01f);
 	}
 };
 
@@ -70,9 +65,9 @@ class ConditionalVelocityBallToGoalReward : public Reward {
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) {
-		for (Player players : state.players) {
-			if (state.lastTouchCarID == players.carId) {
-				if (players.team == player.team)
+		for (const Player &other : state.players) {
+			if (state.lastTouchCarID == other.carId) {
+				if (other.team == player.team)
 					return 0;
 				break;
 			}
@@ -300,6 +295,8 @@ class PossessionReward : public Reward {
 
 	static float TimeToBall(const Player &player, const GameState &state) {
 		Vec toBall = state.ball.pos - player.pos;
+		if (toBall.Length() < 150)
+			return MIN_TIME;
 
 		float surfaceDist = toBall.Length() - CommonValues::BALL_RADIUS;
 		float dist = RS_MAX(0.f, surfaceDist);

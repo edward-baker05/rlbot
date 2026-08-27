@@ -1,0 +1,36 @@
+#:schema https://rlbot.org/schemas/agent.json
+#
+# Linux launch shim for the vendored Necto agent.
+#
+# libs/opponents/NectoFamily/necto/bot.toml declares only `run_command`, with no
+# `run_command_linux`. RLBotServer treats a bare `run_command` as a Windows
+# command and puts it through Wine, which is why launching Necto directly failed
+# with:
+#
+#     Application could not be started, or no application associated with the
+#     specified file.  ShellExecuteEx failed: File not found.
+#     ERROR LaunchManager: Bot Necto exited with error code 1.
+#
+# Wine was being asked to run `uv`. This file points at the same agent directory
+# and gives it a native command instead. Kept here rather than patching the
+# vendored bot.toml so a re-clone of libs/opponents does not silently revert it.
+#
+# The interpreter is the pre-existing venv at libs/opponents/NectoFamily/.venv
+# (CPython 3.12, torch 2.4.1+cpu, numpy, rlbot 2.0.0b54, rlgym_compat). Note
+# torch 2.4.1 has no wheels for the system Python 3.14, so this must not be
+# "python3" -- it has to be that venv.
+
+[settings]
+name = "Necto"
+root_dir = "../../libs/opponents/NectoFamily/necto"
+loadout_file = "loadout.toml"
+agent_id = "rlgym/necto"
+run_command = "uv run bot.py"
+run_command_linux = "../.venv/bin/python bot.py"
+
+[details]
+description = "Necto, the RLGym community bot. Vendored; launched here via a native Linux command."
+developer = "Rolv, Soren, and several contributors"
+source_link = "https://github.com/Rolv-Arild/Necto"
+language = "python"
+tags = ["1v1", "teamplay"]

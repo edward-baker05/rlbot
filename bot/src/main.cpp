@@ -5,6 +5,7 @@
 #include "eval/NectoBench.h"
 #include "eval/PredictBench.h"
 #include "eval/Spectate.h"
+#include "eval/WinMatrix.h"
 #include "opponents/NectoSelfTest.h"
 #include "rlbot/DashBot.h"
 #include "train/Train.h"
@@ -29,6 +30,8 @@ void PrintUsage(const char *argv0) {
 		"  match            Play standard 5-minute head-to-head games between "
 		"two checkpoints\n"
 		"  benchmark        Score a checkpoint head-to-head against Necto\n"
+		"  win-matrix       Round-robin every saved policy version against every\n"
+		"                   other, to test whether the lineage is transitive\n"
 		"  predict-bench    Measure the throughput cost of the prediction obs "
 		"block\n"
 		"  migrate-obs      Widen a checkpoint's input layer for a new obs "
@@ -136,6 +139,13 @@ void PrintUsage(const char *argv0) {
 		"                       (use this for a comparable baseline)\n"
 		"  --ts-per-version N   Snapshot the policy every N steps (default "
 		"5M)\n"
+		"  --old-version-chance X  Fraction of iterations played against a "
+		"saved\n"
+		"                       old version (default 0.20)\n"
+		"  --ts-per-itr N       Timesteps collected per PPO iteration "
+		"(default\n"
+		"                       250k). Lower it for short shakedown runs on a "
+		"busy GPU\n"
 		"\n"
 		"Environment (play):\n"
 		"  DASH_MODEL           Checkpoint folder for the policy (required)\n"
@@ -259,6 +269,15 @@ int RunTrain(int argc, char *argv[]) {
 			cfg.selfPlay.trackSkill = true;
 		} else if (arg == "--ts-per-version" && i + 1 < argc) {
 			cfg.selfPlay.tsPerVersion = std::atoll(argv[++i]);
+		} else if (arg == "--ts-per-itr" && i + 1 < argc) {
+			// Smaller iterations mean a smaller experience buffer and smaller
+			// minibatches, which is what makes a short shakedown run fit on a
+			// GPU that is already busy.
+			cfg.tsPerItr = std::atoi(argv[++i]);
+			cfg.miniBatchSize = RS_MIN(cfg.miniBatchSize, cfg.tsPerItr);
+		} else if (arg == "--old-version-chance" && i + 1 < argc) {
+			cfg.selfPlay.trainAgainstOldChance =
+				static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--necto") {
 			cfg.necto.enabled = true;
 		} else if (arg == "--necto-fraction" && i + 1 < argc) {
@@ -528,6 +547,50 @@ int RunBenchmark(int argc, char *argv[]) {
 	return EXIT_SUCCESS;
 }
 
+int RunWinMatrix(int argc, char *argv[]) {
+	Dash::WinMatrixConfig cfg = {};
+	std::string run = "t1";
+
+	for (int i = 2; i < argc; i++) {
+		const std::string arg = argv[i];
+		if (arg == "--run" && i + 1 < argc)
+			run = argv[++i];
+		else if (arg == "--versions" && i + 1 < argc)
+			cfg.maxVersions = std::atoi(argv[++i]);
+		else if (arg == "--games-per-pair" && i + 1 < argc)
+			cfg.gamesPerPair = std::atoi(argv[++i]);
+		else if (arg == "--arenas" && i + 1 < argc)
+			cfg.arenas = std::atoi(argv[++i]);
+		else if (arg == "--duration" && i + 1 < argc)
+			cfg.gameDuration = static_cast<float>(std::atof(argv[++i]));
+		else if (arg == "--stochastic")
+			cfg.deterministic = false;
+		else if (arg == "--cpu")
+			cfg.useGPU = false;
+		else if (arg == "--json" && i + 1 < argc)
+			cfg.jsonOutput = argv[++i];
+		else {
+			std::fprintf(stderr, "Unknown win-matrix option: %s\n", arg.c_str());
+			return 1;
+		}
+	}
+
+	cfg.runFolder = std::filesystem::path("checkpoints") / run;
+	if (!std::filesystem::is_directory(cfg.runFolder)) {
+		std::fprintf(stderr, "No such run folder: %s\n", cfg.runFolder.c_str());
+		return 1;
+	}
+
+	RocketSim::Init(FindCollisionMeshes());
+
+	Dash::WinMatrixResult res = Dash::RunWinMatrix(cfg);
+	if (!res.valid)
+		return 1;
+
+	Dash::PrintWinMatrix(res);
+	return 0;
+}
+
 int RunMatch(int argc, char *argv[]) {
 	Dash::MatchRunnerConfig cfg = {};
 	std::string m1Input = "t1";
@@ -757,6 +820,9 @@ int main(int argc, char *argv[]) {
 
 	if (command == "benchmark")
 		return RunBenchmark(argc, argv);
+
+	if (command == "win-matrix")
+		return RunWinMatrix(argc, argv);
 
 	if (command == "migrate-obs") {
 		std::filesystem::path src, dst;

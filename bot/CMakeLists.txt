@@ -24,6 +24,40 @@ endif()
 set(DASH_EXTERNAL "${CMAKE_CURRENT_SOURCE_DIR}/../external")
 set(DASH_LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../libs")
 
+# ---------------------------------------------------------------------------
+# Target architecture
+# ---------------------------------------------------------------------------
+# Release is -O3 but otherwise targets the x86-64 baseline, i.e. SSE2. RocketSim
+# and the Bullet fork under it are the hot loop of collection and are almost
+# entirely scalar float work, which is exactly what the baseline penalises: no
+# FMA, no AVX, and the compiler cannot vectorise what it is not allowed to
+# assume.
+#
+# Set BEFORE add_subdirectory so it reaches RocketSim and Bullet, not just this
+# project's own sources -- they are where the time goes.
+#
+# Off by default is not an option worth having here: this binary is built on the
+# machine that runs it. Turn it OFF only when building for a different CPU than
+# the one compiling, since -march=native produces instructions an older host
+# will fault on.
+#
+# Note this changes floating-point results slightly (FMA contraction), so
+# RocketSim trajectories will not be bit-identical to previous builds. Nothing
+# in this project depends on that: checkpoints store weights, not trajectories,
+# and BallPredictor's cache check tolerates 1.0uu, far above the difference.
+option(DASH_NATIVE_ARCH "Build for the host CPU (-march=native)" ON)
+
+if(DASH_NATIVE_ARCH)
+	include(CheckCXXCompilerFlag)
+	check_cxx_compiler_flag(-march=native DASH_HAS_MARCH_NATIVE)
+	if(DASH_HAS_MARCH_NATIVE)
+		add_compile_options(-march=native)
+		message(STATUS "Building for host CPU (-march=native)")
+	else()
+		message(STATUS "-march=native unsupported by this compiler; skipping")
+	endif()
+endif()
+
 # libtorch. Point CMAKE_PREFIX_PATH at the local copy so find_package(Torch)
 # inside GigaLearnCPP resolves without a system-wide install.
 if(NOT DEFINED CMAKE_PREFIX_PATH OR CMAKE_PREFIX_PATH STREQUAL "")
@@ -90,6 +124,8 @@ add_library(DashCore STATIC
 	src/eval/RewardProbe.h
 	src/eval/Spectate.cpp
 	src/eval/Spectate.h
+	src/eval/WinMatrix.cpp
+	src/eval/WinMatrix.h
 
 	src/opponents/NectoArena.h
 	src/opponents/NectoDriver.cpp
@@ -185,6 +221,7 @@ add_executable(DashTests
 	tests/test_ballpredictor.cpp
 	tests/test_predictiveobs.cpp
 	tests/test_migrateobs.cpp
+	tests/test_nectodevice.cpp
 	tests/test_packetconvert.cpp
 )
 target_link_libraries(DashTests PRIVATE DashCore)

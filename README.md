@@ -1,5 +1,7 @@
 # Dash
 
+%command% -rlbot RLBot_ControllerURL=127.0.0.1:23233 RLBot_PacketSendRate=120 -nomovie
+
 A Rocket League bot trained with [GigaLearn](https://github.com/ZealanL) on
 RocketSim, deployed through [RLBot v5](https://wiki.rlbot.org/v5/).
 

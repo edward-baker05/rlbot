@@ -84,8 +84,10 @@ struct NectoBench::Impl {
 		parser = MakeActionParser(cfg.maskActions);
 		spawner = std::make_unique<FuzzedKickoffState>();
 
-		necto = std::make_unique<NectoPolicy>(cfg.necto.modelPath,
-											  cfg.necto.benchBeta, 0);
+		// CPU on purpose, matching the learner-side policy below: this blocks
+		// collection while it runs, and the GPU's memory is training's.
+		necto = std::make_unique<NectoPolicy>(
+			cfg.necto.modelPath, cfg.necto.benchBeta, 0, /*useGPU=*/false);
 
 		// Half the arenas put Necto on each side. Same reasoning as the training
 		// assignment: a fixed-side opponent measures a side, not a policy.
