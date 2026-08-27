@@ -230,8 +230,8 @@ class AirLaunchReward : public AerialReward {
 	}
 };
 
-// Rewards air touches above a certain height relative to their power and
-// direction to net
+// Rewards air touches above a certain height relative to their height gained
+// and direction to net
 class ImprovedAirTouchReward : public AerialReward {
   public:
 	float minHeight;
@@ -258,20 +258,21 @@ class ImprovedAirTouchReward : public AerialReward {
 
 		float touchReward = height * (0.2f + 0.8f * climb);
 
+		// Floored rather than gated on a minimum delta: Normalized() is
+		// zero-safe, so skipping this for a feather touch would silently score
+		// it as perfectly aimed, and an unfloored negative would make missing
+		// the ball worth more than a badly aimed hit.
+		float alignment = 0.f;
 		if (state.prev) {
 			Vec deltaVel = state.ball.vel - state.prev->ball.vel;
-			if (deltaVel.Length() > 50.f) {
-				bool targetOrangeGoal = player.team == Team::BLUE;
-				Vec targetPos = targetOrangeGoal
-									? CommonValues::ORANGE_GOAL_BACK
-									: CommonValues::BLUE_GOAL_BACK;
-				Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
-				float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
-				touchReward *= alignment;
-			}
+			bool targetOrangeGoal = player.team == Team::BLUE;
+			Vec targetPos = targetOrangeGoal ? CommonValues::ORANGE_GOAL_BACK
+											 : CommonValues::BLUE_GOAL_BACK;
+			Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
+			alignment = ballDirToGoal.Dot(deltaVel.Normalized());
 		}
 
-		return touchReward;
+		return touchReward * RS_MAX(alignment, 0.1f);
 	}
 };
 
@@ -379,24 +380,57 @@ class ImprovedSaveReward : public Reward {
 	}
 };
 
+// Latched per team so one shot pays once. Comparing against the previous step
+// alone let a team re-earn this by knocking its own on-target ball aside and
+// hitting it back, so a repeat only counts once an opponent has intervened or
+// the ball has been off target long enough to be a new attempt.
 class ShotOnTargetReward : public Reward {
   public:
 	const float MIN_SHOT_THRESHOLD = RLGC::Math::KPHToVel(80.f);
 
+	constexpr static float RE_ARM_SECONDS = 0.5f;
+
+	bool armed[2] = {true, true};
+	float offTargetTime[2] = {RE_ARM_SECONDS, RE_ARM_SECONDS};
+
+	bool IsLiveShot(const GameState &state, Team shootingTeam) const {
+		return state.ball.vel.Length() >= MIN_SHOT_THRESHOLD &&
+			   onTarget(state, RS_OPPOSITE_TEAM(shootingTeam), true);
+	}
+
+	virtual void Reset(const GameState &initialState) override {
+		for (int team = 0; team < 2; team++) {
+			armed[team] = true;
+			offTargetTime[team] = RE_ARM_SECONDS;
+		}
+	}
+
+	virtual void PreStep(const GameState &state) override {
+		for (int team = 0; team < 2; team++) {
+			if (IsLiveShot(state, (Team)team)) {
+				offTargetTime[team] = 0.f;
+				continue;
+			}
+
+			offTargetTime[team] += state.deltaTime;
+			if (offTargetTime[team] >= RE_ARM_SECONDS)
+				armed[team] = true;
+		}
+
+		for (const Player &player : state.players)
+			if (player.ballTouchedStep)
+				armed[(int)RS_OPPOSITE_TEAM(player.team)] = true;
+	}
+
 	virtual float GetReward(const Player &player, const GameState &state,
-							bool isFinal) {
-		if (!state.prev || !player.ballTouchedStep ||
-			state.ball.vel.Length() < MIN_SHOT_THRESHOLD)
+							bool isFinal) override {
+		const int team = (int)player.team;
+		if (!armed[team] || !player.ballTouchedStep ||
+			!IsLiveShot(state, player.team))
 			return 0.f;
 
-		Team opponentTeam = RS_OPPOSITE_TEAM(player.team);
-
-		if (state.prev->ball.vel.Length() < MIN_SHOT_THRESHOLD ||
-			!onTarget(*state.prev, opponentTeam, true)) {
-			if (onTarget(state, opponentTeam, true))
-				return 1.f;
-		}
-		return 0.f;
+		armed[team] = false;
+		return 1.f;
 	}
 };
 

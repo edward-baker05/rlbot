@@ -3,6 +3,7 @@
 
 #include <Config.h>
 #include <env/Rewards.h>
+#include <env/TimeoutCondition.h>
 
 #include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/Gamestates/GameState.h>
@@ -67,6 +68,7 @@ Scenario MakeScenario(Vec ballPos, Vec ballVel, Vec prevBallPos,
 // Mirrors EnvSet's ordering: PreStep over the whole stack, then GetAllRewards
 // over the whole stack, weighted contributions summed per player.
 std::vector<float> StackTotals(const TrainConfig &cfg, Scenario &scenario) {
+	scenario.Link();
 	std::vector<RewardSpec> specs = GeneralRewardSpecs(cfg);
 	std::vector<std::unique_ptr<Reward>> rewards;
 	for (const RewardSpec &spec : specs)
@@ -94,6 +96,7 @@ std::vector<float> StackTotals(const TrainConfig &cfg, Scenario &scenario) {
 
 float WeightedContribution(const TrainConfig &cfg, const std::string &name,
 						   Scenario &scenario, int playerIdx) {
+	scenario.Link();
 	for (const RewardSpec &spec : GeneralRewardSpecs(cfg)) {
 		if (spec.name != name)
 			continue;
@@ -130,7 +133,188 @@ float OwnGoalThreat(const TrainConfig &cfg, Scenario &scenario, int playerIdx) {
 	return WeightedContribution(cfg, "Own Goal Threat", scenario, playerIdx);
 }
 
+// Blue in a genuine aerial: on the ground in the previous state so the climb
+// latches, airborne and touching with the ball above the height gate.
+Scenario AerialTouch(Vec ballVel, Vec prevBallVel) {
+	Scenario scenario;
+
+	scenario.prev.ball.pos = Vec(0, 0, 1000);
+	scenario.prev.ball.vel = prevBallVel;
+	scenario.prev.players = {MakePlayer(0, 1, Team::BLUE, Vec(0, -200, 17)),
+							 MakePlayer(1, 2, Team::ORANGE, Vec(0, 3000, 17))};
+
+	scenario.state = scenario.prev;
+	scenario.state.ball.vel = ballVel;
+
+	Player &blue = scenario.state.players[BLUE];
+	blue.pos = Vec(0, -200, 800);
+	blue.isOnGround = false;
+	blue.ballTouchedStep = true;
+
+	scenario.Link();
+	return scenario;
+}
+
+float AirTouch(const TrainConfig &cfg, Scenario &scenario) {
+	return WeightedContribution(cfg, "Air Touch", scenario, BLUE);
+}
+
+// One step of a shot sequence: blue attacking the orange net.
+GameState ShotStep(Vec ballVel, int toucher) {
+	GameState state;
+	state.deltaTime = 8.f / 120.f;
+	state.ball.pos = Vec(0, 4000, 300);
+	state.ball.vel = ballVel;
+	state.players = {MakePlayer(0, 1, Team::BLUE, Vec(0, 3500, 17)),
+					 MakePlayer(1, 2, Team::ORANGE, Vec(0, 4600, 17))};
+	if (toucher >= 0) {
+		state.players[toucher].ballTouchedStep = true;
+		state.lastTouchCarID = state.players[toucher].carId;
+	}
+	return state;
+}
+
+// Weighted payout per step for one reward driven over a scripted sequence,
+// in EnvSet's PreStep-then-GetAllRewards order.
+std::vector<float> RunSequence(const TrainConfig &cfg, const std::string &name,
+							   const std::vector<GameState> &steps,
+							   int playerIdx) {
+	for (const RewardSpec &spec : GeneralRewardSpecs(cfg)) {
+		if (spec.name != name)
+			continue;
+
+		std::unique_ptr<Reward> reward(spec.make());
+		reward->Reset(steps.front());
+
+		std::vector<float> out;
+		for (const GameState &state : steps) {
+			reward->PreStep(state);
+			out.push_back(reward->GetAllRewards(state, false)[playerIdx] *
+						  spec.weight);
+		}
+		return out;
+	}
+
+	FAIL("no reward spec named ", name);
+	return {};
+}
+
+constexpr Vec ON_TARGET_FAST = Vec(0, 3000, 0);
+constexpr Vec OFF_TARGET_FAST = Vec(3000, 0, 0);
+
 } // namespace
+
+TEST_CASE("air touch rewards aim, and never rewards missing") {
+	TrainConfig cfg = {};
+
+	Scenario aimedHard = AerialTouch(Vec(0, 1000, 0), Vec(0, 0, 0));
+	Scenario aimedFeather = AerialTouch(Vec(0, 10, 0), Vec(0, 0, 0));
+	Scenario awayHard = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
+	Scenario awayFeather = AerialTouch(Vec(0, -10, 0), Vec(0, 0, 0));
+	Scenario missed = AerialTouch(Vec(0, 1000, 0), Vec(0, 0, 0));
+	missed.state.players[BLUE].ballTouchedStep = false;
+
+	const float missedR = AirTouch(cfg, missed);
+	const float awayHardR = AirTouch(cfg, awayHard);
+	const float awayFeatherR = AirTouch(cfg, awayFeather);
+	const float aimedFeatherR = AirTouch(cfg, aimedFeather);
+
+	CHECK(missedR == doctest::Approx(0.f));
+
+	// The escape hatch: a touch under the old 50uu/s guard skipped the
+	// alignment factor entirely, so feathering the ball away from the net
+	// scored exactly the same as striking it at the net.
+	CHECK(awayFeatherR < aimedFeatherR);
+
+	// And an unfloored negative alignment made whiffing worth more than any
+	// badly aimed hit, which is its own reason to miss the ball.
+	CHECK(awayHardR > missedR);
+	CHECK(awayHardR == doctest::Approx(awayFeatherR));
+}
+
+// Power is DirectionalTouchReward's job, not this reward's, so the incentive to
+// strike rather than feather only exists in the stack as a whole.
+TEST_CASE("the stack prefers a powerful aerial touch to a feathered one") {
+	TrainConfig cfg = {};
+
+	Scenario hard = AerialTouch(Vec(0, 1000, 0), Vec(0, 0, 0));
+	Scenario feather = AerialTouch(Vec(0, 10, 0), Vec(0, 0, 0));
+
+	CHECK(StackTotals(cfg, hard)[BLUE] > StackTotals(cfg, feather)[BLUE]);
+}
+
+TEST_CASE("a badly aimed aerial touch beats whiffing in the stack") {
+	TrainConfig cfg = {};
+
+	Scenario awayHard = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
+	Scenario missed = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
+	missed.state.players[BLUE].ballTouchedStep = false;
+
+	CHECK(StackTotals(cfg, awayHard)[BLUE] > StackTotals(cfg, missed)[BLUE]);
+}
+
+TEST_CASE("air touch has no cliff across the old 50uu/s guard") {
+	TrainConfig cfg = {};
+
+	Scenario under = AerialTouch(Vec(0, 49, 0), Vec(0, 0, 0));
+	Scenario over = AerialTouch(Vec(0, 51, 0), Vec(0, 0, 0));
+
+	CHECK(AirTouch(cfg, under) == doctest::Approx(AirTouch(cfg, over)));
+}
+
+TEST_CASE("a shot on target pays once, not once per re-touch") {
+	TrainConfig cfg = {};
+
+	const std::vector<GameState> steps = {
+		ShotStep(OFF_TARGET_FAST, -1),   // arms
+		ShotStep(ON_TARGET_FAST, BLUE),  // the shot
+		ShotStep(ON_TARGET_FAST, -1),    // in flight
+		ShotStep(ON_TARGET_FAST, BLUE),  // blue catches its own shot
+	};
+
+	const std::vector<float> paid =
+		RunSequence(cfg, "On Target", steps, BLUE);
+
+	CHECK(paid[0] == doctest::Approx(0.f));
+	CHECK(paid[1] > 0.f);
+	CHECK(paid[2] == doctest::Approx(0.f));
+	CHECK(paid[3] == doctest::Approx(0.f));
+}
+
+TEST_CASE("a shot on target pays again after the opponent intervenes") {
+	TrainConfig cfg = {};
+
+	const std::vector<GameState> steps = {
+		ShotStep(OFF_TARGET_FAST, -1),     // arms
+		ShotStep(ON_TARGET_FAST, BLUE),    // the shot
+		ShotStep(OFF_TARGET_FAST, ORANGE), // orange saves it
+		ShotStep(ON_TARGET_FAST, BLUE),    // blue shoots again
+	};
+
+	const std::vector<float> paid =
+		RunSequence(cfg, "On Target", steps, BLUE);
+
+	CHECK(paid[1] > 0.f);
+	CHECK(paid[3] > 0.f);
+}
+
+TEST_CASE("timeout fires after maxTime of accumulated steps") {
+	GameState state;
+	state.deltaTime = 8.f / 120.f;
+
+	TimeoutCondition condition(1.0f);
+	condition.Reset(state);
+
+	int steps = 0;
+	while (steps < 1000) {
+		steps++;
+		if (condition.IsTerminal(state))
+			break;
+	}
+
+	CHECK(steps == 15);
+	CHECK(condition.IsTruncation());
+}
 
 TEST_CASE("onTarget's team argument names the goal being shot at") {
 	Scenario scenario = BallAtBlueNet();
