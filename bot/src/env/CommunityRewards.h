@@ -578,7 +578,7 @@ class SaveBoostReward : public Reward {
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
 		if (state.ball.pos.x == 0 && state.ball.pos.y == 0)
-			return -0.01f * player.boost;
+			return 0;
 		return (player.boost > 20 ? player.boost : 20 - player.boost) * 0.01;
 	}
 };
