@@ -113,7 +113,9 @@ class ConditionalVelocityBallToGoalReward : public Reward {
 	}
 };
 
-class SimpleBallToGoal : public Reward {
+// Returns a positive magnitude and is applied with a negative weight, like
+// GoalsidePunishment.
+class OwnGoalThreatPunishment : public Reward {
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) {
 		return onTarget(state, player.team);

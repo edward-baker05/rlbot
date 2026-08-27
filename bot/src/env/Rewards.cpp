@@ -55,8 +55,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Possession", b.possession, RewardKind::Continuous,
 		 [] { return new PossessionReward(); }},
 
-		{"Velocity: Ball to Goal (Own)", b.ballToOwnGoal,
-		 RewardKind::Continuous, [] { return new SimpleBallToGoal(); }},
+		{"Own Goal Threat", b.ballToOwnGoal, RewardKind::Continuous,
+		 [] { return new OwnGoalThreatPunishment(); }},
 
 		{"Kickoff Distance", b.kickoff, RewardKind::Continuous,
 		 [] { return new MillennialKickoffReward(); }},
