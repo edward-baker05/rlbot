@@ -30,6 +30,30 @@ struct RewardSpec {
 	std::function<RLGC::Reward *()> make;
 };
 
+inline bool onTarget(const GameState &state, Team goalTeam,
+					 bool checkZ = true) {
+	float goalY =
+		(goalTeam == Team::ORANGE) ? ORANGE_GOAL_CENTER.y : BLUE_GOAL_CENTER.y;
+	float dy = goalY - state.ball.pos.y;
+
+	if (dy * state.ball.vel.y <= 0.f)
+		return false;
+
+	float t = dy / state.ball.vel.y;
+
+	if (std::abs(state.ball.pos.x + state.ball.vel.x * t) >=
+		GOAL_WIDTH_FROM_CENTER - BALL_RADIUS)
+		return false;
+
+	if (!checkZ)
+		return true;
+
+	float projZ =
+		state.ball.pos.z + state.ball.vel.z * t + 0.5f * GRAVITY_Z * t * t;
+
+	return projZ < GOAL_HEIGHT;
+}
+
 // Should return power * direction when ball is hit
 class DirectionalTouchReward : public Reward {
   public:
@@ -86,6 +110,13 @@ class ConditionalVelocityBallToGoalReward : public Reward {
 		return RS_CLAMP(
 			-ballDirToGoal.Dot(state.ball.vel / CommonValues::BALL_MAX_SPEED),
 			-1.f, 0.f);
+	}
+};
+
+class SimpleBallToGoal : public Reward {
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) {
+		return onTarget(state, player.team);
 	}
 };
 
@@ -351,30 +382,6 @@ class GoalsidePunishment : public Reward {
 			   std::abs(state.ball.pos.y - goalY);
 	}
 };
-
-inline bool onTarget(const GameState &state, Team goalTeam,
-					 bool checkZ = true) {
-	float goalY =
-		(goalTeam == Team::ORANGE) ? ORANGE_GOAL_CENTER.y : BLUE_GOAL_CENTER.y;
-	float dy = goalY - state.ball.pos.y;
-
-	if (dy * state.ball.vel.y <= 0.f)
-		return false;
-
-	float t = dy / state.ball.vel.y;
-
-	if (std::abs(state.ball.pos.x + state.ball.vel.x * t) >=
-		GOAL_WIDTH_FROM_CENTER - BALL_RADIUS)
-		return false;
-
-	if (!checkZ)
-		return true;
-
-	float projZ =
-		state.ball.pos.z + state.ball.vel.z * t + 0.5f * GRAVITY_Z * t * t;
-
-	return projZ < GOAL_HEIGHT;
-}
 
 class ImprovedSaveReward : public Reward {
   public:

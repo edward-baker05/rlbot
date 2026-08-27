@@ -16,7 +16,7 @@ struct RewardBudget {
 	float goal = 1.f;
 	float strongTouch = 0.5f;
 	float airTouch = 0.2f;
-	float dribbleFlick = 0.02f;
+	float dribbleFlick = 0.06f;
 	float onTarget = 0.1f;
 
 	float pickupBoost = 0.10f;
@@ -27,7 +27,7 @@ struct RewardBudget {
 	float demo = 0.4f;
 
 	float save = 0.5f;
-	float velBtG = 0.05f;
+	float ballToOwnGoal = 0.02f;
 
 	float awkwardContact = 0.005f;
 	float possession = 0.001f;

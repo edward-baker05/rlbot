@@ -35,7 +35,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		 [] { return new ZeroSumReward(new PickupBoostReward(), 1); }},
 
 		{"Save Boost", b.saveBoost, RewardKind::Continuous,
-		 [] { return new SaveBoostReward(); }},
+		 [] { return new Community::SaveBoostReward(); }},
 
 		{"Speed", b.speed, RewardKind::Continuous,
 		 [] { return new VelocityReward(); }},
@@ -55,8 +55,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Possession", b.possession, RewardKind::Continuous,
 		 [] { return new PossessionReward(); }},
 
-		{"Velocity: Ball to Goal (Own)", b.velBtG, RewardKind::Continuous,
-		 [] { return new ConditionalVelocityBallToGoalReward(true); }},
+		{"Velocity: Ball to Goal (Own)", b.ballToOwnGoal,
+		 RewardKind::Continuous, [] { return new SimpleBallToGoal(); }},
 
 		{"Kickoff Distance", b.kickoff, RewardKind::Continuous,
 		 [] { return new MillennialKickoffReward(); }},

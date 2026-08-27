@@ -111,9 +111,9 @@ static void RecordNectoArena(const GameState &gs, const NectoArenaState &arena,
 // is a property of the reward object, and reward objects live for the whole
 // run, so it is resolved once instead.
 enum class RewardProbe : uint8_t {
-	Plain,      // Ask the reward, per player.
-	ZeroSum,    // Already computed this step by EnvSet::StepSecondHalf.
-	Goal,       // Derivable from the game state alone.
+	Plain,		// Ask the reward, per player.
+	ZeroSum,	// Already computed this step by EnvSet::StepSecondHalf.
+	Goal,		// Derivable from the game state alone.
 	Possession, // One whole-arena evaluation covers every player.
 };
 
@@ -309,7 +309,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"bump", b.bump},
 		{"demo", b.demo},
 		{"save", b.save},
-		{"velBtG", b.velBtG},
+		{"ballToOwnGoal", b.ballToOwnGoal},
 		{"awkwardContact", b.awkwardContact},
 		{"possession", b.possession},
 	};
@@ -643,8 +643,9 @@ void RunTraining(const TrainConfig &cfg) {
 		// Print the family, not just the path: which one is loaded decides the
 		// observation and the action head, so it is the single most useful
 		// thing to be able to read back off a run's log.
-		std::cout << "Necto model:      " << NectoFamilyName(nectoDriver->Family())
-				  << " (" << modelPath.filename().string() << ")\n";
+		std::cout << "Necto model:      "
+				  << NectoFamilyName(nectoDriver->Family()) << " ("
+				  << modelPath.filename().string() << ")\n";
 		std::cout << "Necto device:     "
 				  << (nectoDriver->OnGPU() ? "GPU" : "CPU") << "\n";
 	}
