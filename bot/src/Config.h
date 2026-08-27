@@ -6,6 +6,7 @@
 #include <GigaLearnCPP/LearnerConfig.h>
 
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 
@@ -13,14 +14,16 @@ namespace Dash {
 
 struct RewardBudget {
 	float goal = 1.f;
-	float strongTouch = 0.75f;
-	float airTouch = 0.40f;
+	float strongTouch = 0.5f;
+	float airTouch = 0.2f;
+	float dribbleFlick = 0.02f;
+	float onTarget = 0.1f;
 
 	float pickupBoost = 0.10f;
 	float saveBoost = 0.001f;
 	float speed = 0.001f;
 
-	float bump = 0.15f;
+	float bump = 0.05f;
 	float demo = 0.4f;
 
 	float save = 0.5f;
@@ -28,6 +31,8 @@ struct RewardBudget {
 
 	float awkwardContact = 0.005f;
 	float possession = 0.001f;
+	float kickoff = 0.05f;
+	float goalside = 0.01;
 };
 
 struct AerialConfig {
@@ -62,6 +67,13 @@ struct NectoConfig {
 
 	std::filesystem::path modelPath =
 		"../../libs/opponents/NectoFamily/nexto/nexto-model.pt";
+
+	std::filesystem::path ResolvedModelPath() const {
+		if (const char *env = std::getenv("DASH_NECTO_MODEL"))
+			if (*env)
+				return env;
+		return modelPath;
+	}
 
 	bool benchmark = true;
 	int benchInterval = 100;
@@ -140,7 +152,7 @@ struct TrainConfig {
 	int miniBatchSize = 50'000;
 	int epochs = 2;
 
-	float entropyScale = 0.02f;
+	float entropyScale = 0.0025f;
 	float entropyTarget = 0.f;
 	float entropyAdjustRate = 0.15f;
 

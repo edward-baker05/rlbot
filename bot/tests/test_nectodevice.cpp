@@ -17,24 +17,35 @@ using namespace Dash;
 
 namespace {
 
-// Moving Necto onto the GPU is the kind of change that keeps running while it
-// quietly plays worse -- the same failure NectoSelfTest exists to catch on the
-// observation side. This covers the other half: given identical inputs, the two
-// devices must choose identical actions.
-std::filesystem::path FindNectoModel() {
-	if (const char *env = std::getenv("DASH_NECTO_MODEL"))
-		if (std::filesystem::is_regular_file(env))
-			return env;
-
-	for (const char *p : {
-			 "libs/opponents/NectoFamily/necto/necto-model.pt",
-			 "../libs/opponents/NectoFamily/necto/necto-model.pt",
-			 "../../libs/opponents/NectoFamily/necto/necto-model.pt",
-		 }) {
+// Moving a Necto-family model onto the GPU is the kind of change that keeps
+// running while it quietly plays worse -- the same failure NectoSelfTest exists
+// to catch on the observation side. This covers the other half: given identical
+// inputs, the two devices must choose identical actions.
+//
+// For Nexto it covers something sharper than "worse". Its trace pins the action
+// lookup table to the CPU, so without the device-constant rewrite in
+// NectoPolicy the GPU path does not play badly -- it throws on the first
+// forward. This test is what says the rewrite worked and did not change what the
+// model decides.
+std::filesystem::path FindModel(const char *relative) {
+	const std::string rel = relative;
+	for (const std::string prefix : {"", "../", "../../"}) {
+		const std::filesystem::path p = prefix + rel;
 		if (std::filesystem::is_regular_file(p))
 			return p;
 	}
 	return {};
+}
+
+std::filesystem::path FindNectoModel() {
+	if (const char *env = std::getenv("DASH_NECTO_MODEL"))
+		if (std::filesystem::is_regular_file(env))
+			return env;
+	return FindModel("libs/opponents/NectoFamily/necto/necto-model.pt");
+}
+
+std::filesystem::path FindNextoModel() {
+	return FindModel("libs/opponents/NectoFamily/nexto/nexto-model.pt");
 }
 
 // Distinct, awkward, and deliberately asymmetric in x, y and z, so a transposed
@@ -90,24 +101,19 @@ GameState MakeVariedState(int k) {
 	return gs;
 }
 
-} // namespace
-
-TEST_CASE("NectoPolicy picks the same actions on CPU and GPU") {
-	const std::filesystem::path model = FindNectoModel();
-	if (model.empty()) {
-		MESSAGE("necto-model.pt not found; skipping device equivalence check");
-		return;
-	}
-	if (!torch::cuda::is_available()) {
-		MESSAGE("CUDA unavailable; skipping device equivalence check");
-		return;
-	}
-
-	// beta 1.0 is argmax, so SampleAction consumes no RNG and the comparison is
-	// a property of the forward pass alone rather than of two RNG streams
+// The whole comparison, so both families run exactly the same check.
+void CheckDeviceEquivalence(const std::filesystem::path &model,
+							NectoFamily expectedFamily) {
+	// beta 1.0 is argmax, so sampling consumes no RNG and the comparison is a
+	// property of the forward pass alone rather than of two RNG streams
 	// happening to agree.
 	NectoPolicy cpu(model, 1.0f, 0, /*useGPU=*/false);
 	NectoPolicy gpu(model, 1.0f, 0, /*useGPU=*/true);
+
+	// Detection drives the observation and the action decode, so a file that
+	// came back as the wrong family would make everything below meaningless.
+	CHECK(cpu.Family() == expectedFamily);
+	CHECK(gpu.Family() == expectedFamily);
 
 	CHECK_FALSE(cpu.OnGPU());
 	REQUIRE(gpu.OnGPU());
@@ -137,10 +143,11 @@ TEST_CASE("NectoPolicy picks the same actions on CPU and GPU") {
 	REQUIRE(cpuActions.size() == requests.size());
 	REQUIRE(gpuActions.size() == requests.size());
 
-	// Exact equality: argmax over five heads yields values in {-1, 0, 1}, and
-	// the products SampleAction forms from them are exact in binary floating
-	// point. A device that disagreed at all would mean the two are seeing
-	// different logits, not that one rounded differently.
+	// Exact equality. For Necto, argmax over five heads yields values in
+	// {-1, 0, 1} and the products SampleAction forms from them are exact in
+	// binary floating point; for Nexto both devices index the same lookup table,
+	// so agreement is bit-exact or not at all. Either way a disagreement means
+	// the two are seeing different logits, not that one rounded differently.
 	int mismatches = 0;
 	for (size_t i = 0; i < cpuActions.size(); i++) {
 		for (size_t e = 0; e < Action::ELEM_AMOUNT; e++) {
@@ -165,4 +172,34 @@ TEST_CASE("NectoPolicy picks the same actions on CPU and GPU") {
 				break;
 			}
 	CHECK(anyDifference);
+}
+
+} // namespace
+
+TEST_CASE("NectoPolicy picks the same actions on CPU and GPU") {
+	const std::filesystem::path model = FindNectoModel();
+	if (model.empty()) {
+		MESSAGE("necto-model.pt not found; skipping device equivalence check");
+		return;
+	}
+	if (!torch::cuda::is_available()) {
+		MESSAGE("CUDA unavailable; skipping device equivalence check");
+		return;
+	}
+
+	CheckDeviceEquivalence(model, NectoFamily::Necto);
+}
+
+TEST_CASE("NextoPolicy picks the same actions on CPU and GPU") {
+	const std::filesystem::path model = FindNextoModel();
+	if (model.empty()) {
+		MESSAGE("nexto-model.pt not found; skipping device equivalence check");
+		return;
+	}
+	if (!torch::cuda::is_available()) {
+		MESSAGE("CUDA unavailable; skipping device equivalence check");
+		return;
+	}
+
+	CheckDeviceEquivalence(model, NectoFamily::Nexto);
 }

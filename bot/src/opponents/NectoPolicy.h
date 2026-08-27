@@ -18,16 +18,49 @@ struct NectoRequest {
 	RLGC::Action prevAction;
 };
 
-// Runs the Necto bot as an opponent inside RocketSim arenas.
+// Which member of the Necto family a model file holds.
 //
-// Necto is not weight-compatible with anything else in this project: it has its
-// own observation (a token matrix over ball/cars/boost pads, consumed by an
-// attention model) and its own factored action head, so it cannot ride the
+// They share a trunk (EARL over the same 24-column token matrix) and the same
+// normalization, field inversion and q layout, so most of this class is common.
+// They differ in exactly three places, and all three are silent if you get them
+// wrong -- the model still runs and just plays badly:
+//
+//   * ACTION HEAD. Necto emits five factored logit heads (throttle, steer,
+//     jump, boost, handbrake) that are combined into controls. Nexto emits one
+//     90-way categorical over a lookup table of whole control sets.
+//   * RELATIVE PASS. Necto makes kv positions AND linear velocities relative to
+//     the main car. Nexto subtracts position only, then rotates every x/y pair
+//     -- position, velocity, forward, up, angular velocity -- into the main
+//     car's yaw frame.
+//   * COLUMN 21. Necto reads real timers (demo respawn, boost pad cooldown).
+//     Nexto was trained through `NextoObsBuilder.batched_build_obs`, which puts
+//     the raw binary `is_demoed` and pad-availability flags there instead. Those
+//     are marked FIXME upstream, but the same function ran at training time, so
+//     the flags are what the weights actually expect.
+//
+// Token ORDER also differs (Nexto puts cars before the ball) and is reproduced
+// faithfully below, even though it cannot matter: the traced EARLPerceiver has
+// no positional encoding, so kv is a set. Matching it anyway keeps the self-test
+// an exact elementwise diff rather than one with a permutation baked into it.
+enum class NectoFamily { Necto, Nexto };
+
+const char *NectoFamilyName(NectoFamily family);
+
+// Runs a Necto-family bot (Necto or Nexto) as an opponent inside RocketSim
+// arenas.
+//
+// Neither is weight-compatible with anything else in this project: they have
+// their own observation (a token matrix over ball/cars/boost pads, consumed by
+// an attention model) and their own action heads, so they cannot ride the
 // old-version self-play path and cannot use GGL::InferUnit. This class is the
 // whole bridge.
 //
 // The model file is TorchScript, so libtorch loads it directly -- no port of
 // the network itself. Verified against libtorch 2.13.
+//
+// Which family a file holds is detected from the traced forward's return type
+// rather than configured, so pointing DASH_NECTO_MODEL at either one is all it
+// takes. See NectoFamily for what actually differs.
 class NectoPolicy {
   public:
 	// Feature columns per token, and the query width (24 features + 8 previous
@@ -57,6 +90,9 @@ class NectoPolicy {
 	// CUDA was not available.
 	bool OnGPU() const { return onGPU; }
 
+	// Which family the loaded file turned out to hold.
+	NectoFamily Family() const { return family; }
+
 	NectoPolicy(const NectoPolicy &) = delete;
 	NectoPolicy &operator=(const NectoPolicy &) = delete;
 
@@ -71,32 +107,48 @@ class NectoPolicy {
 	void InferBatch(const std::vector<NectoRequest> &requests,
 					std::vector<RLGC::Action> &outActions);
 
-	// Builds the (q, kv) observation for one car. Exposed for the self-test that
-	// diffs it against the Python NectoObsBuilder -- a silent mismatch here
-	// makes Necto play badly while everything still runs.
-	static void BuildObs(const RLGC::GameState &state, int playerIdx,
-						 const RLGC::Action &prevAction, float *qOut,
-						 float *kvOut);
+	// Builds the (q, kv) observation for one car. Exposed for the self-tests that
+	// diff it against the real Python NectoObsBuilder / NextoObsBuilder -- a
+	// silent mismatch here makes the opponent play badly while everything still
+	// runs, which is the most expensive failure mode this bridge has.
+	static void BuildObs(NectoFamily family, const RLGC::GameState &state,
+						 int playerIdx, const RLGC::Action &prevAction,
+						 float *qOut, float *kvOut);
 
-	// 1 ball + cars + boost pads.
+	// 1 ball + cars + boost pads. Same count for both families; only the row
+	// order differs.
 	static int TokenCount(const RLGC::GameState &state);
+
+	// Nexto's 90 control sets, in the order its head indexes them. Exposed for
+	// the self-test: an off-by-one or a reordered loop here is invisible in the
+	// observation and produces a Nexto that plays a scrambled version of what it
+	// decided, which reads as "weaker than expected" rather than as a bug.
+	static std::vector<RLGC::Action> NextoLookupTable();
 
 	float Beta() const { return beta; }
 
   private:
-	// Decodes the model's five logit heads into a car control input.
+	// Necto: decodes the five factored logit heads into a car control input.
 	RLGC::Action SampleAction(const float *const *heads, const int *headSizes);
+
+	// Nexto: decodes one 90-way categorical into a car control input.
+	RLGC::Action SampleLookupAction(const float *logits, int count);
 
 	struct Module;
 	std::unique_ptr<Module> module;
 
+	NectoFamily family = NectoFamily::Necto;
 	float beta;
 	float logitScale;
 	bool onGPU = false;
 	std::mt19937 rng;
 
+	// Nexto's action space, empty for Necto. Index into this is exactly the
+	// index the model emits.
+	std::vector<RLGC::Action> lookupTable;
+
 	// Reused across steps so a training loop does not reallocate every tick.
-	std::vector<float> qBuf, kvBuf, maskBuf;
+	std::vector<float> qBuf, kvBuf, maskBuf, logitBuf;
 };
 
 } // namespace Dash

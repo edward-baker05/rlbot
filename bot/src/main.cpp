@@ -39,6 +39,9 @@ void PrintUsage(const char *argv0) {
 		"  necto-selftest   Dump the Necto observation for a fixed state, to "
 		"diff\n"
 		"                   against the Python reference\n"
+		"  nexto-selftest   The same for Nexto, whose observation differs in "
+		"three\n"
+		"                   places -- see scripts/nexto_obs_check.py\n"
 		"\n"
 		"Training options:\n"
 		"  --games N            Number of simultaneous games (default 128)\n"
@@ -527,11 +530,12 @@ int RunBenchmark(int argc, char *argv[]) {
 
 	RocketSim::Init(FindCollisionMeshes());
 
-	std::printf("Benchmarking %s vs Necto (%d arenas, beta %.2f)\n",
-				model.string().c_str(), cfg.necto.benchArenas,
-				cfg.necto.benchBeta);
-
 	Dash::NectoBench bench(cfg);
+	std::printf("Benchmarking %s vs %s (%d arenas, beta %.2f, "
+				"training scenario pool)\n",
+				model.string().c_str(), bench.OpponentName(),
+				cfg.necto.benchArenas, cfg.necto.benchBeta);
+
 	for (int r = 0; r < rounds; r++) {
 		const Dash::NectoBenchResult result = bench.Run(model);
 		if (!result.valid) {
@@ -875,9 +879,12 @@ int main(int argc, char *argv[]) {
 		return Dash::RunPredictBench(arenas, steps);
 	}
 
-	if (command == "necto-selftest") {
+	if (command == "necto-selftest" || command == "nexto-selftest") {
 		// Optional output path; defaults to stdout.
-		return Dash::RunNectoSelfTest(argc > 2 ? argv[2] : "");
+		const Dash::NectoFamily family = command == "nexto-selftest"
+											 ? Dash::NectoFamily::Nexto
+											 : Dash::NectoFamily::Necto;
+		return Dash::RunNectoSelfTest(family, argc > 2 ? argv[2] : "");
 	}
 
 	if (command == "-h" || command == "--help" || command == "help") {

@@ -18,16 +18,25 @@ struct NectoBenchResult {
 	int goalsAgainst = 0;
 
 	float winRate = 0.f; // Over decisive episodes only.
-	float elo = 0.f;     // Against Necto pinned at 0.
+	float elo = 0.f;     // Against the opponent pinned at 0.
 };
 
-// Head-to-head against Necto on a fixed set of kickoff arenas.
+// Head-to-head against a Necto-family opponent, from the training scenario pool.
 //
 // Separate from the training arenas on purpose. The training-arena numbers are
-// free but confounded -- the policy is exploring with entropy, Necto is
-// sampling stochastically, and spawns come from the randomised training
-// distribution. This plays deterministic-vs-deterministic from kickoffs, so the
-// curve moves when the policy changes rather than when the noise does.
+// free but confounded -- the policy is exploring with entropy, the opponent is
+// sampling stochastically, and only a slice of arenas has an opponent in it at
+// all. This plays deterministic-vs-deterministic, so the curve moves when the
+// policy changes rather than when the noise does.
+//
+// It does NOT use a fixed start. It used to, and that was the more obvious
+// choice -- a kickoff is the lowest-variance start there is. But variance is not
+// the only thing that matters: starting every episode at a kickoff measures
+// kickoffs, and a bot can be much better than you over a whole game while being
+// no better than you in the ten seconds after one. Measured against Nexto that
+// error was large enough to invert the ranking. So episodes start from
+// BuildSpawner(cfg) -- the same distribution the policy trains on -- and the
+// variance is paid for with more episodes instead.
 //
 // It scores the latest CHECKPOINT rather than the live policy: Dash::Policy
 // already loads a checkpoint and applies its observation standardisation, so
@@ -45,6 +54,10 @@ class NectoBench {
 	// Plays a full round. Returns an invalid result if no complete checkpoint
 	// exists yet, which is normal before the first save.
 	NectoBenchResult Run(const std::filesystem::path &checkpoint);
+
+	// "Necto" or "Nexto", from the model file that actually loaded. Which one it
+	// is changes what the Elo means, so callers should say it out loud.
+	const char *OpponentName() const;
 
   private:
 	struct Impl;

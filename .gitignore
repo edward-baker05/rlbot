@@ -13,9 +13,10 @@ wandb/
 # rather than committed -- libtorch alone is ~1 GB.
 libs/
 
-# Third-party sources are vendored but each has its own git history; they are
-# checked out rather than committed as part of this repo.
 external/*/
+reference-guide/
+tools/
+docs/
 
 # The collision mesh dumper: a 13 MB Windows binary and its 14 MB source tree,
 # both third-party. tools/collision_meshes/ IS tracked -- it is the 176 KB of
@@ -31,6 +32,7 @@ venv/
 
 # Editor / OS
 .vscode/
+.claude/
 .idea/
 *.swp
 .DS_Store

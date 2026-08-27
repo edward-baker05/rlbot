@@ -33,6 +33,9 @@ class NectoDriver {
 	// Whether the opponent forward actually runs on the GPU.
 	bool OnGPU() const { return policy.OnGPU(); }
 
+	// Which family the loaded model file turned out to hold.
+	NectoFamily Family() const { return policy.Family(); }
+
   private:
 	// Where a queued action belongs, so the scatter matches the gather.
 	struct Slot {

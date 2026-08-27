@@ -64,7 +64,11 @@ GameState MakeProbeState() {
 		p.hasDoubleJumped = false;
 		p.hasFlipped = false;
 		p.airTimeSinceJump = 0.05f; // still inside the double-jump window
-		p.demoRespawnTimer = 1.75f; // exercises the demo-timer column
+		// Column 21 for a car: the timer is what Necto reads, the flag is what
+		// Nexto reads, so set both rather than leaving either family's column
+		// uniformly zero and untested.
+		p.demoRespawnTimer = 1.75f;
+		p.isDemoed = true;
 	}
 
 	gs.boostPads.assign(CommonValues::BOOST_LOCATIONS_AMOUNT, true);
@@ -98,16 +102,18 @@ nlohmann::json PlayerToJson(const Player &p) {
 	j["on_ground"] = p.isOnGround;
 	j["has_flip"] = p.HasFlipOrJump();
 	j["demo_respawn_timer"] = p.demoRespawnTimer;
+	j["is_demoed"] = p.isDemoed;
 	return j;
 }
 
 } // namespace
 
-int RunNectoSelfTest(const std::string &outPath) {
+int RunNectoSelfTest(NectoFamily family, const std::string &outPath) {
 	const GameState gs = MakeProbeState();
 	const int n = NectoPolicy::TokenCount(gs);
 
 	nlohmann::json out;
+	out["family"] = NectoFamilyName(family);
 	out["features"] = NectoPolicy::FEATURES;
 	out["q_size"] = NectoPolicy::Q_SIZE;
 	out["tokens"] = n;
@@ -145,13 +151,26 @@ int RunNectoSelfTest(const std::string &outPath) {
 	for (int k = 0; k < static_cast<int>(Action::ELEM_AMOUNT); k++)
 		out["prev_action"].push_back(prevAction[k]);
 
+	// Nexto's head emits an index into this, so the table is as much a part of
+	// the port as the observation is, and just as silent when wrong.
+	if (family == NectoFamily::Nexto) {
+		out["lookup_table"] = nlohmann::json::array();
+		for (const Action &a : NectoPolicy::NextoLookupTable()) {
+			nlohmann::json row = nlohmann::json::array();
+			for (int k = 0; k < static_cast<int>(Action::ELEM_AMOUNT); k++)
+				row.push_back(a[k]);
+			out["lookup_table"].push_back(row);
+		}
+	}
+
 	out["obs"] = nlohmann::json::array();
 	for (int playerIdx = 0; playerIdx < static_cast<int>(gs.players.size());
 		 playerIdx++) {
 		std::vector<float> q(NectoPolicy::Q_SIZE, 0.f);
 		std::vector<float> kv(static_cast<size_t>(n) * NectoPolicy::FEATURES,
 							  0.f);
-		NectoPolicy::BuildObs(gs, playerIdx, prevAction, q.data(), kv.data());
+		NectoPolicy::BuildObs(family, gs, playerIdx, prevAction, q.data(),
+							  kv.data());
 
 		nlohmann::json kvJson = nlohmann::json::array();
 		for (int i = 0; i < n; i++) {
@@ -177,8 +196,8 @@ int RunNectoSelfTest(const std::string &outPath) {
 			return 1;
 		}
 		f << text << "\n";
-		std::printf("Wrote %s (%d tokens, %zu players)\n", outPath.c_str(), n,
-					gs.players.size());
+		std::printf("Wrote %s (%s, %d tokens, %zu players)\n", outPath.c_str(),
+					NectoFamilyName(family), n, gs.players.size());
 	}
 	return 0;
 }

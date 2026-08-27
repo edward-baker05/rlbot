@@ -626,9 +626,7 @@ void RunTraining(const TrainConfig &cfg) {
 	// mask hook during construction of its EnvSet.
 	std::unique_ptr<NectoDriver> nectoDriver;
 	if (cfg.necto.enabled) {
-		std::filesystem::path modelPath = cfg.necto.modelPath;
-		if (const char *envModel = std::getenv("DASH_NECTO_MODEL"))
-			modelPath = envModel;
+		const std::filesystem::path modelPath = cfg.necto.ResolvedModelPath();
 
 		// Same device as the learner: preStepFn is serial on the collection
 		// thread, so a CPU forward here is dead time for every arena worker.
@@ -642,6 +640,11 @@ void RunTraining(const TrainConfig &cfg) {
 		};
 		lc.preStepFn = [driver](RLGC::EnvSet *envSet) { driver->Step(envSet); };
 
+		// Print the family, not just the path: which one is loaded decides the
+		// observation and the action head, so it is the single most useful
+		// thing to be able to read back off a run's log.
+		std::cout << "Necto model:      " << NectoFamilyName(nectoDriver->Family())
+				  << " (" << modelPath.filename().string() << ")\n";
 		std::cout << "Necto device:     "
 				  << (nectoDriver->OnGPU() ? "GPU" : "CPU") << "\n";
 	}

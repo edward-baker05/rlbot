@@ -16,6 +16,8 @@ using namespace RLGC;
 
 namespace Dash {
 
+using namespace CommonValues;
+
 enum class RewardKind {
 	Event,
 	Continuous,
@@ -52,7 +54,7 @@ class DirectionalTouchReward : public Reward {
 
 		float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
 
-		return power * RS_MAX(alignment, 0.01f);
+		return powf(power, 1.5f) * RS_MAX(alignment, 0.1f);
 	}
 };
 
@@ -283,9 +285,6 @@ class AwkwardContactPenalty : public Reward {
 };
 
 // Should roughly reward being in a better position to get to the ball
-// TODO Probably worth giving full reward if the player is close to the
-// ball, as possession ends up being calculated weirdly on dribbles where
-// the ball is technically moving away from you
 class PossessionReward : public Reward {
   public:
 	constexpr static float CHASE_ACCEL = 1600.f;
@@ -294,7 +293,7 @@ class PossessionReward : public Reward {
 	constexpr static float MAX_TIME = 4.0f;
 
 	static float TimeToBall(const Player &player, const GameState &state) {
-		Vec toBall = state.ball.pos - player.pos;
+		Vec toBall = state.ball.pos.To2D() - player.pos.To2D();
 		if (toBall.Length() < 150)
 			return MIN_TIME;
 
@@ -341,8 +340,87 @@ class PossessionReward : public Reward {
 	}
 };
 
-std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg);
+class GoalsidePunishment : public Reward {
+  public:
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) {
+		Team oppTeam = RS_OPPOSITE_TEAM(player.team);
+		float goalY = (oppTeam == Team::ORANGE) ? ORANGE_GOAL_CENTER.y
+												: BLUE_GOAL_CENTER.y;
+		return std::abs(player.pos.y - goalY) <
+			   std::abs(state.ball.pos.y - goalY);
+	}
+};
 
+inline bool onTarget(const GameState &state, Team goalTeam,
+					 bool checkZ = true) {
+	float goalY =
+		(goalTeam == Team::ORANGE) ? ORANGE_GOAL_CENTER.y : BLUE_GOAL_CENTER.y;
+	float dy = goalY - state.ball.pos.y;
+
+	if (dy * state.ball.vel.y <= 0.f)
+		return false;
+
+	float t = dy / state.ball.vel.y;
+
+	if (std::abs(state.ball.pos.x + state.ball.vel.x * t) >=
+		GOAL_WIDTH_FROM_CENTER - BALL_RADIUS)
+		return false;
+
+	if (!checkZ)
+		return true;
+
+	float projZ =
+		state.ball.pos.z + state.ball.vel.z * t + 0.5f * GRAVITY_Z * t * t;
+
+	return projZ < GOAL_HEIGHT;
+}
+
+class ImprovedSaveReward : public Reward {
+  public:
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) {
+		if (!state.prev ||
+			!(player.ballTouchedStep &&
+			  state.prev->ball.vel.Length() > RLGC::Math::KPHToVel(60.f)))
+			return 0.f;
+
+		for (const Player &other : state.players) {
+			if (state.prev->lastTouchCarID == other.carId) {
+				if (other.team == player.team)
+					return 0.f;
+			}
+		}
+
+		return (onTarget(*state.prev, player.team, false) &&
+				!onTarget(state, player.team, false));
+	}
+};
+
+class ShotOnTargetReward : public Reward {
+  public:
+	const float MIN_SHOT_THRESHOLD = RLGC::Math::KPHToVel(80.f);
+
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) {
+		if (!state.prev || !player.ballTouchedStep ||
+			state.ball.vel.Length() < MIN_SHOT_THRESHOLD)
+			return 0.f;
+
+		Team opponentTeam = RS_OPPOSITE_TEAM(player.team);
+
+		if (state.prev->ball.vel.Length() < MIN_SHOT_THRESHOLD ||
+			!onTarget(*state.prev, opponentTeam, true)) {
+			if (onTarget(state, opponentTeam, true))
+				return 1.f;
+		}
+		return 0.f;
+	}
+};
+
+class RetreatPunishment : public Reward {};
+
+std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg);
 std::vector<RLGC::WeightedReward> BuildGeneralRewards(const TrainConfig &cfg);
 
 } // namespace Dash

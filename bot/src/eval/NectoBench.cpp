@@ -1,11 +1,11 @@
 #include "NectoBench.h"
 
 #include "../env/Actions.h"
+#include "../env/Env.h"
 #include "../env/Obs.h"
 #include "../opponents/NectoPolicy.h"
 #include "../policy/Policy.h"
 
-#include <RLGymCPP/StateSetters/FuzzedKickoffState.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
 
 #include <nlohmann/json.hpp>
@@ -34,23 +34,47 @@ void EloUpdate(float &rating, bool won, float k) {
 	rating += k * ((won ? 1.f : 0.f) - expected);
 }
 
-float LoadRating(const std::filesystem::path &path) {
+// What the episodes were started from. Stamped into the rating file, because a
+// rating is only meaningful against a fixed measurement, and this one changed
+// once already: episodes used to begin at a fuzzed kickoff and now begin
+// wherever training begins. A saved rating from the other scenario is not a
+// worse sample of the same quantity, it is a sample of a different one, so it is
+// discarded rather than continued.
+constexpr const char *SCENARIO_ID = "train-pool";
+
+// The opponent is part of the measurement too. Necto and Nexto are different
+// bots at different strengths, so "Elo above Necto" and "Elo above Nexto" are
+// different scales and must not accumulate into the same number.
+struct RatingFile {
+	float rating = 0.f;
+	int64_t games = 0;
+};
+
+RatingFile LoadRating(const std::filesystem::path &path, const char *opponent) {
 	std::ifstream in(path);
 	if (!in)
-		return 0.f;
+		return {};
 	try {
 		nlohmann::json j;
 		in >> j;
-		return j.value("elo_vs_necto", 0.f);
+		// Files written before either field existed were kickoff-only Necto
+		// runs, so an absent field is a mismatch, not a match.
+		if (j.value("scenario", "") != SCENARIO_ID ||
+			j.value("opponent", "") != std::string(opponent))
+			return {};
+		return {j.value("elo", 0.f), j.value("decisive_games", int64_t{0})};
 	} catch (const std::exception &) {
-		return 0.f; // Corrupt or half-written: start over rather than fail a run.
+		return {}; // Corrupt or half-written: start over rather than fail a run.
 	}
 }
 
-void SaveRating(const std::filesystem::path &path, float rating, int64_t games) {
+void SaveRating(const std::filesystem::path &path, const char *opponent,
+				float rating, int64_t games) {
 	nlohmann::json j;
-	j["elo_vs_necto"] = rating;
+	j["elo"] = rating;
 	j["decisive_games"] = games;
+	j["opponent"] = opponent;
+	j["scenario"] = SCENARIO_ID;
 	std::ofstream out(path);
 	if (out)
 		out << j.dump(2) << "\n";
@@ -69,7 +93,7 @@ struct NectoBench::Impl {
 	std::unique_ptr<ObsBuilder> obsBuilder;
 	std::unique_ptr<DefaultAction> parser;
 	std::unique_ptr<NectoPolicy> necto;
-	std::unique_ptr<FuzzedKickoffState> spawner;
+	std::unique_ptr<StateSetter> spawner;
 	GoalScoreCondition goalScored;
 
 	int obsSize = 0;
@@ -82,12 +106,29 @@ struct NectoBench::Impl {
 		obsSize = ProbeObsSize(cfg.maxPlayersPerTeam, cfg.obs);
 		obsBuilder = MakeObsBuilder(cfg.maxPlayersPerTeam, cfg.obs);
 		parser = MakeActionParser(cfg.maskActions);
-		spawner = std::make_unique<FuzzedKickoffState>();
+
+		// The SAME scenario pool training uses, not a kickoff.
+		//
+		// This started as FuzzedKickoffState on the reasoning that a fixed start
+		// is low variance. It is, and it also measures the wrong thing: every
+		// episode began at a kickoff, so the score was dominated by the first
+		// ten seconds after one. That flatters whichever bot is relatively
+		// better at kickoffs, and against Nexto it flattered us badly enough to
+		// inverse the result -- t4 scored MORE against Nexto (14%) than against
+		// Necto (9%) here, while the same lineage lost 13-4 to Nexto and 7-5 to
+		// Necto in real matches.
+		//
+		// Sharing BuildSpawner is the point rather than a convenience: it makes
+		// the benchmark measure play from the distribution of situations the
+		// policy is actually trained on, and it cannot drift away from that
+		// distribution when the training mix is retuned.
+		spawner.reset(BuildSpawner(cfg));
 
 		// CPU on purpose, matching the learner-side policy below: this blocks
 		// collection while it runs, and the GPU's memory is training's.
-		necto = std::make_unique<NectoPolicy>(
-			cfg.necto.modelPath, cfg.necto.benchBeta, 0, /*useGPU=*/false);
+		necto = std::make_unique<NectoPolicy>(cfg.necto.ResolvedModelPath(),
+											  cfg.necto.benchBeta, 0,
+											  /*useGPU=*/false);
 
 		// Half the arenas put Necto on each side. Same reasoning as the training
 		// assignment: a fixed-side opponent measures a side, not a policy.
@@ -123,6 +164,10 @@ NectoBench::NectoBench(const TrainConfig &cfg)
 
 NectoBench::~NectoBench() = default;
 
+const char *NectoBench::OpponentName() const {
+	return NectoFamilyName(impl->necto->Family());
+}
+
 NectoBenchResult NectoBench::Run(const std::filesystem::path &checkpoint) {
 	NectoBenchResult result = {};
 	if (checkpoint.empty() || !std::filesystem::is_directory(checkpoint))
@@ -144,8 +189,11 @@ NectoBenchResult NectoBench::Run(const std::filesystem::path &checkpoint) {
 
 	const std::filesystem::path ratingPath =
 		cfg.CheckpointFolder() / "necto_rating.json";
+	const char *opponent = NectoFamilyName(s.necto->Family());
 	if (!s.ratingLoaded) {
-		s.rating = LoadRating(ratingPath);
+		const RatingFile saved = LoadRating(ratingPath, opponent);
+		s.rating = saved.rating;
+		s.decisiveGames = saved.games;
 		s.ratingLoaded = true;
 	}
 
@@ -257,7 +305,7 @@ NectoBenchResult NectoBench::Run(const std::filesystem::path &checkpoint) {
 						 : 0.f;
 	result.elo = s.rating;
 
-	SaveRating(ratingPath, s.rating, s.decisiveGames);
+	SaveRating(ratingPath, opponent, s.rating, s.decisiveGames);
 	return result;
 }
 
