@@ -15,39 +15,52 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 	return {
 		{"Goal", b.goal, RewardKind::Event,
 		 [] { return new GoalReward(-1, true); }},
+
 		{"Strong Touch", b.strongTouch, RewardKind::Event,
 		 [] { return new ZeroSumReward(new DirectionalTouchReward(), 1); }},
+
 		{"Air Touch", b.airTouch, RewardKind::Event,
 		 [=] {
 			 return new ImprovedAirTouchReward(cfg.aerial.minBallHeight,
 											   cfg.aerial.maxBallHeight);
 		 }},
+
 		{"Dribble Flick", b.dribbleFlick, RewardKind::Continuous,
-		 [] { return new DribbleFlickReward(); }},
+		 [] { return new ZeroSumReward(new DribbleFlickReward(), 0, 1.1f); }},
+
 		{"On Target", b.onTarget, RewardKind::Event,
 		 [] { return new ShotOnTargetReward(); }},
+
 		{"Boost Pickup", b.pickupBoost, RewardKind::Event,
 		 [] { return new ZeroSumReward(new PickupBoostReward(), 1); }},
+
 		{"Save Boost", b.saveBoost, RewardKind::Continuous,
 		 [] { return new SaveBoostReward(); }},
-		// {"Wavedash", b.wavedash, RewardKind::Event,
-		//  [] { return new WavedashReward(); }},
+
 		{"Speed", b.speed, RewardKind::Continuous,
 		 [] { return new VelocityReward(); }},
-		{"Bump", b.bump, RewardKind::Event, [] { return new BumpReward(); }},
+
+		{"Bump", b.bump, RewardKind::Event,
+		 [] { return new ZeroSumReward(new BumpReward(), 0, 1); }},
+
 		{"Demo", b.demo, RewardKind::Event,
 		 [] { return new ZeroSumReward(new DemoReward(), 1); }},
+
 		{"Save", b.save, RewardKind::Event,
-		 [] { return new ZeroSumReward(new ImprovedSaveReward(), 1, 0.8); }},
-		// [] { return new SaveReward(); }},
+		 [] { return new ZeroSumReward(new ImprovedSaveReward(), 1, 0.8f); }},
+
 		{"Awkward Contact", b.awkwardContact, RewardKind::Continuous,
 		 [] { return new AwkwardContactPenalty(); }},
+
 		{"Possession", b.possession, RewardKind::Continuous,
 		 [] { return new PossessionReward(); }},
+
 		{"Velocity: Ball to Goal (Own)", b.velBtG, RewardKind::Continuous,
 		 [] { return new ConditionalVelocityBallToGoalReward(true); }},
+
 		{"Kickoff Distance", b.kickoff, RewardKind::Continuous,
 		 [] { return new MillennialKickoffReward(); }},
+
 		{"Goalside", b.goalside, RewardKind::Continuous,
 		 [] { return new GoalsidePunishment(); }},
 	};
