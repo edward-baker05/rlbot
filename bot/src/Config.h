@@ -14,23 +14,23 @@ namespace Dash {
 
 struct RewardBudget {
 	float goal = 1.f;
-	float strongTouch = 0.25f;
-	float airTouch = 0.2f;
-	float dribbleFlick = 0.0025f;
-	float onTarget = 0.2f;
+	float strongTouch = 0.2f;
+	float airTouch = 0.3f;
+	float dribbleFlick = 0.003f;
+	float onTarget = 0.3f;
 
-	float pickupBoost = 0.05f;
+	float pickupBoost = 0.1f;
 	float saveBoost = 0.0005f;
 	float speed = 0.0005f;
 
 	float bump = 0.025f;
-	float demo = 0.2f;
+	float demo = 0.5f;
 
 	float save = 0.25f;
 	float ballToOwnGoal = 0.01f;
 
-	float awkwardContact = 0.0025f;
-	float possession = 0.0005f;
+	float awkwardContact = 0.003f;
+	float possession = 0.0003f;
 	float kickoff = 0.025f;
 	float goalside = -0.0001f;
 };
