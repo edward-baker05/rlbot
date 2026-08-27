@@ -47,7 +47,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		 [] { return new ZeroSumReward(new DemoReward(), 1); }},
 
 		{"Save", b.save, RewardKind::Event,
-		 [] { return new ZeroSumReward(new ImprovedSaveReward(), 1, 0.8f); }},
+		 [] { return new ImprovedSaveReward(); }},
 
 		{"Awkward Contact", b.awkwardContact, RewardKind::Continuous,
 		 [] { return new AwkwardContactPenalty(); }},
