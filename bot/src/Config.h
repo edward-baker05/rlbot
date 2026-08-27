@@ -31,31 +31,8 @@ struct RewardBudget {
 };
 
 struct AerialConfig {
-	// Fraction of arena resets that use an AERIAL scenario rather than the
-	// ground mix.
-	//
-	// Was 0.0, which did more damage than it looks. BuildSpawner only constructs
-	// HighBallPopUpState inside `if (aerialSpawnChance > 0)`, so at zero that
-	// setter was never built at all, and the only aerial exposure was the
-	// AerialHoverState sitting at weight 0.1 inside groundBase.
-	//
-	// Those two scenarios are not interchangeable. AerialHoverState spawns the car
-	// ALREADY AIRBORNE (z 400-1200, already moving at the ball). HighBallPopUpState
-	// spawns it ON THE GROUND -- cs.pos.z = 17 -- with the ball popped upward at
-	// 850-1650. Only the second teaches the TAKEOFF: jump, then boost to climb.
-	//
-	// So the policy had never once practised leaving the ground for a ball. A
-	// single jump and a flip is sufficient when you start at z=800, and that is
-	// exactly the aerial game observed in the 2026-08-25 Nexto match -- Dash never
-	// boosted upward, and losing the air was the difference in a 13-4.
 	float aerialSpawnChance = 0.15f;
 
-	// Split of the aerial budget: hover drills vs ground-start pop-ups.
-	//
-	// Lowered from 0.60 because the deficit is specifically takeoff, and hover is
-	// the half the bot already gets from groundBase. At 0.35 with the chance above,
-	// resets come out roughly 14% hover / 10% pop-up / 76% ground, so takeoff gets
-	// real practice without crowding out the ordinary game the bot has to win.
 	float hoverFraction = 0.35f;
 	float minBallHeight = 350.f;
 	float maxBallHeight = 1800.f;
@@ -84,7 +61,7 @@ struct NectoConfig {
 	float benchBeta = 1.0f;
 
 	std::filesystem::path modelPath =
-		"../../libs/opponents/NectoFamily/necto/necto-model.pt";
+		"../../libs/opponents/NectoFamily/nexto/nexto-model.pt";
 
 	bool benchmark = true;
 	int benchInterval = 100;
@@ -225,9 +202,10 @@ struct TrainConfig {
 	// DECAYING, which is the failure this project has actually hit: KL sliding
 	// 1.25e-3 -> 6.9e-4 while the run looked alive and learned nothing.
 	//
-	// So this is a stabiliser, not an intervention. Raising it above 0.0022 asks
-	// for larger updates than this lineage has ever taken and is a separate,
-	// deliberate experiment -- not a knob to nudge while changing other things.
+	// So this is a stabiliser, not an intervention. Raising it above 0.0022
+	// asks for larger updates than this lineage has ever taken and is a
+	// separate, deliberate experiment -- not a knob to nudge while changing
+	// other things.
 	//
 	// Note the textbook target of 0.01 is ~5x this. That figure assumes ~10 PPO
 	// epochs; we run 2, so our natural KL is correspondingly smaller. Do not
@@ -238,15 +216,15 @@ struct TrainConfig {
 	float policyLR = 1e-4f;
 
 	// Deliberately unchanged alongside criticLossScale. Scaling a loss does NOT
-	// scale Adam's step: the update is m / (sqrt(v) + eps), and a constant factor
-	// on the gradient scales m and sqrt(v) together, so it cancels. For any
-	// parameter whose gradient comes from one loss only -- which is every
+	// scale Adam's step: the update is m / (sqrt(v) + eps), and a constant
+	// factor on the gradient scales m and sqrt(v) together, so it cancels. For
+	// any parameter whose gradient comes from one loss only -- which is every
 	// parameter in the critic HEAD -- criticLossScale is invisible.
 	//
 	// It only bites on the shared trunk, where two gradients are summed and the
 	// factor changes their ratio rather than the overall magnitude. So there is
-	// no criticLR compensation to make; changing it would be a real, unjustified
-	// change of the critic's step size.
+	// no criticLR compensation to make; changing it would be a real,
+	// unjustified change of the critic's step size.
 	float criticLR = 1e-4f;
 	int64_t maxSteps = 0;
 
