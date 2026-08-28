@@ -805,6 +805,326 @@ ROCKETSIMVIS_SOCKET_BODY = """    def stop_async(self):
             except Exception:
                 pass"""
 
+# Viewer overlays: the settings panel, the performance readout, and the per-car
+# boost stacks. Upstream draws the 3D view with QGLWidget, the Qt4 compatibility
+# class, which renders straight into a native child window -- no sibling widget
+# can paint over it and none of them receive clicks, so the settings panel shows
+# stale backing-store content and cannot be used. QOpenGLWidget renders into an
+# FBO that Qt composites with the widget tree, which fixes both.
+
+ROCKETSIMVIS_GL_IMPORT_ANCHOR = '''from PyQt5.QtGui import QScreen, QColor'''
+
+ROCKETSIMVIS_GL_IMPORT_BODY = '''from PyQt5.QtGui import QScreen, QColor, QSurfaceFormat'''
+
+ROCKETSIMVIS_GL_WIDGET_ANCHOR = '''class QRSVGLWidget(QtOpenGL.QGLWidget):
+    def __init__(self, screen: QScreen):
+
+        self.config = Config()
+
+        self.spectate_count = 0
+        self.spectate_idx = 0
+        self.prev_interp_ratio = 0
+        self.car_cam_time = 0
+        self.last_render_time = time.time()
+        self.fps_counter = 0
+        self.last_fps = 0
+        self.prev_state = None # type: GameState
+
+        ########################################################################
+
+        self.samples = 4
+
+        fmt = QtOpenGL.QGLFormat()
+        fmt.setVersion(3, 3)
+        fmt.setProfile(QtOpenGL.QGLFormat.CoreProfile)
+        fmt.setDepthBufferSize(24)
+        fmt.setStencilBufferSize(8)
+        fmt.setDoubleBuffer(True)
+        fmt.setSwapInterval(1)
+
+        if self.samples > 1:
+            fmt.setSampleBuffers(True)
+            fmt.setSamples(int(self.samples))
+
+        super(QRSVGLWidget, self).__init__(fmt, None)
+
+        self.setMouseTracking(True)'''
+
+ROCKETSIMVIS_GL_WIDGET_BODY = '''class QRSVGLWidget(QtWidgets.QOpenGLWidget):
+    def __init__(self, screen: QScreen):
+
+        self.config = Config()
+
+        self.spectate_count = 0
+        self.spectate_idx = 0
+        self.prev_interp_ratio = 0
+        self.car_cam_time = 0
+        self.last_render_time = time.time()
+        self.fps_counter = 0
+        self.last_fps = 0
+        self.prev_state = None # type: GameState
+        self.screen_fbo = None
+
+        ########################################################################
+
+        self.samples = 4
+
+        fmt = QSurfaceFormat()
+        fmt.setVersion(3, 3)
+        fmt.setProfile(QSurfaceFormat.CoreProfile)
+        fmt.setDepthBufferSize(24)
+        fmt.setStencilBufferSize(8)
+        fmt.setSwapBehavior(QSurfaceFormat.DoubleBuffer)
+        fmt.setSwapInterval(1)
+
+        if self.samples > 1:
+            fmt.setSamples(int(self.samples))
+
+        super(QRSVGLWidget, self).__init__()
+        self.setFormat(fmt)
+
+        self.setMouseTracking(True)'''
+
+ROCKETSIMVIS_GL_PAINT_ANCHOR = '''    def paintGL(self):
+        width, height = self.width(), self.height()
+        self.ctx.viewport = (0, 0, width, height)'''
+
+ROCKETSIMVIS_GL_PAINT_BODY = '''    def paintGL(self):
+        # Qt binds its own framebuffer for a QOpenGLWidget, so moderngl's
+        # ctx.screen (framebuffer 0) is not where this widget draws.
+        self.screen_fbo = self.ctx.detect_framebuffer(self.defaultFramebufferObject())
+        self.screen_fbo.use()
+
+        width, height = self.width(), self.height()
+        self.ctx.viewport = (0, 0, self.screen_fbo.width, self.screen_fbo.height)'''
+
+ROCKETSIMVIS_GL_TARGET_ANCHOR = '''        self.ctx.screen.use()
+        self.vaos[model_name].render(mode, vertices=(-1 if (vert_amount is None) else vert_amount))'''
+
+ROCKETSIMVIS_GL_TARGET_BODY = '''        self.screen_fbo.use()
+        self.vaos[model_name].render(mode, vertices=(-1 if (vert_amount is None) else vert_amount))'''
+
+ROCKETSIMVIS_GL_CLEAR_ANCHOR = '''        self.ctx.clear(0, 0, 0)
+        self.ctx.enable(moderngl.DEPTH_TEST)'''
+
+ROCKETSIMVIS_GL_CLEAR_BODY = '''        self.screen_fbo.clear(0.0, 0.0, 0.0)
+        self.ctx.enable(moderngl.DEPTH_TEST)'''
+
+ROCKETSIMVIS_BAR_PARENT_ANCHOR = '''class QUIBarWidget(QWidget):
+    SIZE = (150, 100)
+
+    def __init__(self, parent_window):
+        QWidget.__init__(self)'''
+
+ROCKETSIMVIS_BAR_PARENT_BODY = '''class QUIBarWidget(QWidget):
+    SIZE = (150, 100)
+
+    def __init__(self, parent_window):
+        QWidget.__init__(self, parent_window)'''
+
+ROCKETSIMVIS_CONFIG_LAYOUT_ANCHOR = '''        self.setLayout(QtWidgets.QVBoxLayout(self))
+
+        self.text_label = QtWidgets.QLabel("Settings:\\n")
+        self.layout().addWidget(self.text_label)
+
+        self.config = config
+
+        self.camera_group = QtWidgets.QGroupBox("Camera")
+        self.camera_group_layout = QtWidgets.QVBoxLayout(self)
+        self.camera_group.setLayout(self.camera_group_layout)
+        self.layout().addWidget(self.camera_group)'''
+
+ROCKETSIMVIS_CONFIG_LAYOUT_BODY = '''        self.setLayout(QtWidgets.QVBoxLayout())
+
+        self.text_label = QtWidgets.QLabel("Settings:\\n")
+        self.layout().addWidget(self.text_label)
+
+        self.config = config
+
+        self.camera_group = QtWidgets.QGroupBox("Camera")
+        self.camera_group_layout = QtWidgets.QVBoxLayout(self.camera_group)
+        self.layout().addWidget(self.camera_group)'''
+
+ROCKETSIMVIS_WINDOW_OVERLAYS_ANCHOR = '''        self.base_layout = QtWidgets.QVBoxLayout(self)
+
+        self.bar_widget = QUIBarWidget(self)
+        self.layout().addWidget(self.bar_widget)
+
+        self.edit_config_widget = QEditConfigWidget(self.gl_widget.config)
+        self.layout().addWidget(self.edit_config_widget)
+        self.edit_config_widget.hide()
+
+        self.resize(WINDOW_SIZE_X, WINDOW_SIZE_Y)
+
+        self.installEventFilter(self)
+        self.centralWidget().installEventFilter(self)'''
+
+ROCKETSIMVIS_WINDOW_OVERLAYS_BODY = '''        # A QMainWindow already owns a layout, so adding these to one of our own
+        # left them unmanaged -- the performance readout became its own window.
+        # They are children of the window, positioned by layout_overlays().
+        self.bar_widget = QUIBarWidget(self)
+        self.bar_widget.show()
+
+        self.edit_config_widget = QEditConfigWidget(self.gl_widget.config)
+        self.edit_config_widget.setParent(self)
+        self.edit_config_widget.hide()
+
+        global _g_boost_stacks
+        _g_boost_stacks = [QBoostStackWidget(0, self), QBoostStackWidget(1, self)]
+
+        self.resize(WINDOW_SIZE_X, WINDOW_SIZE_Y)
+
+        self.installEventFilter(self)
+        self.centralWidget().installEventFilter(self)
+
+        self.layout_overlays()'''
+
+ROCKETSIMVIS_BOOST_UI_ANCHOR = '''def get_ui() -> QUIBarWidget:
+    return _g_ui_widget'''
+
+ROCKETSIMVIS_BOOST_UI_BODY = '''OVERLAY_MARGIN = 10
+BOOST_TEAM_COLORS = ("#4C9AFF", "#FF9E3D")
+
+class QBoostStackWidget(QtWidgets.QLabel):
+    """Per-car boost for one team, stacked in a bottom corner of the view."""
+
+    def __init__(self, team_num: int, parent: QtWidgets.QWidget):
+        QtWidgets.QLabel.__init__(self, parent)
+
+        self.team_num = team_num
+        corner = Qt.AlignLeft if team_num == 0 else Qt.AlignRight
+
+        self.setAttribute(Qt.WA_StyledBackground)
+        self.setAutoFillBackground(True)
+        self.setAlignment(corner | Qt.AlignBottom)
+        self.setStyleSheet(
+            "background: #121212; border: 1px solid #5A5A5A; "
+            "padding: {}px; color: {}; font-family: monospace; font-size: {}px;".format(
+                round(5 * get_scaling_factor()),
+                BOOST_TEAM_COLORS[team_num],
+                round(15 * get_scaling_factor())
+            )
+        )
+        self.hide()
+
+    def set_entries(self, entries):
+        if len(entries) == 0:
+            self.hide()
+            return
+
+        # boost_amount arrives as a 0-1 fraction, per networking-format.md.
+        self.setText("\\n".join(
+            "#{}  {}".format(idx, "DEMO" if demoed else "{:>3.0f}".format(boost * 100))
+            for idx, boost, demoed in entries
+        ))
+        self.adjustSize()
+
+        view = self.parentWidget().centralWidget().geometry()
+        margin = round(OVERLAY_MARGIN * get_scaling_factor())
+        x = view.left() + margin if self.team_num == 0 else view.right() - margin - self.width()
+        self.move(x, view.bottom() - margin - self.height())
+
+        self.show()
+
+_g_boost_stacks = []
+
+def set_car_boosts(car_states):
+    for stack in _g_boost_stacks:
+        stack.set_entries([
+            (i, car.boost_amount, car.is_demoed)
+            for i, car in enumerate(car_states) if car.team_num == stack.team_num
+        ])
+
+def get_ui() -> QUIBarWidget:
+    return _g_ui_widget'''
+
+ROCKETSIMVIS_OVERLAY_LAYOUT_ANCHOR = '''    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress:
+            if event.button() == Qt.LeftButton:
+                press_pos = event.pos()
+
+                # Close config window if we click outside of it
+                if self.edit_config_widget.isVisible():
+                    if not (press_pos in self.edit_config_widget.geometry()):
+                        self.toggle_edit_config()
+        elif event.type() == QEvent.KeyPress:
+            self.gl_widget.keyPressEvent(event)
+
+        return super().eventFilter(obj, event)
+
+    def toggle_edit_config(self):
+        if not self.edit_config_widget.isVisible():
+            self.edit_config_widget.show()
+
+            size = self.edit_config_widget.size()
+
+            # Don't exceed our window size
+            size.setWidth(min(size.width(), self.width()))
+            size.setHeight(min(size.height(), self.height()))
+
+            self.edit_config_widget.setFixedSize(size)
+
+            self.edit_config_widget.setGeometry(
+                0, self.bar_widget.height() + 20,
+                size.width(), size.width()
+            )
+        else:
+            self.edit_config_widget.hide()'''
+
+ROCKETSIMVIS_OVERLAY_LAYOUT_BODY = '''    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress:
+            if event.button() == Qt.LeftButton:
+                # event.pos() is relative to whichever widget received the
+                # event, so compare in this window's coordinates instead.
+                press_pos = self.mapFromGlobal(event.globalPos())
+
+                # Close config window if we click outside of it
+                if self.edit_config_widget.isVisible():
+                    if not self.edit_config_widget.geometry().contains(press_pos):
+                        self.toggle_edit_config()
+        elif event.type() == QEvent.KeyPress:
+            self.gl_widget.keyPressEvent(event)
+
+        return super().eventFilter(obj, event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.layout_overlays()
+
+    def layout_overlays(self):
+        margin = round(OVERLAY_MARGIN * get_scaling_factor())
+
+        self.bar_widget.move(margin, margin)
+        self.bar_widget.raise_()
+
+        if self.edit_config_widget.isVisible():
+            self.edit_config_widget.move(margin, self.bar_widget.geometry().bottom() + margin)
+            self.edit_config_widget.raise_()
+
+    def toggle_edit_config(self):
+        if not self.edit_config_widget.isVisible():
+            self.edit_config_widget.show()
+
+            size = self.edit_config_widget.size()
+
+            # Don't exceed our window size
+            size.setWidth(min(size.width(), self.width()))
+            size.setHeight(min(size.height(), self.height()))
+
+            self.edit_config_widget.setFixedSize(size)
+
+            self.layout_overlays()
+        else:
+            self.edit_config_widget.hide()'''
+
+ROCKETSIMVIS_BOOST_FEED_ANCHOR = '''        ui_text += "Ball speed: {:.2f}kph".format(state.ball_state.prev_vel.length * (9 / 250)) + "\\n"
+        get_ui().set_text(ui_text)'''
+
+ROCKETSIMVIS_BOOST_FEED_BODY = '''        ui_text += "Ball speed: {:.2f}kph".format(state.ball_state.prev_vel.length * (9 / 250)) + "\\n"
+        get_ui().set_text(ui_text)
+
+        ui.set_car_boosts(state.car_states)'''
+
 
 
 # --- External opponents (Necto) ---------------------------------------------
@@ -1062,6 +1382,83 @@ PATCHES = [
 		"marker": "self.sock.close()",
 		"anchor": ROCKETSIMVIS_SOCKET_ANCHOR,
 		"body": ROCKETSIMVIS_SOCKET_BODY,
+	},
+	{
+		"name": "rocketsimvis-qopenglwidget-import",
+		"path": "external/RocketSimVis/src/main.py",
+		"marker": "QSurfaceFormat",
+		"anchor": ROCKETSIMVIS_GL_IMPORT_ANCHOR,
+		"body": ROCKETSIMVIS_GL_IMPORT_BODY,
+	},
+	{
+		"name": "rocketsimvis-qopenglwidget",
+		"path": "external/RocketSimVis/src/main.py",
+		"marker": "class QRSVGLWidget(QtWidgets.QOpenGLWidget)",
+		"anchor": ROCKETSIMVIS_GL_WIDGET_ANCHOR,
+		"body": ROCKETSIMVIS_GL_WIDGET_BODY,
+	},
+	{
+		"name": "rocketsimvis-qopenglwidget-fbo",
+		"path": "external/RocketSimVis/src/main.py",
+		"marker": "self.screen_fbo = self.ctx.detect_framebuffer",
+		"anchor": ROCKETSIMVIS_GL_PAINT_ANCHOR,
+		"body": ROCKETSIMVIS_GL_PAINT_BODY,
+	},
+	{
+		"name": "rocketsimvis-qopenglwidget-target",
+		"path": "external/RocketSimVis/src/main.py",
+		"marker": "self.screen_fbo.use()\n        self.vaos[model_name]",
+		"anchor": ROCKETSIMVIS_GL_TARGET_ANCHOR,
+		"body": ROCKETSIMVIS_GL_TARGET_BODY,
+	},
+	{
+		"name": "rocketsimvis-qopenglwidget-clear",
+		"path": "external/RocketSimVis/src/main.py",
+		"marker": "self.screen_fbo.clear(",
+		"anchor": ROCKETSIMVIS_GL_CLEAR_ANCHOR,
+		"body": ROCKETSIMVIS_GL_CLEAR_BODY,
+	},
+	{
+		"name": "rocketsimvis-perf-overlay-parent",
+		"path": "external/RocketSimVis/src/ui.py",
+		"marker": "QWidget.__init__(self, parent_window)",
+		"anchor": ROCKETSIMVIS_BAR_PARENT_ANCHOR,
+		"body": ROCKETSIMVIS_BAR_PARENT_BODY,
+	},
+	{
+		"name": "rocketsimvis-settings-panel-layout",
+		"path": "external/RocketSimVis/src/ui.py",
+		"marker": "QtWidgets.QVBoxLayout(self.camera_group)",
+		"anchor": ROCKETSIMVIS_CONFIG_LAYOUT_ANCHOR,
+		"body": ROCKETSIMVIS_CONFIG_LAYOUT_BODY,
+	},
+	{
+		"name": "rocketsimvis-window-overlays",
+		"path": "external/RocketSimVis/src/ui.py",
+		"marker": "_g_boost_stacks = [QBoostStackWidget",
+		"anchor": ROCKETSIMVIS_WINDOW_OVERLAYS_ANCHOR,
+		"body": ROCKETSIMVIS_WINDOW_OVERLAYS_BODY,
+	},
+	{
+		"name": "rocketsimvis-overlay-layout",
+		"path": "external/RocketSimVis/src/ui.py",
+		"marker": "def layout_overlays(self):",
+		"anchor": ROCKETSIMVIS_OVERLAY_LAYOUT_ANCHOR,
+		"body": ROCKETSIMVIS_OVERLAY_LAYOUT_BODY,
+	},
+	{
+		"name": "rocketsimvis-boost-readout-widget",
+		"path": "external/RocketSimVis/src/ui.py",
+		"marker": "class QBoostStackWidget",
+		"anchor": ROCKETSIMVIS_BOOST_UI_ANCHOR,
+		"body": ROCKETSIMVIS_BOOST_UI_BODY,
+	},
+	{
+		"name": "rocketsimvis-boost-readout-feed",
+		"path": "external/RocketSimVis/src/main.py",
+		"marker": "ui.set_car_boosts(",
+		"anchor": ROCKETSIMVIS_BOOST_FEED_ANCHOR,
+		"body": ROCKETSIMVIS_BOOST_FEED_BODY,
 	},
 	{
 		"name": 'external-opponent-includes',
