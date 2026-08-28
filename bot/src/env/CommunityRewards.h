@@ -579,7 +579,7 @@ class SaveBoostReward : public Reward {
 							bool isFinal) override {
 		if (state.ball.pos.x == 0 && state.ball.pos.y == 0)
 			return 0;
-		return (player.boost > 20 ? player.boost : 20 - player.boost) * 0.01;
+		return (player.boost > 20 ? player.boost : 0) * 0.01;
 	}
 };
 
