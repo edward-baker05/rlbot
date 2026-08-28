@@ -82,9 +82,6 @@ class DirectionalTouchReward : public Reward {
 	}
 };
 
-// Rate at which the ball closes on our own net, as a dense stand-in for the
-// sparse concede reward. Returns a positive magnitude and is applied with a
-// negative weight, like GoalsidePunishment.
 class OwnGoalThreatPunishment : public Reward {
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
