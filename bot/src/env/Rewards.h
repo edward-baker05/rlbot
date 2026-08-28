@@ -87,6 +87,30 @@ class DirectionalTouchReward : public Reward {
 	}
 };
 
+// Small pads are 12 boost, so on a sqrt curve they are worth almost nothing
+// once the tank is part-full -- Zealan's rewards.md warns bots ignore them for
+// exactly this reason. A big pad always fills to BOOST_MAX, so a pickup that
+// lands below it was necessarily a small one.
+class PadAwarePickupBoostReward : public Reward {
+  public:
+	// 1.5x the most a small pad could earn on the sqrt curve, which is
+	// sqrt(12/100) taken from empty.
+	constexpr static float SMALL_PAD_REWARD = 1.5f * 0.34641016f;
+
+	constexpr static float FULL_BOOST = 99.99f;
+
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) override {
+		if (!player.prev || player.boost <= player.prev->boost)
+			return 0.f;
+
+		if (player.boost < FULL_BOOST)
+			return SMALL_PAD_REWARD;
+
+		return sqrtf(player.boost / 100.f) - sqrtf(player.prev->boost / 100.f);
+	}
+};
+
 // Should punish ball moving towards our goal if previous touch by opponent
 class ConditionalVelocityBallToGoalReward : public Reward {
   public:

@@ -36,9 +36,9 @@ struct RewardBudget {
 };
 
 struct AerialConfig {
-	float aerialSpawnChance = 0.0f;
+	float aerialSpawnChance = 0.15f;
 
-	float hoverFraction = 0.60f;
+	float hoverFraction = 0.15f;
 	float minBallHeight = 500.f;
 	float maxBallHeight = 1800.f;
 	float initialBoost = 100.f;
@@ -77,7 +77,7 @@ struct NectoConfig {
 
 	bool benchmark = true;
 	int benchInterval = 100;
-	int benchArenas = 16;
+	int benchArenas = 64;
 	float benchSimTime = 45.f;
 	float benchMaxSimTime = 240.f;
 	float benchEloK = 5.f;

@@ -8,6 +8,7 @@
 #include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/Gamestates/GameState.h>
 
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -432,4 +433,46 @@ TEST_CASE("the shot latch pays out, and repeats for the same state") {
 
 	CHECK(first > 0.f);
 	CHECK(second == doctest::Approx(first));
+}
+
+// A big pad always fills to 100, so "landed below full" is what separates the
+// two pad sizes. Getting that backwards would pay the flat small-pad reward
+// for every big pad in the game.
+static float PadPickup(float prevBoost, float boost) {
+	Scenario scenario =
+		MakeScenario(Vec(0, 0, 93), Vec(0, 0, 0), Vec(0, 0, 93), Vec(0, 0, 0));
+	scenario.prev.players[BLUE].boost = prevBoost;
+	scenario.state.players[BLUE].boost = boost;
+	scenario.Link();
+
+	PadAwarePickupBoostReward reward;
+	reward.Reset(scenario.prev);
+	return reward.GetAllRewards(scenario.state, false)[BLUE];
+}
+
+TEST_CASE("a small pad pays the same whether the tank is empty or part-full") {
+	const float fromEmpty = PadPickup(0.f, 12.f);
+	const float fromHalf = PadPickup(60.f, 72.f);
+
+	CHECK(fromEmpty ==
+		  doctest::Approx(PadAwarePickupBoostReward::SMALL_PAD_REWARD));
+	CHECK(fromHalf == doctest::Approx(fromEmpty));
+}
+
+TEST_CASE("a small pad beats what the sqrt curve could ever pay for one") {
+	CHECK(PadPickup(0.f, 12.f) > std::sqrt(0.12f));
+}
+
+TEST_CASE("a big pad keeps the sqrt curve, and so does topping off to full") {
+	CHECK(PadPickup(30.f, 100.f) ==
+		  doctest::Approx(1.f - std::sqrt(0.30f)));
+	CHECK(PadPickup(92.f, 100.f) ==
+		  doctest::Approx(1.f - std::sqrt(0.92f)));
+	CHECK(PadPickup(92.f, 100.f) <
+		  PadAwarePickupBoostReward::SMALL_PAD_REWARD);
+}
+
+TEST_CASE("no boost gained pays nothing") {
+	CHECK(PadPickup(50.f, 50.f) == doctest::Approx(0.f));
+	CHECK(PadPickup(50.f, 20.f) == doctest::Approx(0.f));
 }

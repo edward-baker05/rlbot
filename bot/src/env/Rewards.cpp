@@ -38,7 +38,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		 [=] { return new AirLaunchReward(cfg.aerial.minBallHeight); }},
 
 		{"Boost Pickup", b.pickupBoost, RewardKind::Event,
-		 [] { return new ZeroSumReward(new PickupBoostReward(), 1); }},
+		 [] { return new ZeroSumReward(new PadAwarePickupBoostReward(), 1); }},
 
 		{"Save Boost", b.saveBoost, RewardKind::Continuous,
 		 [] { return new SaveBoostReward(); }},

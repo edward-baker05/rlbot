@@ -38,10 +38,11 @@ void EloUpdate(float &rating, bool won, float k) {
 
 // What the episodes were started from. Stamped into the rating file, because a
 // rating is only meaningful against a fixed measurement, and this one changed
-// once already: episodes used to begin at a fuzzed kickoff and now begin
-// wherever training begins. A saved rating from the other scenario is not a
-// worse sample of the same quantity, it is a sample of a different one, so it is
-// discarded rather than continued.
+// once already: episodes used to begin at a fuzzed kickoff and now begin from
+// training's football distribution. A saved rating from the other scenario is
+// not a worse sample of the same quantity, it is a sample of a different one,
+// so it is discarded rather than continued. Bump this string if that
+// distribution is ever retuned.
 constexpr const char *SCENARIO_ID = "train-pool";
 
 // The incremental Elo above cannot be read within a single run. At k = 5 it
@@ -144,9 +145,10 @@ struct NectoBench::Impl {
 		//
 		// Sharing BuildSpawner is the point rather than a convenience: it makes
 		// the benchmark measure play from the distribution of situations the
-		// policy is actually trained on, and it cannot drift away from that
-		// distribution when the training mix is retuned.
-		spawner.reset(BuildSpawner(cfg));
+		// policy is actually trained on. The aerial drill is excluded because
+		// it is a training device rather than football, so retuning it would
+		// otherwise move the score without the policy changing.
+		spawner.reset(BuildSpawner(cfg, /*includeAerialDrill=*/false));
 
 		// CPU on purpose, matching the learner-side policy below: this blocks
 		// collection while it runs, and the GPU's memory is training's.

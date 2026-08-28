@@ -17,7 +17,7 @@ using namespace RLGC;
 
 namespace Dash {
 
-StateSetter *BuildSpawner(const TrainConfig &cfg) {
+StateSetter *BuildSpawner(const TrainConfig &cfg, bool includeAerialDrill) {
 	StateSetter *groundBase =
 		new CombinedState({{new RandomState(true, true, true), 0.6f},
 						   {new FuzzedKickoffState(), 0.2f},
@@ -25,7 +25,7 @@ StateSetter *BuildSpawner(const TrainConfig &cfg) {
 
 	StateSetter *base = groundBase;
 
-	if (cfg.aerial.aerialSpawnChance > 0.f) {
+	if (includeAerialDrill && cfg.aerial.aerialSpawnChance > 0.f) {
 		float hoverWeight = RS_CLAMP(cfg.aerial.hoverFraction, 0.01f, 0.99f);
 		StateSetter *aerialBase = new CombinedState({
 			{new AerialHoverState(cfg.aerial.initialBoost), hoverWeight},
