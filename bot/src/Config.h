@@ -172,8 +172,8 @@ struct TrainConfig {
 
 	std::filesystem::path checkpointRoot = "checkpoints";
 	std::string runLabel = {};
-	int64_t tsPerSave = 10'000'000;
-	int checkpointsToKeep = 16;
+	int64_t tsPerSave = 25'000'000;
+	int checkpointsToKeep = 20;
 	int64_t randomSeed = -1;
 
 	bool sendMetrics = true;
