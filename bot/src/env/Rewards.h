@@ -99,14 +99,6 @@ class ConditionalVelocityBallToGoalReward : public Reward {
 		if (!state.prev)
 			return 0.f;
 
-		for (const Player &other : state.players) {
-			if (state.lastTouchCarID == other.carId) {
-				if (other.team == player.team)
-					return 0;
-				break;
-			}
-		}
-
 		bool targetOrangeGoal = player.team == Team::BLUE;
 		if (ownGoal)
 			targetOrangeGoal = !targetOrangeGoal;
