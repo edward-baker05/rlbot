@@ -131,6 +131,13 @@ static RewardProbe ClassifyReward(Reward *r) {
 // [arena][reward], filled on the first callback.
 static std::vector<std::vector<RewardProbe>> g_RewardProbes;
 
+// [arena][reward], the running per-car weighted total for the episode in
+// progress. Emitted and zeroed when the arena terminates. Two of them because
+// neither alone is readable for every reward: Goal nets to ~0 against its own
+// concede, and a pure penalty has no positive part at all.
+static std::vector<std::vector<float>> g_EpisodeRewardSums;
+static std::vector<std::vector<float>> g_EpisodeRewardPosSums;
+
 static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 						 Report &report) {
 	if (g_StopRequested) {
@@ -185,7 +192,9 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				std::cout << "Necto benchmark @ " << learner->totalTimesteps
 						  << ": " << result.goalsFor << "-"
 						  << result.goalsAgainst << " over " << result.episodes
-						  << " episodes, Elo " << static_cast<int>(result.elo)
+						  << " episodes | last " << result.windowGames
+						  << ": " << static_cast<int>(result.windowWinRate * 100)
+						  << "%, Elo " << static_cast<int>(result.windowElo)
 						  << "\n";
 			}
 		}
@@ -199,9 +208,15 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				for (const auto &weighted : envSet.rewards[a])
 					g_RewardProbes[a].push_back(
 						ClassifyReward(weighted.reward));
+
+			g_EpisodeRewardSums.assign(
+				envSet.rewards.size(),
+				std::vector<float>(g_RewardLabels.size(), 0.f));
+			g_EpisodeRewardPosSums = g_EpisodeRewardSums;
 		}
 
 		std::vector<float> posTotals(g_RewardLabels.size(), 0.f);
+		std::vector<float> signedTotals(g_RewardLabels.size(), 0.f);
 		std::vector<float> maxAbs(g_RewardLabels.size(), 0.f);
 		int totalLearnerCars = 0;
 
@@ -237,6 +252,11 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 			const auto &probes = g_RewardProbes[a];
 			const bool terminal = a < es.terminals.size() && es.terminals[a];
 
+			auto &episodeSums = g_EpisodeRewardSums[a];
+			auto &episodePosSums = g_EpisodeRewardPosSums[a];
+			const float invArenaCars =
+				1.f / static_cast<float>(learnerCars.size());
+
 			for (size_t j = 0;
 				 j < arenaRewards.size() && j < g_RewardLabels.size(); j++) {
 				Reward *r = arenaRewards[j].reward;
@@ -245,7 +265,10 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				// reward bug that wrecks the critic.
 				auto record = [&](float value) {
 					posTotals[j] += RS_MAX(0.f, value);
+					signedTotals[j] += value;
 					maxAbs[j] = RS_MAX(maxAbs[j], std::fabs(value));
+					episodeSums[j] += value * invArenaCars;
+					episodePosSums[j] += RS_MAX(0.f, value) * invArenaCars;
 				};
 
 				switch (probes[j]) {
@@ -261,11 +284,14 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 					break;
 				}
 				case RewardProbe::Goal: {
+					// GetReward, not a 1-per-goal count: the real value is
+					// scaled by shot speed and negative for the conceding
+					// side, and a budget read off a count would be wrong on
+					// both. The guard is only the fast path.
 					if (!gs.goalScored)
 						break;
-					const Team conceding = RS_TEAM_FROM_Y(gs.ball.pos.y);
 					for (const Player *p : learnerCars)
-						record((p->team != conceding) ? 1.f : 0.f);
+						record(r->GetReward(*p, gs, terminal));
 					break;
 				}
 				case RewardProbe::Possession: {
@@ -287,6 +313,22 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 					break;
 				}
 			}
+
+			// What one car earned from each reward over the whole episode --
+			// the number a budget is actually chosen against, since a
+			// per-step mean hides how long a term had to accumulate.
+			if (terminal) {
+				for (size_t j = 0; j < g_RewardLabels.size(); j++) {
+					const float weight = g_RewardLabels[j].second;
+					report.AddAvg("RewardPerEpisode/" + g_RewardLabels[j].first,
+								  episodeSums[j] * weight);
+					report.AddAvg("RewardEarnedPerEpisode/" +
+									  g_RewardLabels[j].first,
+								  episodePosSums[j] * weight);
+					episodeSums[j] = 0.f;
+					episodePosSums[j] = 0.f;
+				}
+			}
 		}
 
 		// Not AddAvg, since a max does not average: Learner.cpp builds one
@@ -302,10 +344,17 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 			const float invCars = 1.f / static_cast<float>(totalLearnerCars);
 			for (size_t j = 0; j < g_RewardLabels.size(); j++) {
 				const float meanPos = posTotals[j] * invCars;
+				const float meanSigned = signedTotals[j] * invCars;
 				report.AddAvg("RewardPositive/" + g_RewardLabels[j].first,
 							  meanPos);
 				report.AddAvg("RewardMass/" + g_RewardLabels[j].first,
 							  meanPos * g_RewardLabels[j].second);
+				// The only row a reward budget can be read off: RewardMass
+				// drops the negative half, so a pure penalty reads as 0 there.
+				// Zero-sum rows are pre-zero-sum, which is the term's real
+				// size rather than the ~0 its two sides sum to.
+				report.AddAvg("RewardMean/" + g_RewardLabels[j].first,
+							  meanSigned * g_RewardLabels[j].second);
 			}
 		}
 	}

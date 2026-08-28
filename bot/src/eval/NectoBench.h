@@ -19,6 +19,12 @@ struct NectoBenchResult {
 
 	float winRate = 0.f; // Over decisive episodes only.
 	float elo = 0.f;     // Against the opponent pinned at 0.
+
+	// Over the trailing window of decisive games, across rounds. One round is
+	// 16 games, which is far too few to read a win rate off.
+	int windowGames = 0;
+	float windowWinRate = 0.f;
+	float windowElo = 0.f;
 };
 
 // Head-to-head against a Necto-family opponent, from the training scenario pool.

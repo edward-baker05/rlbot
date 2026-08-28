@@ -543,10 +543,11 @@ int RunBenchmark(int argc, char *argv[]) {
 			return EXIT_FAILURE;
 		}
 		std::printf("round %d: %d-%d over %d episodes (%d decisive), "
-					"win rate %.3f, Elo %.1f\n",
+					"win rate %.3f | last %d: %.3f, Elo %.1f\n",
 					r + 1, result.goalsFor, result.goalsAgainst,
 					result.episodes, result.decisive, result.winRate,
-					result.elo);
+					result.windowGames, result.windowWinRate,
+					result.windowElo);
 	}
 	return EXIT_SUCCESS;
 }

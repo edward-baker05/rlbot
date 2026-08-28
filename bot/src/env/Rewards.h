@@ -181,6 +181,9 @@ class AirFaceBallReward : public AerialReward {
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
+		if (!state.prev || !player.prev)
+			return 0.f;
+
 		if (!IsAerialing(player) || state.ball.pos.z <= minHeight)
 			return 0.f;
 
@@ -220,7 +223,8 @@ class AirVelToBallReward : public AerialReward {
 		Vec normVel = player.vel / CommonValues::CAR_MAX_SPEED;
 		float velDot = dirToBall.Dot(normVel);
 
-		return heightFactor * RS_MAX(0.f, velDot);
+		return (player.HasFlipOrJump() / 2.f + 0.5f) * heightFactor *
+			   RS_MAX(0.f, velDot);
 	}
 };
 
@@ -234,6 +238,9 @@ class AirLaunchReward : public AerialReward {
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
+		if (!state.prev || !player.prev)
+			return 0.f;
+
 		if (!IsAerialing(player, 0.f) || state.ball.pos.z <= minHeight)
 			return 0.f;
 

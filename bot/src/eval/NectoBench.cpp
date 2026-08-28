@@ -11,8 +11,10 @@
 #include <nlohmann/json.hpp>
 
 #include <cmath>
+#include <deque>
 #include <fstream>
 #include <iostream>
+#include <string>
 #include <vector>
 
 using namespace RLGC;
@@ -42,12 +44,31 @@ void EloUpdate(float &rating, bool won, float k) {
 // discarded rather than continued.
 constexpr const char *SCENARIO_ID = "train-pool";
 
+// The incremental Elo above cannot be read within a single run. At k = 5 it
+// converges toward 400*log10(p/(1-p)) with a time constant of ~390 decisive
+// games, and a 500M-step run produces ~340 -- so its whole trajectory is the
+// transient from its 0 initialisation, and it slides downward whether the
+// policy is improving or not. This is the same quantity computed straight from
+// a trailing window instead, which has no transient and no memory of the
+// initialisation.
+constexpr size_t ELO_WINDOW_GAMES = 256;
+
+float WindowElo(int wins, int games) {
+	if (games <= 0)
+		return 0.f;
+
+	// +0.5/+1 keeps it finite at a clean sweep in either direction.
+	const float p = (wins + 0.5f) / (games + 1.f);
+	return 400.f * std::log10(p / (1.f - p));
+}
+
 // The opponent is part of the measurement too. Necto and Nexto are different
 // bots at different strengths, so "Elo above Necto" and "Elo above Nexto" are
 // different scales and must not accumulate into the same number.
 struct RatingFile {
 	float rating = 0.f;
 	int64_t games = 0;
+	std::string window; // One '1' or '0' per decisive game, oldest first.
 };
 
 RatingFile LoadRating(const std::filesystem::path &path, const char *opponent) {
@@ -62,17 +83,19 @@ RatingFile LoadRating(const std::filesystem::path &path, const char *opponent) {
 		if (j.value("scenario", "") != SCENARIO_ID ||
 			j.value("opponent", "") != std::string(opponent))
 			return {};
-		return {j.value("elo", 0.f), j.value("decisive_games", int64_t{0})};
+		return {j.value("elo", 0.f), j.value("decisive_games", int64_t{0}),
+				j.value("window", std::string{})};
 	} catch (const std::exception &) {
 		return {}; // Corrupt or half-written: start over rather than fail a run.
 	}
 }
 
 void SaveRating(const std::filesystem::path &path, const char *opponent,
-				float rating, int64_t games) {
+				float rating, int64_t games, const std::string &window) {
 	nlohmann::json j;
 	j["elo"] = rating;
 	j["decisive_games"] = games;
+	j["window"] = window;
 	j["opponent"] = opponent;
 	j["scenario"] = SCENARIO_ID;
 	std::ofstream out(path);
@@ -101,6 +124,7 @@ struct NectoBench::Impl {
 	float rating = 0.f;
 	int64_t decisiveGames = 0;
 	bool ratingLoaded = false;
+	std::deque<bool> recentWins;
 
 	explicit Impl(const TrainConfig &cfg) : cfg(cfg) {
 		obsSize = ProbeObsSize(cfg.maxPlayersPerTeam, cfg.obs);
@@ -194,6 +218,10 @@ NectoBenchResult NectoBench::Run(const std::filesystem::path &checkpoint) {
 		const RatingFile saved = LoadRating(ratingPath, opponent);
 		s.rating = saved.rating;
 		s.decisiveGames = saved.games;
+		for (char c : saved.window)
+			s.recentWins.push_back(c == '1');
+		while (s.recentWins.size() > ELO_WINDOW_GAMES)
+			s.recentWins.pop_front();
 		s.ratingLoaded = true;
 	}
 
@@ -290,6 +318,9 @@ NectoBenchResult NectoBench::Run(const std::filesystem::path &checkpoint) {
 
 				EloUpdate(s.rating, learnerScored, cfg.necto.benchEloK);
 				s.decisiveGames++;
+				s.recentWins.push_back(learnerScored);
+				if (s.recentWins.size() > ELO_WINDOW_GAMES)
+					s.recentWins.pop_front();
 				s.ResetArena(a);
 			} else if (s.episodeTime[a] >= cfg.necto.benchSimTime) {
 				// Nobody scored inside the budget. Counted, but not decisive.
@@ -305,7 +336,21 @@ NectoBenchResult NectoBench::Run(const std::filesystem::path &checkpoint) {
 						 : 0.f;
 	result.elo = s.rating;
 
-	SaveRating(ratingPath, opponent, s.rating, s.decisiveGames);
+	int windowWins = 0;
+	std::string window;
+	window.reserve(s.recentWins.size());
+	for (bool won : s.recentWins) {
+		windowWins += won ? 1 : 0;
+		window += won ? '1' : '0';
+	}
+	result.windowGames = static_cast<int>(s.recentWins.size());
+	result.windowWinRate =
+		result.windowGames > 0
+			? static_cast<float>(windowWins) / result.windowGames
+			: 0.f;
+	result.windowElo = WindowElo(windowWins, result.windowGames);
+
+	SaveRating(ratingPath, opponent, s.rating, s.decisiveGames, window);
 	return result;
 }
 
@@ -315,6 +360,11 @@ void ReportNectoBench(const NectoBenchResult &result, GGL::Report &report) {
 
 	report["Necto/Bench/Elo"] = result.elo;
 	report["Necto/Bench/WinRate"] = result.winRate;
+	// The two numbers a run's progress should be read off. The per-round
+	// WinRate below is 16 games and the Elo above is still converging.
+	report["Necto/Bench/WindowWinRate"] = result.windowWinRate;
+	report["Necto/Bench/WindowElo"] = result.windowElo;
+	report["Necto/Bench/WindowGames"] = result.windowGames;
 	report["Necto/Bench/GoalsFor"] = result.goalsFor;
 	report["Necto/Bench/GoalsAgainst"] = result.goalsAgainst;
 	report["Necto/Bench/GoalDiff"] = result.goalsFor - result.goalsAgainst;
