@@ -845,7 +845,7 @@ class DribbleFlickReward : public Reward {
 	CradleReward cradle_reward;
 
 	DribbleFlickReward(float minimum_barrier = 300.0f,
-					   float max_vel_diff = 400.0f, bool training = true)
+					   float max_vel_diff = 300.0f, bool training = true)
 		: min_distance(minimum_barrier), max_vel_diff(max_vel_diff),
 		  training(training), cradle_reward(0.0f) {}
 
@@ -883,14 +883,12 @@ class DribbleFlickReward : public Reward {
 						return reward - 0.1f;
 					} else {
 						float speedRatio =
-							RS_MIN(state.ball.vel.Length2D() /
+							RS_MIN(state.ball.vel.Length() /
 									   RLGC::Math::KPHToVel(130.f),
 								   1.f);
 						return player.HasFlipOrJump()
 								   ? reward + 0.3f
-								   : reward + 0.4f +
-										 (state.ball.vel.Length2D() /
-										  speedRatio * 0.5);
+								   : reward + 0.4f + speedRatio * 0.5;
 					}
 				}
 			} else if (stable) {

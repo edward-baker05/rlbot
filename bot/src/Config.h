@@ -24,7 +24,7 @@ struct RewardBudget {
 	float speed = 0.0005f;
 
 	float bump = 0.025f;
-	float demo = 0.5f;
+	float demo = 0.3f;
 
 	float save = 0.25f;
 	float ballToOwnGoal = -0.005f;

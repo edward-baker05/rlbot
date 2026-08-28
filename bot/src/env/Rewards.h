@@ -245,7 +245,7 @@ class ImprovedAirTouchReward : public AerialReward {
 			state.ball.pos.z <= minHeight)
 			return 0;
 
-		float height = sqrt((state.ball.pos.z - minHeight) / heightSpan);
+		float height = (state.ball.pos.z - minHeight) / heightSpan;
 		height = RS_CLAMP(height, 0.f, 1.f);
 		if (height <= 0)
 			return 0;
@@ -255,10 +255,6 @@ class ImprovedAirTouchReward : public AerialReward {
 
 		float touchReward = height * (0.2f + 0.8f * climb);
 
-		// Floored rather than gated on a minimum delta: Normalized() is
-		// zero-safe, so skipping this for a feather touch would silently score
-		// it as perfectly aimed, and an unfloored negative would make missing
-		// the ball worth more than a badly aimed hit.
 		float alignment = 0.f;
 		if (state.prev) {
 			Vec deltaVel = state.ball.vel - state.prev->ball.vel;
@@ -377,10 +373,6 @@ class ImprovedSaveReward : public Reward {
 	}
 };
 
-// Latched per team so one shot pays once. Comparing against the previous step
-// alone let a team re-earn this by knocking its own on-target ball aside and
-// hitting it back, so a repeat only counts once an opponent has intervened or
-// the ball has been off target long enough to be a new attempt.
 class ShotOnTargetReward : public Reward {
   public:
 	const float MIN_SHOT_THRESHOLD = RLGC::Math::KPHToVel(80.f);
@@ -393,7 +385,7 @@ class ShotOnTargetReward : public Reward {
 
 	bool IsLiveShot(const GameState &state, Team shootingTeam) const {
 		return state.ball.vel.Length() >= MIN_SHOT_THRESHOLD &&
-			   onTarget(state, RS_OPPOSITE_TEAM(shootingTeam), true);
+			   onTarget(state, RS_OPPOSITE_TEAM(shootingTeam), false);
 	}
 
 	virtual void Reset(const GameState &initialState) override {
@@ -404,9 +396,6 @@ class ShotOnTargetReward : public Reward {
 		paying.assign(initialState.players.size(), false);
 	}
 
-	// The latch is resolved here, not in GetReward: the training metrics call
-	// GetReward a second time on this same object after the env has stepped it,
-	// so anything that mutates there reports zero forever after.
 	virtual void PreStep(const GameState &state) override {
 		paying.assign(state.players.size(), false);
 

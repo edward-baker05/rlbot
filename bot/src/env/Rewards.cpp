@@ -26,7 +26,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		 }},
 
 		{"Dribble Flick", b.dribbleFlick, RewardKind::Continuous,
-		 [] { return new ZeroSumReward(new DribbleFlickReward(), 0, 1.1f); }},
+		 [] { return new ZeroSumReward(new DribbleFlickReward(), 0, 1.f); }},
 
 		{"On Target", b.onTarget, RewardKind::Event,
 		 [] { return new ShotOnTargetReward(); }},
