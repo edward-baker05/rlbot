@@ -96,6 +96,9 @@ class ConditionalVelocityBallToGoalReward : public Reward {
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
+		if (!state.prev)
+			return 0.f;
+
 		for (const Player &other : state.players) {
 			if (state.lastTouchCarID == other.carId) {
 				if (other.team == player.team)
@@ -113,8 +116,8 @@ class ConditionalVelocityBallToGoalReward : public Reward {
 
 		Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
 		return RS_CLAMP(
-			-ballDirToGoal.Dot(state.ball.vel / CommonValues::BALL_MAX_SPEED),
-			-1.f, 0.f);
+			ballDirToGoal.Dot(state.ball.vel / CommonValues::BALL_MAX_SPEED),
+			0.f, 1.f);
 	}
 };
 
