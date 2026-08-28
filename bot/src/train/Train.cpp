@@ -192,8 +192,8 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				std::cout << "Necto benchmark @ " << learner->totalTimesteps
 						  << ": " << result.goalsFor << "-"
 						  << result.goalsAgainst << " over " << result.episodes
-						  << " episodes | last " << result.windowGames
-						  << ": " << static_cast<int>(result.windowWinRate * 100)
+						  << " episodes | last " << result.windowGames << ": "
+						  << static_cast<int>(result.windowWinRate * 100)
 						  << "%, Elo " << static_cast<int>(result.windowElo)
 						  << "\n";
 			}
@@ -368,6 +368,9 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"goal", b.goal},
 		{"strongTouch", b.strongTouch},
 		{"airTouch", b.airTouch},
+		{"airVtB", b.airVtB},
+		{"airFaceBall", b.airFaceBall},
+		{"airLaunch", b.airLaunch},
 		{"pickupBoost", b.pickupBoost},
 		{"saveBoost", b.saveBoost},
 		{"speed", b.speed},
