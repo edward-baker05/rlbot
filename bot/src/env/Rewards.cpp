@@ -7,14 +7,12 @@ using namespace RLGC;
 
 namespace Dash {
 
-using namespace Community;
-
 std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 	const RewardBudget &b = cfg.rewards;
 
 	return {
 		{"Goal", b.goal, RewardKind::Event,
-		 [] { return new GoalReward(-0.8, true); }},
+		 [] { return new GoalReward(-1, true); }},
 
 		{"Strong Touch", b.strongTouch, RewardKind::Event,
 		 [] { return new ZeroSumReward(new DirectionalTouchReward(), 1); }},
@@ -25,29 +23,21 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 											   cfg.aerial.maxBallHeight);
 		 }},
 
-		{"Dribble Flick", b.dribbleFlick, RewardKind::Continuous,
-		 [] { return new ZeroSumReward(new DribbleFlickReward(), 0, 1.f); }},
-
-		{"On Target", b.onTarget, RewardKind::Event,
-		 [] { return new ShotOnTargetReward(); }},
-
 		{"Boost Pickup", b.pickupBoost, RewardKind::Event,
 		 [] { return new ZeroSumReward(new PickupBoostReward(), 1); }},
 
 		{"Save Boost", b.saveBoost, RewardKind::Continuous,
-		 [] { return new Community::SaveBoostReward(); }},
+		 [] { return new SaveBoostReward(); }},
 
 		{"Speed", b.speed, RewardKind::Continuous,
-		 [] { return new VelocityReward(); }},
+		 [] { return new SpeedReward(); }},
 
-		{"Bump", b.bump, RewardKind::Event,
-		 [] { return new ZeroSumReward(new BumpReward(), 0, 1); }},
+		{"Bump", b.bump, RewardKind::Event, [] { return new BumpReward(); }},
 
 		{"Demo", b.demo, RewardKind::Event,
-		 [] { return new ZeroSumReward(new DemoReward(), 1); }},
+		 [] { return new ZeroSumReward(new DemoReward(), 0); }},
 
-		{"Save", b.save, RewardKind::Event,
-		 [] { return new ImprovedSaveReward(); }},
+		{"Save", b.save, RewardKind::Event, [] { return new SaveReward(); }},
 
 		{"Awkward Contact", b.awkwardContact, RewardKind::Continuous,
 		 [] { return new AwkwardContactPenalty(); }},
@@ -55,14 +45,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Possession", b.possession, RewardKind::Continuous,
 		 [] { return new PossessionReward(); }},
 
-		{"Own Goal Threat", b.ballToOwnGoal, RewardKind::Continuous,
-		 [] { return new OwnGoalThreatPunishment(); }},
-
-		{"Kickoff Distance", b.kickoff, RewardKind::Continuous,
-		 [] { return new MillennialKickoffReward(); }},
-
-		{"Goalside", b.goalside, RewardKind::Continuous,
-		 [] { return new GoalsidePunishment(); }},
+		{"Velocity: Ball to Goal (Own)", b.velBtG, RewardKind::Continuous,
+		 [] { return new ConditionalVelocityBallToGoalReward(true); }},
 	};
 }
 

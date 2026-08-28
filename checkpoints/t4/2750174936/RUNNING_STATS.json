@@ -1,0 +1,13 @@
+{
+    "return_stat": {
+        "count": 2114850,
+        "mean": 0.6809125948767116,
+        "var": 11145413.227495799
+    },
+    "run_id": "qsr81rhi",
+    "skill_ratings": {
+        "1v1": 75.75701141357422
+    },
+    "total_iterations": 14099,
+    "total_timesteps": 2750174936
+}

@@ -1,0 +1,12 @@
+{
+  "env": {
+    "obs": "Predictive",
+    "maxPlayersPerTeam": 3,
+    "maskActions": true
+  },
+  "model": {
+    "sharedHeadLayers": [1024, 1024, 512],
+    "policyLayers": [512],
+    "addLayerNorm": true
+  }
+}

@@ -1,0 +1,1848 @@
+{
+  "comparison": {
+    "binomial_test_p_value": 2.4758428158072802e-34,
+    "goal_diff_ci_95": [
+      3.5322508811950684,
+      4.387749195098877
+    ],
+    "mean_goal_diff_m2_minus_m1": 3.9600000381469727,
+    "mean_ot_duration_sec": 29.72311019897461,
+    "overtime_games": 13,
+    "paired_t_test_p_value": 0.0,
+    "statistically_significant_p05": true,
+    "std_goal_diff": 3.0864267349243164,
+    "ties": 0,
+    "total_games": 200,
+    "wilcoxon_test_p_value": 0.0
+  },
+  "games": [
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 5,
+      "game_id": 0,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 1,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 2,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 3,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 4,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 5,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 9,
+      "game_id": 6,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 2,
+      "game_id": 7,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 6,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 8,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 9,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 3,
+      "game_id": 10,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 11,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 0,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 12,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 13,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 14,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 7,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 15,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 3,
+      "game_id": 16,
+      "ot_duration": 37.533447265625,
+      "overtime": true,
+      "winner": 1
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 17,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 6,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 18,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 19,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 20,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 21,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 22,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 4,
+      "game_id": 23,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 3,
+      "game_id": 24,
+      "ot_duration": 17.666675567626953,
+      "overtime": true,
+      "winner": 1
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 25,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 26,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 27,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 28,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 29,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 30,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 11,
+      "game_id": 31,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 32,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 9,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 33,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 34,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 35,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 3,
+      "game_id": 36,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 7,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 37,
+      "ot_duration": 29.333498001098633,
+      "overtime": true,
+      "winner": 1
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 38,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 39,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 40,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 12,
+      "game_id": 41,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 42,
+      "ot_duration": 19.26669692993164,
+      "overtime": true,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 43,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 8,
+      "bot1_side": "BLUE",
+      "bot2_score": 9,
+      "game_id": 44,
+      "ot_duration": 14.933321952819824,
+      "overtime": true,
+      "winner": 2
+    },
+    {
+      "bot1_score": 6,
+      "bot1_side": "ORANGE",
+      "bot2_score": 4,
+      "game_id": 45,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 46,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 47,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 48,
+      "ot_duration": 38.733428955078125,
+      "overtime": true,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 49,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 50,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 51,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 52,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 53,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 54,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 55,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 56,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 0,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 57,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 58,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 11,
+      "game_id": 59,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 60,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 61,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 9,
+      "game_id": 62,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 63,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 64,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 65,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 9,
+      "game_id": 66,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 67,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 3,
+      "game_id": 68,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 69,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 7,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 70,
+      "ot_duration": 45.19999694824219,
+      "overtime": true,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 4,
+      "game_id": 71,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 72,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 73,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 0,
+      "bot1_side": "BLUE",
+      "bot2_score": 15,
+      "game_id": 74,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 75,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 2,
+      "game_id": 76,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 4,
+      "game_id": 77,
+      "ot_duration": 15.933320999145508,
+      "overtime": true,
+      "winner": 1
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 78,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 79,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 5,
+      "game_id": 80,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 81,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 12,
+      "game_id": 82,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 11,
+      "game_id": 83,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 84,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 85,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 86,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 87,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 5,
+      "game_id": 88,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 89,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 5,
+      "game_id": 90,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 7,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 91,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 92,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 2,
+      "game_id": 93,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 94,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 95,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 96,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 4,
+      "game_id": 97,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 98,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 99,
+      "ot_duration": 11.466658592224121,
+      "overtime": true,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 100,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 101,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 102,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 103,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 5,
+      "game_id": 104,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 105,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 106,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 107,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 13,
+      "game_id": 108,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 109,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 9,
+      "game_id": 110,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 111,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 112,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 13,
+      "game_id": 113,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 114,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 115,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 116,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 117,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 3,
+      "game_id": 118,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 119,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 120,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 121,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 122,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 123,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 12,
+      "game_id": 124,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 125,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 126,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 127,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 128,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 129,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 130,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 6,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 131,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 7,
+      "bot1_side": "BLUE",
+      "bot2_score": 9,
+      "game_id": 132,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 133,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 134,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 135,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 0,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 136,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 3,
+      "game_id": 137,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 138,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 139,
+      "ot_duration": 41.73338317871094,
+      "overtime": true,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 140,
+      "ot_duration": 37.06678771972656,
+      "overtime": true,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 141,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 142,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 3,
+      "game_id": 143,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 1
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 144,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 145,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 146,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 147,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 148,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 6,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 149,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 150,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 151,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 152,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 153,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 9,
+      "game_id": 154,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 155,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 156,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 157,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 6,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 158,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 159,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 6,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 160,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 161,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 9,
+      "game_id": 162,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 11,
+      "game_id": 163,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 9,
+      "game_id": 164,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 165,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 166,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 12,
+      "game_id": 167,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 168,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 169,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 170,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 9,
+      "game_id": 171,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 172,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 173,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 174,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 175,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 176,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 177,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 178,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 179,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 180,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 181,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 6,
+      "bot1_side": "BLUE",
+      "bot2_score": 5,
+      "game_id": 182,
+      "ot_duration": 55.86650085449219,
+      "overtime": true,
+      "winner": 1
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 183,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 5,
+      "game_id": 184,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 185,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 6,
+      "bot1_side": "BLUE",
+      "bot2_score": 10,
+      "game_id": 186,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 187,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 188,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 189,
+      "ot_duration": 21.666728973388672,
+      "overtime": true,
+      "winner": 2
+    },
+    {
+      "bot1_score": 0,
+      "bot1_side": "BLUE",
+      "bot2_score": 5,
+      "game_id": 190,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 0,
+      "bot1_side": "ORANGE",
+      "bot2_score": 4,
+      "game_id": 191,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 192,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 193,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 194,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 11,
+      "game_id": 195,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 196,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 197,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 5,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 198,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "ORANGE",
+      "bot2_score": 6,
+      "game_id": 199,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    }
+  ],
+  "model1": {
+    "blue_wins": 11,
+    "label": "t4",
+    "mean_goals": 3.3499999046325684,
+    "orange_wins": 8,
+    "ot_wins": 5,
+    "path": "/home/edwardb/Documents/RLBotDev/checkpoints/t4/2750174936",
+    "std_goals": 1.6404130458831787,
+    "total_goals": 670,
+    "win_rate": 0.0949999988079071,
+    "wins": 19
+  },
+  "model2": {
+    "blue_wins": 92,
+    "label": "t3",
+    "mean_goals": 7.309999942779541,
+    "orange_wins": 89,
+    "ot_wins": 8,
+    "path": "/home/edwardb/Documents/RLBotDev/checkpoints/t3/1422207292",
+    "std_goals": 2.448237895965576,
+    "total_goals": 1462,
+    "win_rate": 0.9049999713897705,
+    "win_rate_ci_95": [
+      0.8563984036445618,
+      0.9383369088172913
+    ],
+    "wins": 181
+  }
+}

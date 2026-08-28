@@ -1,0 +1,228 @@
+{
+  "comparison": {
+    "binomial_test_p_value": 1.9073486328125e-06,
+    "goal_diff_ci_95": [
+      5.012084007263184,
+      7.987915992736816
+    ],
+    "mean_goal_diff_m2_minus_m1": 6.5,
+    "mean_ot_duration_sec": 0.0,
+    "overtime_games": 0,
+    "paired_t_test_p_value": 7.937339387975584e-07,
+    "statistically_significant_p05": true,
+    "std_goal_diff": 3.395042896270752,
+    "ties": 0,
+    "total_games": 20,
+    "wilcoxon_test_p_value": 8.596886147715921e-05
+  },
+  "games": [
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 13,
+      "game_id": 0,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 1,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 2,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 3,
+      "bot1_side": "ORANGE",
+      "bot2_score": 12,
+      "game_id": 3,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 4,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 8,
+      "game_id": 5,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 6,
+      "game_id": 6,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 7,
+      "game_id": 7,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 4,
+      "game_id": 8,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 0,
+      "bot1_side": "ORANGE",
+      "bot2_score": 12,
+      "game_id": 9,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 0,
+      "bot1_side": "BLUE",
+      "bot2_score": 8,
+      "game_id": 10,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 3,
+      "game_id": 11,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 4,
+      "bot1_side": "BLUE",
+      "bot2_score": 5,
+      "game_id": 12,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "ORANGE",
+      "bot2_score": 12,
+      "game_id": 13,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 14,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 5,
+      "game_id": 15,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "BLUE",
+      "bot2_score": 11,
+      "game_id": 16,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 11,
+      "game_id": 17,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 2,
+      "bot1_side": "BLUE",
+      "bot2_score": 7,
+      "game_id": 18,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    },
+    {
+      "bot1_score": 1,
+      "bot1_side": "ORANGE",
+      "bot2_score": 10,
+      "game_id": 19,
+      "ot_duration": 0.0,
+      "overtime": false,
+      "winner": 2
+    }
+  ],
+  "model1": {
+    "blue_wins": 0,
+    "label": "t4-final",
+    "mean_goals": 1.649999976158142,
+    "orange_wins": 0,
+    "ot_wins": 0,
+    "path": "checkpoints/t4/3169937038",
+    "std_goals": 1.0894228219985962,
+    "total_goals": 33,
+    "win_rate": 0.0,
+    "wins": 0
+  },
+  "model2": {
+    "blue_wins": 10,
+    "label": "t3",
+    "mean_goals": 8.149999618530273,
+    "orange_wins": 10,
+    "ot_wins": 0,
+    "path": "../../checkpoints/t3/1422207292",
+    "std_goals": 2.9428772926330566,
+    "total_goals": 163,
+    "win_rate": 1.0,
+    "win_rate_ci_95": [
+      0.8388748168945313,
+      1.0
+    ],
+    "wins": 20
+  }
+}

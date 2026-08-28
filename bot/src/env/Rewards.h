@@ -54,10 +54,11 @@ inline bool onTarget(const GameState &state, Team goalTeam,
 	return projZ < GOAL_HEIGHT;
 }
 
-// Should return power * direction when ball is hit
+// Should return power ^ 2 * direction ^ 2 when ball is hit
 class DirectionalTouchReward : public Reward {
   public:
 	constexpr static float MAX_REWARDED_HIT_VEL = RLGC::Math::KPHToVel(120);
+	constexpr static float DIR_OFFSET = 0.f;
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
@@ -77,11 +78,47 @@ class DirectionalTouchReward : public Reward {
 		float power = RS_MIN(1.f, hitVel / MAX_REWARDED_HIT_VEL);
 
 		float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
+		float dirFactor = (alignment + DIR_OFFSET) / (1.f + DIR_OFFSET);
 
-		return powf(power, 1.5f) * RS_MAX(alignment, 0.1f);
+		if (dirFactor < 0)
+			return 0;
+
+		return power * power * dirFactor * dirFactor;
 	}
 };
 
+// Should punish ball moving towards our goal if previous touch by opponent
+class ConditionalVelocityBallToGoalReward : public Reward {
+  public:
+	bool ownGoal;
+	ConditionalVelocityBallToGoalReward(bool ownGoal = false)
+		: ownGoal(ownGoal) {}
+
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) override {
+		for (const Player &other : state.players) {
+			if (state.lastTouchCarID == other.carId) {
+				if (other.team == player.team)
+					return 0;
+				break;
+			}
+		}
+
+		bool targetOrangeGoal = player.team == Team::BLUE;
+		if (ownGoal)
+			targetOrangeGoal = !targetOrangeGoal;
+
+		Vec targetPos = targetOrangeGoal ? CommonValues::ORANGE_GOAL_BACK
+										 : CommonValues::BLUE_GOAL_BACK;
+
+		Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
+		return RS_CLAMP(
+			-ballDirToGoal.Dot(state.ball.vel / CommonValues::BALL_MAX_SPEED),
+			-1.f, 0.f);
+	}
+};
+
+// Unwired, as are GoalsidePunishment/ImprovedSaveReward/ShotOnTargetReward.
 class OwnGoalThreatPunishment : public Reward {
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
@@ -227,8 +264,8 @@ class AirLaunchReward : public AerialReward {
 	}
 };
 
-// Rewards air touches above a certain height relative to their height gained
-// and direction to net
+// Rewards air touches above a certain height relative to their power and
+// direction to net
 class ImprovedAirTouchReward : public AerialReward {
   public:
 	float minHeight;
@@ -245,7 +282,7 @@ class ImprovedAirTouchReward : public AerialReward {
 			state.ball.pos.z <= minHeight)
 			return 0;
 
-		float height = (state.ball.pos.z - minHeight) / heightSpan;
+		float height = sqrt((state.ball.pos.z - minHeight) / heightSpan);
 		height = RS_CLAMP(height, 0.f, 1.f);
 		if (height <= 0)
 			return 0;
@@ -255,17 +292,20 @@ class ImprovedAirTouchReward : public AerialReward {
 
 		float touchReward = height * (0.2f + 0.8f * climb);
 
-		float alignment = 0.f;
 		if (state.prev) {
 			Vec deltaVel = state.ball.vel - state.prev->ball.vel;
-			bool targetOrangeGoal = player.team == Team::BLUE;
-			Vec targetPos = targetOrangeGoal ? CommonValues::ORANGE_GOAL_BACK
-											 : CommonValues::BLUE_GOAL_BACK;
-			Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
-			alignment = ballDirToGoal.Dot(deltaVel.Normalized());
+			if (deltaVel.Length() > 50.f) {
+				bool targetOrangeGoal = player.team == Team::BLUE;
+				Vec targetPos = targetOrangeGoal
+									? CommonValues::ORANGE_GOAL_BACK
+									: CommonValues::BLUE_GOAL_BACK;
+				Vec ballDirToGoal = (targetPos - state.ball.pos).Normalized();
+				float alignment = ballDirToGoal.Dot(deltaVel.Normalized());
+				touchReward *= alignment;
+			}
 		}
 
-		return touchReward * RS_MAX(alignment, 0.1f);
+		return touchReward;
 	}
 };
 
@@ -284,7 +324,8 @@ class AwkwardContactPenalty : public Reward {
 	}
 };
 
-// Should roughly reward being in a better position to get to the ball
+// Should roughly reward being in a better position to get to the ball. Known
+// weak on dribbles, where the ball is technically moving away from the carrier.
 class PossessionReward : public Reward {
   public:
 	constexpr static float CHASE_ACCEL = 1600.f;
@@ -293,9 +334,7 @@ class PossessionReward : public Reward {
 	constexpr static float MAX_TIME = 4.0f;
 
 	static float TimeToBall(const Player &player, const GameState &state) {
-		Vec toBall = state.ball.pos.To2D() - player.pos.To2D();
-		if (toBall.Length() < 150)
-			return MIN_TIME;
+		Vec toBall = state.ball.pos - player.pos;
 
 		float surfaceDist = toBall.Length() - CommonValues::BALL_RADIUS;
 		float dist = RS_MAX(0.f, surfaceDist);
@@ -436,8 +475,6 @@ class ShotOnTargetReward : public Reward {
 		return paying[player.index] ? 1.f : 0.f;
 	}
 };
-
-class RetreatPunishment : public Reward {};
 
 std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg);
 std::vector<RLGC::WeightedReward> BuildGeneralRewards(const TrainConfig &cfg);

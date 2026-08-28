@@ -117,20 +117,57 @@ float WeightedContribution(const TrainConfig &cfg, const std::string &name,
 constexpr int BLUE = 0;
 constexpr int ORANGE = 1;
 
+// Same driving order as WeightedContribution, for a reward not in the stack.
+float BareContribution(Reward *owned, Scenario &scenario, int playerIdx) {
+	std::unique_ptr<Reward> reward(owned);
+	scenario.Link();
+	reward->Reset(scenario.prev);
+	reward->PreStep(scenario.prev);
+	reward->GetAllRewards(scenario.prev, false);
+	reward->PreStep(scenario.state);
+	return reward->GetAllRewards(scenario.state, false)[playerIdx];
+}
+
+std::vector<float> BareSequence(Reward *owned,
+								const std::vector<GameState> &steps,
+								int playerIdx) {
+	std::unique_ptr<Reward> reward(owned);
+	reward->Reset(steps.front());
+
+	std::vector<float> out;
+	for (const GameState &state : steps) {
+		reward->PreStep(state);
+		out.push_back(reward->GetAllRewards(state, false)[playerIdx]);
+	}
+	return out;
+}
+
 // Ball in the blue half, rolling hard at the blue net and inside both posts.
+// The orange touch is what ConditionalVelocityBallToGoalReward gates on.
 Scenario BallAtBlueNet() {
-	return MakeScenario(Vec(0, -4000, 100), Vec(0, -3000, 0),
-						Vec(0, -3800, 100), Vec(0, -3000, 0));
+	Scenario scenario = MakeScenario(Vec(0, -4000, 100), Vec(0, -3000, 0),
+									 Vec(0, -3800, 100), Vec(0, -3000, 0));
+	scenario.prev.lastTouchCarID = scenario.prev.players[ORANGE].carId;
+	scenario.state.lastTouchCarID = scenario.state.players[ORANGE].carId;
+	return scenario;
 }
 
 // The same ball, same place, travelling away from the blue net instead.
 Scenario BallAwayFromBlueNet() {
-	return MakeScenario(Vec(0, -4000, 100), Vec(0, 3000, 0),
-						Vec(0, -4200, 100), Vec(0, 3000, 0));
+	Scenario scenario = MakeScenario(Vec(0, -4000, 100), Vec(0, 3000, 0),
+									 Vec(0, -4200, 100), Vec(0, 3000, 0));
+	scenario.prev.lastTouchCarID = scenario.prev.players[ORANGE].carId;
+	scenario.state.lastTouchCarID = scenario.state.players[ORANGE].carId;
+	return scenario;
 }
 
-float OwnGoalThreat(const TrainConfig &cfg, Scenario &scenario, int playerIdx) {
-	return WeightedContribution(cfg, "Own Goal Threat", scenario, playerIdx);
+// The reward returns a positive magnitude and is wired with a negative weight,
+// so the sign is reapplied here.
+constexpr float OWN_GOAL_THREAT_WEIGHT = -0.005f;
+
+float OwnGoalThreat(Scenario &scenario, int playerIdx) {
+	return OWN_GOAL_THREAT_WEIGHT *
+		   BareContribution(new OwnGoalThreatPunishment(), scenario, playerIdx);
 }
 
 // Blue in a genuine aerial: on the ground in the previous state so the climb
@@ -174,31 +211,6 @@ GameState ShotStep(Vec ballVel, int toucher) {
 	return state;
 }
 
-// Weighted payout per step for one reward driven over a scripted sequence,
-// in EnvSet's PreStep-then-GetAllRewards order.
-std::vector<float> RunSequence(const TrainConfig &cfg, const std::string &name,
-							   const std::vector<GameState> &steps,
-							   int playerIdx) {
-	for (const RewardSpec &spec : GeneralRewardSpecs(cfg)) {
-		if (spec.name != name)
-			continue;
-
-		std::unique_ptr<Reward> reward(spec.make());
-		reward->Reset(steps.front());
-
-		std::vector<float> out;
-		for (const GameState &state : steps) {
-			reward->PreStep(state);
-			out.push_back(reward->GetAllRewards(state, false)[playerIdx] *
-						  spec.weight);
-		}
-		return out;
-	}
-
-	FAIL("no reward spec named ", name);
-	return {};
-}
-
 constexpr Vec ON_TARGET_FAST = Vec(0, 3000, 0);
 constexpr Vec OFF_TARGET_FAST = Vec(3000, 0, 0);
 
@@ -217,28 +229,25 @@ TEST_CASE("air touch rewards aim, and never rewards missing") {
 	TrainConfig cfg = {};
 
 	Scenario aimedHard = AerialTouch(Vec(0, 1000, 0), Vec(0, 0, 0));
-	Scenario aimedFeather = AerialTouch(Vec(0, 10, 0), Vec(0, 0, 0));
 	Scenario awayHard = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
-	Scenario awayFeather = AerialTouch(Vec(0, -10, 0), Vec(0, 0, 0));
 	Scenario missed = AerialTouch(Vec(0, 1000, 0), Vec(0, 0, 0));
 	missed.state.players[BLUE].ballTouchedStep = false;
 
-	const float missedR = AirTouch(cfg, missed);
-	const float awayHardR = AirTouch(cfg, awayHard);
-	const float awayFeatherR = AirTouch(cfg, awayFeather);
-	const float aimedFeatherR = AirTouch(cfg, aimedFeather);
+	CHECK(AirTouch(cfg, missed) == doctest::Approx(0.f));
+	CHECK(AirTouch(cfg, aimedHard) > 0.f);
+	CHECK(AirTouch(cfg, awayHard) < 0.f);
+}
 
-	CHECK(missedR == doctest::Approx(0.f));
+// Documented, not endorsed: t4 replaced this guard with a 0.1 alignment floor,
+// and which is right is still open.
+TEST_CASE("air touch skips the alignment factor below 50uu/s") {
+	TrainConfig cfg = {};
 
-	// The escape hatch: a touch under the old 50uu/s guard skipped the
-	// alignment factor entirely, so feathering the ball away from the net
-	// scored exactly the same as striking it at the net.
-	CHECK(awayFeatherR < aimedFeatherR);
+	Scenario aimedFeather = AerialTouch(Vec(0, 10, 0), Vec(0, 0, 0));
+	Scenario awayFeather = AerialTouch(Vec(0, -10, 0), Vec(0, 0, 0));
 
-	// And an unfloored negative alignment made whiffing worth more than any
-	// badly aimed hit, which is its own reason to miss the ball.
-	CHECK(awayHardR > missedR);
-	CHECK(awayHardR == doctest::Approx(awayFeatherR));
+	CHECK(AirTouch(cfg, awayFeather) ==
+		  doctest::Approx(AirTouch(cfg, aimedFeather)));
 }
 
 // Power is DirectionalTouchReward's job, not this reward's, so the incentive to
@@ -252,28 +261,19 @@ TEST_CASE("the stack prefers a powerful aerial touch to a feathered one") {
 	CHECK(StackTotals(cfg, hard)[BLUE] > StackTotals(cfg, feather)[BLUE]);
 }
 
-TEST_CASE("a badly aimed aerial touch beats whiffing in the stack") {
+// The cost of the guard above: a hard touch away from the net is punished
+// harder than not reaching the ball at all, so whiffing beats a bad hit.
+TEST_CASE("a badly aimed aerial touch loses to whiffing in the stack") {
 	TrainConfig cfg = {};
 
 	Scenario awayHard = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
 	Scenario missed = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
 	missed.state.players[BLUE].ballTouchedStep = false;
 
-	CHECK(StackTotals(cfg, awayHard)[BLUE] > StackTotals(cfg, missed)[BLUE]);
-}
-
-TEST_CASE("air touch has no cliff across the old 50uu/s guard") {
-	TrainConfig cfg = {};
-
-	Scenario under = AerialTouch(Vec(0, 49, 0), Vec(0, 0, 0));
-	Scenario over = AerialTouch(Vec(0, 51, 0), Vec(0, 0, 0));
-
-	CHECK(AirTouch(cfg, under) == doctest::Approx(AirTouch(cfg, over)));
+	CHECK(StackTotals(cfg, awayHard)[BLUE] < StackTotals(cfg, missed)[BLUE]);
 }
 
 TEST_CASE("a shot on target pays once, not once per re-touch") {
-	TrainConfig cfg = {};
-
 	const std::vector<GameState> steps = {
 		ShotStep(OFF_TARGET_FAST, -1),   // arms
 		ShotStep(ON_TARGET_FAST, BLUE),  // the shot
@@ -282,7 +282,7 @@ TEST_CASE("a shot on target pays once, not once per re-touch") {
 	};
 
 	const std::vector<float> paid =
-		RunSequence(cfg, "On Target", steps, BLUE);
+		BareSequence(new ShotOnTargetReward(), steps, BLUE);
 
 	CHECK(paid[0] == doctest::Approx(0.f));
 	CHECK(paid[1] > 0.f);
@@ -291,8 +291,6 @@ TEST_CASE("a shot on target pays once, not once per re-touch") {
 }
 
 TEST_CASE("a shot on target pays again after the opponent intervenes") {
-	TrainConfig cfg = {};
-
 	const std::vector<GameState> steps = {
 		ShotStep(OFF_TARGET_FAST, -1),     // arms
 		ShotStep(ON_TARGET_FAST, BLUE),    // the shot
@@ -301,7 +299,7 @@ TEST_CASE("a shot on target pays again after the opponent intervenes") {
 	};
 
 	const std::vector<float> paid =
-		RunSequence(cfg, "On Target", steps, BLUE);
+		BareSequence(new ShotOnTargetReward(), steps, BLUE);
 
 	CHECK(paid[1] > 0.f);
 	CHECK(paid[3] > 0.f);
@@ -333,51 +331,42 @@ TEST_CASE("onTarget's team argument names the goal being shot at") {
 }
 
 TEST_CASE("a ball closing on our own net is a punishment") {
-	TrainConfig cfg = {};
 	Scenario threatened = BallAtBlueNet();
 
-	CHECK(OwnGoalThreat(cfg, threatened, BLUE) < 0.f);
-	CHECK(OwnGoalThreat(cfg, threatened, ORANGE) == doctest::Approx(0.f));
+	CHECK(OwnGoalThreat(threatened, BLUE) < 0.f);
+	CHECK(OwnGoalThreat(threatened, ORANGE) == doctest::Approx(0.f));
 }
 
 TEST_CASE("a ball leaving our own net is not punished") {
-	TrainConfig cfg = {};
 	Scenario cleared = BallAwayFromBlueNet();
 
-	CHECK(OwnGoalThreat(cfg, cleared, BLUE) == doctest::Approx(0.f));
+	CHECK(OwnGoalThreat(cleared, BLUE) == doctest::Approx(0.f));
 }
 
 // The bug this replaces paid out per step regardless of speed, so a slow ball
 // left to trickle in scored the same as a rocket -- and scored more the longer
 // it was left alone.
 TEST_CASE("own goal threat scales with closing speed, not with time") {
-	TrainConfig cfg = {};
-
 	Scenario slow = MakeScenario(Vec(0, -4000, 100), Vec(0, -300, 0),
 								 Vec(0, -3980, 100), Vec(0, -300, 0));
 	Scenario fast = BallAtBlueNet();
 
-	CHECK(OwnGoalThreat(cfg, fast, BLUE) < OwnGoalThreat(cfg, slow, BLUE));
-	CHECK(OwnGoalThreat(cfg, slow, BLUE) < 0.f);
+	CHECK(OwnGoalThreat(fast, BLUE) < OwnGoalThreat(slow, BLUE));
+	CHECK(OwnGoalThreat(slow, BLUE) < 0.f);
 }
 
 // The gate this replaces zeroed the punishment whenever our own team touched
 // last, which made hitting it in ourselves cheaper than conceding a shot.
 TEST_CASE("own goal threat does not care who touched last") {
-	TrainConfig cfg = {};
-
 	Scenario blueTouched = BallAtBlueNet();
 	blueTouched.state.lastTouchCarID = blueTouched.state.players[BLUE].carId;
 	blueTouched.prev.lastTouchCarID = blueTouched.state.lastTouchCarID;
 
 	Scenario orangeTouched = BallAtBlueNet();
-	orangeTouched.state.lastTouchCarID =
-		orangeTouched.state.players[ORANGE].carId;
-	orangeTouched.prev.lastTouchCarID = orangeTouched.state.lastTouchCarID;
 
-	CHECK(OwnGoalThreat(cfg, blueTouched, BLUE) ==
-		  doctest::Approx(OwnGoalThreat(cfg, orangeTouched, BLUE)));
-	CHECK(OwnGoalThreat(cfg, blueTouched, BLUE) < 0.f);
+	CHECK(OwnGoalThreat(blueTouched, BLUE) ==
+		  doctest::Approx(OwnGoalThreat(orangeTouched, BLUE)));
+	CHECK(OwnGoalThreat(blueTouched, BLUE) < 0.f);
 }
 
 TEST_CASE("the whole stack prefers the ball leaving our own net") {
@@ -426,12 +415,21 @@ TEST_CASE("GetReward is repeatable for the same state") {
 	}
 }
 
-// Guards the test above from going vacuous: it only proves anything while the
-// scenario actually makes the latched reward fire.
-TEST_CASE("the shot scenario actually pays out, twice over") {
-	TrainConfig cfg = {};
+// The shot latch is where that bug was found, and it is unwired now, so the
+// stack sweep above no longer covers it.
+TEST_CASE("the shot latch pays out, and repeats for the same state") {
 	Scenario shot = ShotScenario();
+	shot.Link();
 
-	CHECK(WeightedContribution(cfg, "On Target", shot, BLUE) > 0.f);
-	CHECK(WeightedContribution(cfg, "On Target", shot, BLUE) > 0.f);
+	std::unique_ptr<Reward> reward(new ShotOnTargetReward());
+	reward->Reset(shot.prev);
+	reward->PreStep(shot.prev);
+	reward->GetAllRewards(shot.prev, false);
+	reward->PreStep(shot.state);
+
+	const float first = reward->GetAllRewards(shot.state, false)[BLUE];
+	const float second = reward->GetAllRewards(shot.state, false)[BLUE];
+
+	CHECK(first > 0.f);
+	CHECK(second == doctest::Approx(first));
 }

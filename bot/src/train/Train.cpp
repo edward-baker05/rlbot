@@ -14,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <fstream>
@@ -201,6 +202,7 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 		}
 
 		std::vector<float> posTotals(g_RewardLabels.size(), 0.f);
+		std::vector<float> maxAbs(g_RewardLabels.size(), 0.f);
 		int totalLearnerCars = 0;
 
 		// Reused across arenas so the per-arena loop does no allocation.
@@ -239,6 +241,13 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				 j < arenaRewards.size() && j < g_RewardLabels.size(); j++) {
 				Reward *r = arenaRewards[j].reward;
 
+				// The mean hides a rare enormous value, which is the shape of
+				// reward bug that wrecks the critic.
+				auto record = [&](float value) {
+					posTotals[j] += RS_MAX(0.f, value);
+					maxAbs[j] = RS_MAX(maxAbs[j], std::fabs(value));
+				};
+
 				switch (probes[j]) {
 				case RewardProbe::ZeroSum: {
 					// Free: StepSecondHalf already ran this reward for this
@@ -248,7 +257,7 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 					for (const Player *p : learnerCars)
 						if (p->index >= 0 &&
 							static_cast<size_t>(p->index) < last.size())
-							posTotals[j] += RS_MAX(0.f, last[p->index]);
+							record(last[p->index]);
 					break;
 				}
 				case RewardProbe::Goal: {
@@ -256,7 +265,7 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 						break;
 					const Team conceding = RS_TEAM_FROM_Y(gs.ball.pos.y);
 					for (const Player *p : learnerCars)
-						posTotals[j] += (p->team != conceding) ? 1.f : 0.f;
+						record((p->team != conceding) ? 1.f : 0.f);
 					break;
 				}
 				case RewardProbe::Possession: {
@@ -269,16 +278,24 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 					for (const Player *p : learnerCars)
 						if (p->index >= 0 &&
 							static_cast<size_t>(p->index) < all.size())
-							posTotals[j] += RS_MAX(0.f, all[p->index]);
+							record(all[p->index]);
 					break;
 				}
 				case RewardProbe::Plain:
 					for (const Player *p : learnerCars)
-						posTotals[j] +=
-							RS_MAX(0.f, r->GetReward(*p, gs, terminal));
+						record(r->GetReward(*p, gs, terminal));
 					break;
 				}
 			}
+		}
+
+		// Not AddAvg, since a max does not average: Learner.cpp builds one
+		// Report per iteration, so writing to data gives a per-iteration max.
+		for (size_t j = 0; j < g_RewardLabels.size(); j++) {
+			const std::string key = "RewardMax/" + g_RewardLabels[j].first;
+			const double weighted = maxAbs[j] * g_RewardLabels[j].second;
+			if (!report.Has(key) || report[key] < weighted)
+				report[key] = weighted;
 		}
 
 		if (totalLearnerCars > 0) {
@@ -302,19 +319,15 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"goal", b.goal},
 		{"strongTouch", b.strongTouch},
 		{"airTouch", b.airTouch},
-		{"dribbleFlick", b.dribbleFlick},
-		{"onTarget", b.onTarget},
 		{"pickupBoost", b.pickupBoost},
 		{"saveBoost", b.saveBoost},
 		{"speed", b.speed},
 		{"bump", b.bump},
 		{"demo", b.demo},
 		{"save", b.save},
-		{"ballToOwnGoal", b.ballToOwnGoal},
+		{"velBtG", b.velBtG},
 		{"awkwardContact", b.awkwardContact},
 		{"possession", b.possession},
-		{"kickoff", b.kickoff},
-		{"goalside", b.goalside},
 	};
 
 	j["aerial"] = {
@@ -367,6 +380,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 
 	j["necto"] = {
 		{"enabled", cfg.necto.enabled},
+		{"model", cfg.necto.ResolvedModelPath().filename().string()},
 		{"arenaFraction", cfg.necto.arenaFraction},
 		{"trainBeta", cfg.necto.trainBeta},
 		{"benchmark", cfg.necto.benchmark},
@@ -380,6 +394,11 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"tsPerVersion", cfg.selfPlay.tsPerVersion},
 		{"maxOldVersions", cfg.selfPlay.maxOldVersions},
 		{"trackSkill", cfg.selfPlay.trackSkill},
+	};
+
+	j["checkpointing"] = {
+		{"tsPerSave", cfg.tsPerSave},
+		{"checkpointsToKeep", cfg.checkpointsToKeep},
 	};
 
 	return j;
