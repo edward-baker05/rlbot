@@ -47,9 +47,9 @@ struct AerialConfig {
 
 struct SelfPlayConfig {
 	bool trainAgainstOldVersions = true;
-	float trainAgainstOldChance = 0.1f;
+	float trainAgainstOldChance = 0.35f;
 	int64_t tsPerVersion = 25'000'000;
-	int maxOldVersions = 16;
+	int maxOldVersions = 32;
 
 	bool trackSkill = true;
 	int skillArenas = 8;
@@ -166,7 +166,7 @@ struct TrainConfig {
 	//
 	// entropyTargetMin >= entropyTarget disables the decay.
 	float entropyTargetMin = 0.25f;
-	float entropyTargetDecayPerB = 0.02f;
+	float entropyTargetDecayPerB = 0.06f;
 	int64_t entropyDecayFromSteps = 0;
 
 	bool maskEntropy = true;
