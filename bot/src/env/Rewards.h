@@ -54,7 +54,7 @@ inline bool onTarget(const GameState &state, Team goalTeam,
 	return projZ < GOAL_HEIGHT;
 }
 
-// Should return power ^ 2 * direction ^ 2 when ball is hit
+// Should return power * direction when ball is hit
 class DirectionalTouchReward : public Reward {
   public:
 	constexpr static float MAX_REWARDED_HIT_VEL = RLGC::Math::KPHToVel(120);
@@ -83,19 +83,13 @@ class DirectionalTouchReward : public Reward {
 		if (dirFactor < 0)
 			return 0;
 
-		return power * power * dirFactor * dirFactor;
+		return power * dirFactor;
 	}
 };
 
-// Small pads are 12 boost, so on a sqrt curve they are worth almost nothing
-// once the tank is part-full -- Zealan's rewards.md warns bots ignore them for
-// exactly this reason. A big pad always fills to BOOST_MAX, so a pickup that
-// lands below it was necessarily a small one.
 class PadAwarePickupBoostReward : public Reward {
   public:
-	// 1.5x the most a small pad could earn on the sqrt curve, which is
-	// sqrt(12/100) taken from empty.
-	constexpr static float SMALL_PAD_REWARD = 1.5f * 0.34641016f;
+	constexpr static float SMALL_PAD_REWARD = 0.45f;
 
 	constexpr static float FULL_BOOST = 99.99f;
 
@@ -308,7 +302,7 @@ class ImprovedAirTouchReward : public AerialReward {
 			state.ball.pos.z <= minHeight)
 			return 0;
 
-		float height = sqrt((state.ball.pos.z - minHeight) / heightSpan);
+		float height = (state.ball.pos.z - minHeight) / heightSpan;
 		height = RS_CLAMP(height, 0.f, 1.f);
 		if (height <= 0)
 			return 0;
@@ -316,7 +310,7 @@ class ImprovedAirTouchReward : public AerialReward {
 		float climb = GetClimb(player) / heightSpan;
 		climb = RS_CLAMP(climb, 0.f, 1.f);
 
-		float touchReward = height * height * (0.2f + 0.8f * climb);
+		float touchReward = height * (0.2f + 0.8f * climb);
 
 		if (state.prev) {
 			Vec deltaVel = state.ball.vel - state.prev->ball.vel;
@@ -425,13 +419,6 @@ class ImprovedSaveReward : public Reward {
 			!(player.ballTouchedStep &&
 			  state.prev->ball.vel.Length() > RLGC::Math::KPHToVel(60.f)))
 			return 0.f;
-
-		for (const Player &other : state.players) {
-			if (state.prev->lastTouchCarID == other.carId) {
-				if (other.team == player.team)
-					return 0.f;
-			}
-		}
 
 		return (onTarget(*state.prev, player.team, false) &&
 				!onTarget(state, player.team, false));

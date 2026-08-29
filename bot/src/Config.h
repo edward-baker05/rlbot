@@ -14,7 +14,7 @@ namespace Dash {
 
 struct RewardBudget {
 	float goal = 1.f;
-	float strongTouch = 0.45f;
+	float strongTouch = 0.25f;
 
 	float airTouch = 0.50f;
 	float airVtB = 0.01f;
@@ -39,7 +39,7 @@ struct AerialConfig {
 	float aerialSpawnChance = 0.15f;
 
 	float hoverFraction = 0.15f;
-	float minBallHeight = 500.f;
+	float minBallHeight = 650.f;
 	float maxBallHeight = 1800.f;
 	float initialBoost = 100.f;
 };
