@@ -1,7 +1,4 @@
-// Included so the imported community reward pack is compiled on every build
-// rather than rotting until the day something first tries to use it.
 #include "Rewards.h"
-#include "CommunityRewards.h"
 
 using namespace RLGC;
 

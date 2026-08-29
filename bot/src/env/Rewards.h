@@ -2,6 +2,7 @@
 
 #include "../Config.h"
 
+#include "CommunityRewards.h"
 #include "Rewards/ZeroSumReward.h"
 #include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/Math.h>

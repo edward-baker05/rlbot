@@ -30,7 +30,7 @@ struct RewardBudget {
 	float demo = 0.4f;
 
 	float save = 0.5f;
-	float velBtG = -0.0f;
+	float velBtG = -0.00f;
 
 	float awkwardContact = 0.005f;
 	float possession = 0.00f;
