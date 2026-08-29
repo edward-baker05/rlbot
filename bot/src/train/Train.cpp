@@ -30,6 +30,11 @@ namespace Dash {
 
 static int64_t g_MaxSteps = 0;
 
+static float g_EntropyTarget = 0.f;
+static float g_EntropyTargetMin = 0.f;
+static float g_EntropyDecayPerB = 0.f;
+static int64_t g_EntropyDecayFrom = 0;
+
 static volatile std::sig_atomic_t g_StopRequested = 0;
 static void HandleSigint(int) { g_StopRequested = 1; }
 
@@ -150,6 +155,17 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 			   << " >= " << g_MaxSteps << ")";
 		SaveAndExit(learner, reason.str().c_str());
 	}
+
+	// Recomputed from the step count rather than stepped, so a resume lands on
+	// the same target the schedule says it should be at. Held at the starting
+	// target until the controller's anti-windup latch engages -- see
+	// Learner::EntropyControllerEngaged.
+	learner->SetEntropyTarget(
+		learner->EntropyControllerEngaged()
+			? EntropyTargetAt(static_cast<int64_t>(learner->totalTimesteps),
+							  g_EntropyTarget, g_EntropyTargetMin,
+							  g_EntropyDecayPerB, g_EntropyDecayFrom)
+			: g_EntropyTarget);
 
 	auto &es = learner->envSet->state;
 	if (g_EpisodeAge.size() != states.size())
@@ -397,6 +413,9 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"epochs", cfg.epochs},
 		{"entropyScale", cfg.entropyScale},
 		{"entropyTarget", cfg.entropyTarget},
+		{"entropyTargetMin", cfg.entropyTargetMin},
+		{"entropyTargetDecayPerB", cfg.entropyTargetDecayPerB},
+		{"entropyDecayFromSteps", cfg.entropyDecayFromSteps},
 		{"entropyAdjustRate", cfg.entropyAdjustRate},
 		{"maskEntropy", cfg.maskEntropy},
 		{"criticLossScale", cfg.criticLossScale},
@@ -435,7 +454,6 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"enabled", cfg.necto.enabled},
 		{"model", cfg.necto.ResolvedModelPath().filename().string()},
 		{"arenaFraction", cfg.necto.arenaFraction},
-		{"trainBeta", cfg.necto.trainBeta},
 		{"benchmark", cfg.necto.benchmark},
 		{"benchInterval", cfg.necto.benchInterval},
 		{"benchArenas", cfg.necto.benchArenas},
@@ -620,15 +638,29 @@ void RunTraining(const TrainConfig &cfg) {
 		std::cout << "Necto opponent:   on (" << nectoArenas << " arenas, "
 				  << static_cast<int>(100.f * f + 0.5f) << "% of arenas = "
 				  << static_cast<int>(100.f * f / (2.f - f) + 0.5f)
-				  << "% of training data, beta " << cfg.necto.trainBeta
-				  << ")\n";
+				  << "% of training data)\n";
 	}
+	if (cfg.entropyDecayFromSteps > 0 &&
+		cfg.entropyTargetMin < cfg.entropyTarget &&
+		cfg.entropyTargetDecayPerB > 0.f)
+		std::cout << "Entropy target:   " << cfg.entropyTarget << " -> "
+				  << cfg.entropyTargetMin << " at "
+				  << cfg.entropyTargetDecayPerB << "/B from step "
+				  << cfg.entropyDecayFromSteps << "\n";
+	else
+		std::cout << "Entropy target:   " << cfg.entropyTarget
+				  << " (fixed, no decay)\n";
+
 	if (cfg.maxSteps > 0)
 		std::cout << "Step budget:      " << cfg.maxSteps << "\n";
 
 	RecordConfig(cfg);
 
 	g_MaxSteps = cfg.maxSteps;
+	g_EntropyTarget = cfg.entropyTarget;
+	g_EntropyTargetMin = cfg.entropyTargetMin;
+	g_EntropyDecayPerB = cfg.entropyTargetDecayPerB;
+	g_EntropyDecayFrom = cfg.entropyDecayFromSteps;
 
 	g_RewardLabels.clear();
 	for (auto &s : GeneralRewardSpecs(cfg))
@@ -705,8 +737,7 @@ void RunTraining(const TrainConfig &cfg) {
 
 		// Same device as the learner: preStepFn is serial on the collection
 		// thread, so a CPU forward here is dead time for every arena worker.
-		nectoDriver = std::make_unique<NectoDriver>(
-			modelPath, cfg.necto.trainBeta, cfg.randomSeed, cfg.useGPU);
+		nectoDriver = std::make_unique<NectoDriver>(modelPath, cfg.useGPU);
 
 		NectoDriver *driver = nectoDriver.get();
 		lc.externalPlayerMaskFn = [driver](RLGC::EnvSet *envSet,

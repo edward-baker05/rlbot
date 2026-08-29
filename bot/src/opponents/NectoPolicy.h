@@ -3,10 +3,8 @@
 #include <RLGymCPP/BasicTypes/Action.h>
 #include <RLGymCPP/Gamestates/GameState.h>
 
-#include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <random>
 #include <vector>
 
 namespace Dash {
@@ -68,13 +66,10 @@ class NectoPolicy {
 	static constexpr int FEATURES = 24;
 	static constexpr int Q_SIZE = FEATURES + RLGC::Action::ELEM_AMOUNT;
 
-	// beta shapes the action distribution, matching necto/agent.py:
-	//   1.0  argmax (deterministic)
-	//   0.5  exactly on-policy sampling -- the logit scale works out to 1.0
-	//   0.0  uniform random
-	// Training uses 0.5: a deterministic opponent is memorisable, and memorising
-	// it is the failure mode this is meant to avoid. The benchmark uses 1.0,
-	// which wants the opposite -- low variance.
+	// Actions are always argmax. necto/agent.py exposes a beta temperature, and
+	// training used 0.5 (on-policy sampling) while the benchmark used 1.0; that
+	// split made the two disagree about the same opponent, so both now take the
+	// deterministic one.
 	//
 	// useGPU puts the model on CUDA when one is available. During training that
 	// is what you want: this forward runs in preStepFn, which is serial on the
@@ -82,8 +77,7 @@ class NectoPolicy {
 	// through collection. It falls back to CPU silently if CUDA is absent, so
 	// callers that must not touch the GPU should pass false rather than rely on
 	// that.
-	NectoPolicy(const std::filesystem::path &modelPath, float beta,
-				int64_t seed, bool useGPU);
+	NectoPolicy(const std::filesystem::path &modelPath, bool useGPU);
 	~NectoPolicy();
 
 	// Where the model actually ended up -- false when the GPU was asked for and
@@ -125,30 +119,25 @@ class NectoPolicy {
 	// decided, which reads as "weaker than expected" rather than as a bug.
 	static std::vector<RLGC::Action> NextoLookupTable();
 
-	float Beta() const { return beta; }
-
   private:
 	// Necto: decodes the five factored logit heads into a car control input.
-	RLGC::Action SampleAction(const float *const *heads, const int *headSizes);
+	RLGC::Action DecodeAction(const float *const *heads, const int *headSizes);
 
 	// Nexto: decodes one 90-way categorical into a car control input.
-	RLGC::Action SampleLookupAction(const float *logits, int count);
+	RLGC::Action DecodeLookupAction(const float *logits, int count);
 
 	struct Module;
 	std::unique_ptr<Module> module;
 
 	NectoFamily family = NectoFamily::Necto;
-	float beta;
-	float logitScale;
 	bool onGPU = false;
-	std::mt19937 rng;
 
 	// Nexto's action space, empty for Necto. Index into this is exactly the
 	// index the model emits.
 	std::vector<RLGC::Action> lookupTable;
 
 	// Reused across steps so a training loop does not reallocate every tick.
-	std::vector<float> qBuf, kvBuf, maskBuf, logitBuf;
+	std::vector<float> qBuf, kvBuf, maskBuf;
 };
 
 } // namespace Dash

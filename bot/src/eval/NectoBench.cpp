@@ -153,7 +153,6 @@ struct NectoBench::Impl {
 		// CPU on purpose, matching the learner-side policy below: this blocks
 		// collection while it runs, and the GPU's memory is training's.
 		necto = std::make_unique<NectoPolicy>(cfg.necto.ResolvedModelPath(),
-											  cfg.necto.benchBeta, 0,
 											  /*useGPU=*/false);
 
 		// Half the arenas put Necto on each side. Same reasoning as the training

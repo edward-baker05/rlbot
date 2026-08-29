@@ -68,10 +68,6 @@ TEST_CASE("PredictiveObs leaves the existing dimensions untouched") {
 	auto advanced = MakeObsBuilder(3, ObsMode::Advanced);
 
 	RLGC::GameState s = MakeState();
-	// One player only: the padded slots are shuffled, so a two-player state
-	// would differ between builders by shuffle order alone.
-	s.players.resize(1);
-
 	const RLGC::FList p = predictive->BuildObs(s.players[0], s);
 	const RLGC::FList a = advanced->BuildObs(s.players[0], s);
 

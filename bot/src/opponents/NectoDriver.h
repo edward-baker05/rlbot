@@ -18,8 +18,7 @@ namespace Dash {
 // opponent's controls.
 class NectoDriver {
   public:
-	NectoDriver(const std::filesystem::path &modelPath, float beta,
-				int64_t seed, bool useGPU);
+	NectoDriver(const std::filesystem::path &modelPath, bool useGPU);
 
 	// externalPlayerMaskFn. Flags every car on Necto's side, in the learner's
 	// flat player indexing.

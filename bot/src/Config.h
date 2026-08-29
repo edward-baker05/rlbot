@@ -63,9 +63,6 @@ struct NectoConfig {
 
 	float arenaFraction = 0.1f;
 
-	float trainBeta = 0.5f;
-	float benchBeta = 1.0f;
-
 	std::filesystem::path modelPath =
 		"../../libs/opponents/NectoFamily/nexto/nexto-model.pt";
 
@@ -133,7 +130,7 @@ struct TrainConfig {
 	TeamDistribution teamDistribution = {};
 
 	bool maskActions = true;
-	ObsMode obs = ObsMode::Predictive;
+	ObsMode obs = ObsMode::PadGeometry;
 	float infiniteBoostChance = 0.1f;
 
 	RewardBudget rewards = {};
@@ -160,6 +157,17 @@ struct TrainConfig {
 	float entropyScale = 0.02f;
 	float entropyTarget = 0.49f;
 	float entropyAdjustRate = 0.15f;
+
+	// Under maskEntropy the target is normalised, so 0.49 pins the policy at
+	// 49% of maximum randomness for the whole run and it can never sharpen.
+	// These anneal the target instead. Deliberately a pure function of
+	// totalTimesteps: a schedule with its own integrator would be one more
+	// thing a resume could lose.
+	//
+	// entropyTargetMin >= entropyTarget disables the decay.
+	float entropyTargetMin = 0.25f;
+	float entropyTargetDecayPerB = 0.02f;
+	int64_t entropyDecayFromSteps = 0;
 
 	bool maskEntropy = true;
 
@@ -197,5 +205,28 @@ struct TrainConfig {
 		return checkpointRoot / RunName();
 	}
 };
+
+// Constant until `fromSteps`, then linear at `decayPerB` per billion steps,
+// then flat at `targetMin`. A free function taking its inputs rather than a
+// method, so the training loop can hold four scalars instead of a config copy.
+//
+// fromSteps <= 0 disables the decay rather than measuring from step zero: a run
+// resumed at 4B would otherwise drop the target by 0.08 the moment the anchor
+// was left off the command line, which is a silent change to the one knob this
+// is meant to make legible.
+inline float EntropyTargetAt(int64_t totalTimesteps, float target,
+							 float targetMin, float decayPerB,
+							 int64_t fromSteps) {
+	if (targetMin >= target || decayPerB <= 0.f || fromSteps <= 0)
+		return target;
+
+	const int64_t elapsed = totalTimesteps - fromSteps;
+	if (elapsed <= 0)
+		return target;
+
+	const float dropped =
+		target - decayPerB * static_cast<float>(elapsed) / 1e9f;
+	return dropped > targetMin ? dropped : targetMin;
+}
 
 } // namespace Dash

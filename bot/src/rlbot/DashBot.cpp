@@ -54,6 +54,8 @@ BotSettings BotSettings::FromEnvironment() {
 		s.obs = ObsMode::Default;
 	} else if (obsStr == "predictive" || obsStr == "Predictive") {
 		s.obs = ObsMode::Predictive;
+	} else if (obsStr == "padgeometry" || obsStr == "PadGeometry") {
+		s.obs = ObsMode::PadGeometry;
 	} else {
 		s.obs = ObsMode::Advanced;
 	}

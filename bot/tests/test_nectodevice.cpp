@@ -104,11 +104,8 @@ GameState MakeVariedState(int k) {
 // The whole comparison, so both families run exactly the same check.
 void CheckDeviceEquivalence(const std::filesystem::path &model,
 							NectoFamily expectedFamily) {
-	// beta 1.0 is argmax, so sampling consumes no RNG and the comparison is a
-	// property of the forward pass alone rather than of two RNG streams
-	// happening to agree.
-	NectoPolicy cpu(model, 1.0f, 0, /*useGPU=*/false);
-	NectoPolicy gpu(model, 1.0f, 0, /*useGPU=*/true);
+	NectoPolicy cpu(model, /*useGPU=*/false);
+	NectoPolicy gpu(model, /*useGPU=*/true);
 
 	// Detection drives the observation and the action decode, so a file that
 	// came back as the wrong family would make everything below meaningless.

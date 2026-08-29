@@ -1164,7 +1164,176 @@ EXT_PRESTEP_ANCHOR = '\t\t\t\t\t\tenvSet->Sync(); // Make sure the first half is
 
 EXT_PRESTEP_BODY = "\t\t\t\t\t\tenvSet->Sync(); // Make sure the first half is done\n\n\t\t\t\t\t\t// --- HIVE LOCAL PATCH: pre-step hook -----------------------\n\t\t\t\t\t\t// Where a non-GigaLearn opponent computes its controls, in ONE\n\t\t\t\t\t\t// batched forward covering every arena it plays in. The arenas'\n\t\t\t\t\t\t// action parsers pick those up during the step below.\n\t\t\t\t\t\t//\n\t\t\t\t\t\t// This has to be a hook rather than lazy work inside the parser:\n\t\t\t\t\t\t// the parser is called once per car, so inference would degrade\n\t\t\t\t\t\t// to one tiny forward per arena (~40ms per step measured at 51\n\t\t\t\t\t\t// arenas) instead of a single batched one (~3ms).\n\t\t\t\t\t\tif (config.preStepFn)\n\t\t\t\t\t\t\tconfig.preStepFn(envSet);\n\t\t\t\t\t\t// --- END HIVE LOCAL PATCH ---------------------------------\n\n\t\t\t\t\t\tenvSet->StepSecondHalf(curActions, false);"
 
+CTRL_STATE_INCLUDE_ANCHOR = '''#include "../Util/Models.h"
+'''
+
+CTRL_STATE_INCLUDE_BODY = '''#include "../Util/Models.h"
+
+#include <nlohmann/json.hpp>
+'''
+
+CTRL_STATE_DECL_ANCHOR = '''		void SetLearningRates(float policyLR, float criticLR);
+'''
+
+CTRL_STATE_DECL_BODY = '''		void SetLearningRates(float policyLR, float criticLR);
+
+		// --- HIVE LOCAL PATCH: controller state across resumes ----------------
+		// Both controllers keep their integrator in `config`, which is rebuilt
+		// from the run's settings on every start. Without these, each resume
+		// reset entropyScale to its configured value, cleared the anti-windup
+		// latch, and re-anchored the KL controller's clamp bounds to the
+		// configured LR -- a full transient per restart, and t5 took eight.
+		nlohmann::json SaveControllerState() const;
+		void LoadControllerState(const nlohmann::json& j);
+		// --- END HIVE LOCAL PATCH ---------------------------------------------
+'''
+
+CTRL_STATE_IMPL_ANCHOR = '''GGL::ModelSet GGL::PPOLearner::GetPolicyModels() {'''
+
+CTRL_STATE_IMPL_BODY = '''// --- HIVE LOCAL PATCH: controller state across resumes ----------------------
+// policyLR is part of the state, not just a setting: it IS the KL controller's
+// integrator, so restoring the clamp bounds without it would re-anchor them to
+// a learning rate the controller had already moved away from.
+nlohmann::json GGL::PPOLearner::SaveControllerState() const {
+	return {
+		{"entropy_scale", config.entropyScale},
+		{"entropy_controller_engaged", config.entropyControllerEngaged},
+		{"entropy_scale_min", config.entropyScaleMin},
+		{"kl_base_lr_captured", config.klBaseLRCaptured},
+		{"kl_base_policy_lr", config.klBasePolicyLR},
+		{"policy_lr", config.policyLR},
+	};
+}
+
+void GGL::PPOLearner::LoadControllerState(const nlohmann::json& j) {
+	config.entropyScale = j.value("entropy_scale", config.entropyScale);
+	config.entropyControllerEngaged =
+		j.value("entropy_controller_engaged", config.entropyControllerEngaged);
+	config.entropyScaleMin = j.value("entropy_scale_min", config.entropyScaleMin);
+	config.klBaseLRCaptured = j.value("kl_base_lr_captured", config.klBaseLRCaptured);
+	config.klBasePolicyLR = j.value("kl_base_policy_lr", config.klBasePolicyLR);
+
+	// Through SetLearningRates rather than the field, so the optimizers and the
+	// shared head's min(policyLR, criticLR) follow.
+	const float savedPolicyLR = j.value("policy_lr", config.policyLR);
+	if (savedPolicyLR > 0)
+		SetLearningRates(savedPolicyLR, config.criticLR);
+}
+// --- END HIVE LOCAL PATCH ---------------------------------------------------
+
+GGL::ModelSet GGL::PPOLearner::GetPolicyModels() {'''
+
+CTRL_STATE_SAVE_ANCHOR = '''	if (versionMgr)
+		versionMgr->AddRunningStatsToJSON(j);
+'''
+
+CTRL_STATE_SAVE_BODY = '''	if (versionMgr)
+		versionMgr->AddRunningStatsToJSON(j);
+
+	if (ppo)
+		j["controllers"] = ppo->SaveControllerState();
+'''
+
+CTRL_STATE_LOAD_ANCHOR = '''	if (versionMgr)
+		versionMgr->LoadRunningStatsFromJSON(j);
+}'''
+
+CTRL_STATE_LOAD_BODY = '''	if (versionMgr)
+		versionMgr->LoadRunningStatsFromJSON(j);
+
+	// Absent on checkpoints written before this existed, which is exactly the
+	// case the configured values are right for.
+	if (ppo && j.contains("controllers"))
+		ppo->LoadControllerState(j["controllers"]);
+}'''
+
+ENTROPY_SCHED_DECL_ANCHOR = '''		void SaveStats(std::filesystem::path path);
+		void LoadStats(std::filesystem::path path);
+'''
+
+ENTROPY_SCHED_DECL_BODY = '''		void SaveStats(std::filesystem::path path);
+		void LoadStats(std::filesystem::path path);
+
+		// --- HIVE LOCAL PATCH: entropy target schedule ------------------------
+		// What the target should be at a given step is the caller's policy;
+		// these are only the way in, since PPOLearner's header is private and
+		// the step callback lives outside the library.
+		//
+		// The engaged flag is exposed because a schedule MUST NOT move the
+		// target while the anti-windup latch is still open: the latch engages
+		// on measured <= target, so a target walking away from an unengaged
+		// controller would keep it open forever and the schedule would silently
+		// do nothing.
+		void SetEntropyTarget(float target);
+		bool EntropyControllerEngaged() const;
+		// --- END HIVE LOCAL PATCH ---------------------------------------------
+'''
+
+ENTROPY_SCHED_IMPL_ANCHOR = '''void GGL::Learner::SaveStats(std::filesystem::path path) {'''
+
+ENTROPY_SCHED_IMPL_BODY = '''// --- HIVE LOCAL PATCH: entropy target schedule ------------------------------
+void GGL::Learner::SetEntropyTarget(float target) {
+	if (ppo && std::isfinite(target) && target > 0)
+		ppo->config.entropyTarget = target;
+}
+
+bool GGL::Learner::EntropyControllerEngaged() const {
+	return ppo && ppo->config.entropyControllerEngaged;
+}
+// --- END HIVE LOCAL PATCH ---------------------------------------------------
+
+void GGL::Learner::SaveStats(std::filesystem::path path) {'''
+
 PATCHES = [
+	{
+		"name": "entropy-schedule-decl",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.h",
+		"marker": "HIVE LOCAL PATCH: entropy target schedule",
+		"anchor": ENTROPY_SCHED_DECL_ANCHOR,
+		"body": ENTROPY_SCHED_DECL_BODY,
+	},
+	{
+		"name": "entropy-schedule-impl",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp",
+		"marker": "GGL::Learner::SetEntropyTarget",
+		"anchor": ENTROPY_SCHED_IMPL_ANCHOR,
+		"body": ENTROPY_SCHED_IMPL_BODY,
+	},
+	{
+		"name": "controller-state-json-include",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/private/GigaLearnCPP/PPO/PPOLearner.h",
+		"marker": "#include <nlohmann/json.hpp>",
+		"anchor": CTRL_STATE_INCLUDE_ANCHOR,
+		"body": CTRL_STATE_INCLUDE_BODY,
+	},
+	{
+		"name": "controller-state-decl",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/private/GigaLearnCPP/PPO/PPOLearner.h",
+		"marker": "HIVE LOCAL PATCH: controller state across resumes",
+		"anchor": CTRL_STATE_DECL_ANCHOR,
+		"body": CTRL_STATE_DECL_BODY,
+	},
+	{
+		"name": "controller-state-impl",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/private/GigaLearnCPP/PPO/PPOLearner.cpp",
+		"marker": "GGL::PPOLearner::SaveControllerState",
+		"anchor": CTRL_STATE_IMPL_ANCHOR,
+		"body": CTRL_STATE_IMPL_BODY,
+	},
+	{
+		"name": "controller-state-save",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp",
+		"marker": 'j["controllers"] = ppo->SaveControllerState();',
+		"anchor": CTRL_STATE_SAVE_ANCHOR,
+		"body": CTRL_STATE_SAVE_BODY,
+	},
+	{
+		"name": "controller-state-load",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp",
+		"marker": "ppo->LoadControllerState(",
+		"anchor": CTRL_STATE_LOAD_ANCHOR,
+		"body": CTRL_STATE_LOAD_BODY,
+	},
 	{
 		"name": "exploration-floor",
 		"path": "external/GigaLearnCPP/GigaLearnCPP/src/private/GigaLearnCPP/PPO/PPOLearner.cpp",

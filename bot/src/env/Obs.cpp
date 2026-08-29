@@ -1,5 +1,6 @@
 #include "Obs.h"
 #include "AdvancedObsPadded.h"
+#include "PadGeometryObs.h"
 #include "PredictiveObs.h"
 #include "RelativeObs.h"
 
@@ -26,6 +27,8 @@ std::unique_ptr<ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,
 		return std::make_unique<RelativeObs>(maxPlayersPerTeam);
 	case ObsMode::Predictive:
 		return std::make_unique<PredictiveObs>(maxPlayersPerTeam);
+	case ObsMode::PadGeometry:
+		return std::make_unique<PadGeometryObs>(maxPlayersPerTeam);
 	default:
 		throw std::runtime_error("MakeObsBuilder(): unknown ObsMode");
 	}
@@ -62,6 +65,7 @@ const char* ObsModeName(ObsMode mode) {
 	case ObsMode::Advanced:   return "Advanced";
 	case ObsMode::Relative:   return "Relative";
 	case ObsMode::Predictive: return "Predictive";
+	case ObsMode::PadGeometry: return "PadGeometry";
 	}
 	return "Unknown";
 }

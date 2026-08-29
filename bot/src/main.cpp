@@ -45,8 +45,9 @@ void PrintUsage(const char *argv0) {
 		"\n"
 		"Training options:\n"
 		"  --games N            Number of simultaneous games (default 128)\n"
-		"  --obs MODE           Observation builder: default, advanced or "
-		"predictive (default: advanced)\n"
+		"  --obs MODE           Observation builder: default, advanced, "
+		"predictive or\n"
+		"                       padgeometry (default: padgeometry)\n"
 		"  --p1 X               Weight/probability of 1v1 arenas (default: "
 		"1.0)\n"
 		"  --p2 X               Weight/probability of 2v2 arenas (default: "
@@ -64,8 +65,15 @@ void PrintUsage(const char *argv0) {
 		"  --label NAME         Suffix run and checkpoint names, to keep runs "
 		"apart\n"
 		"  --entropy X          Entropy bonus scale (default 0.020)\n"
-		"  --entropy-target X   Target normalized entropy (0 disables "
-		"controller, default 0.0)\n"
+		"  --entropy-target X   Starting target normalized entropy (0 disables "
+		"controller,\n"
+		"                       default 0.49)\n"
+		"  --entropy-target-min X   Floor the target decays to (>= target "
+		"disables\n"
+		"                       the decay, default 0.25)\n"
+		"  --entropy-decay X    Target drop per 1B steps (default 0.02)\n"
+		"  --entropy-decay-from N   Step count the decay is measured from "
+		"(default 0)\n"
 		"  --lr X               Policy and critic learning rate; 0 freezes "
 		"the\n"
 		"                       policy, for calibration probes\n"
@@ -96,8 +104,6 @@ void PrintUsage(const char *argv0) {
 		"  --arenas N           Parallel arenas, also the goals per round\n"
 		"                       (default 16)\n"
 		"  --rounds N           Play N rounds (default 1)\n"
-		"  --necto-beta X       Necto temperature (default 1.0 = "
-		"deterministic)\n"
 		"\n"
 		"Match options (head-to-head standard games):\n"
 		"  --m1 / --p1 PATH     First checkpoint path or run label (default: "
@@ -127,8 +133,6 @@ void PrintUsage(const char *argv0) {
 		"                       0.20). The share of training DATA is X/(2-X),\n"
 		"                       since only the learner's half of those arenas\n"
 		"                       produces trajectories\n"
-		"  --necto-beta X       Necto sampling temperature: 0.5 is on-policy\n"
-		"                       sampling (default), 1.0 is deterministic\n"
 		"  --no-necto-bench     Skip the periodic head-to-head benchmark\n"
 		"  --necto-bench-interval N  Iterations between benchmarks (default "
 		"100)\n"
@@ -219,10 +223,12 @@ int RunTrain(int argc, char *argv[]) {
 				cfg.obs = Dash::ObsMode::Advanced;
 			} else if (modeStr == "predictive" || modeStr == "Predictive") {
 				cfg.obs = Dash::ObsMode::Predictive;
+			} else if (modeStr == "padgeometry" || modeStr == "PadGeometry") {
+				cfg.obs = Dash::ObsMode::PadGeometry;
 			} else {
 				std::fprintf(stderr,
 							 "Unknown obs mode: %s (expected 'default', "
-							 "'advanced' or 'predictive')\n",
+							 "'advanced', 'predictive' or 'padgeometry')\n",
 							 modeStr.c_str());
 				return EXIT_FAILURE;
 			}
@@ -250,6 +256,13 @@ int RunTrain(int argc, char *argv[]) {
 		} else if (arg == "--entropy-target" && i + 1 < argc) {
 			// 0 disables the controller and pins entropyScale to --entropy.
 			cfg.entropyTarget = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--entropy-target-min" && i + 1 < argc) {
+			cfg.entropyTargetMin = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--entropy-decay" && i + 1 < argc) {
+			cfg.entropyTargetDecayPerB =
+				static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--entropy-decay-from" && i + 1 < argc) {
+			cfg.entropyDecayFromSteps = std::atoll(argv[++i]);
 		} else if (arg == "--lr" && i + 1 < argc) {
 			// 0 freezes the policy, which is what a calibration probe needs.
 			const float lr = static_cast<float>(std::atof(argv[++i]));
@@ -286,8 +299,6 @@ int RunTrain(int argc, char *argv[]) {
 		} else if (arg == "--necto-fraction" && i + 1 < argc) {
 			cfg.necto.enabled = true;
 			cfg.necto.arenaFraction = static_cast<float>(std::atof(argv[++i]));
-		} else if (arg == "--necto-beta" && i + 1 < argc) {
-			cfg.necto.trainBeta = static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--no-necto-bench") {
 			cfg.necto.benchmark = false;
 		} else if (arg == "--necto-bench-interval" && i + 1 < argc) {
@@ -498,8 +509,6 @@ int RunBenchmark(int argc, char *argv[]) {
 			cfg.necto.benchArenas = std::atoi(argv[++i]);
 		} else if (arg == "--rounds" && i + 1 < argc) {
 			rounds = std::atoi(argv[++i]);
-		} else if (arg == "--necto-beta" && i + 1 < argc) {
-			cfg.necto.benchBeta = static_cast<float>(std::atof(argv[++i]));
 		} else {
 			std::fprintf(stderr, "Unknown option: %s\n", arg.c_str());
 			return EXIT_FAILURE;
@@ -531,10 +540,9 @@ int RunBenchmark(int argc, char *argv[]) {
 	RocketSim::Init(FindCollisionMeshes());
 
 	Dash::NectoBench bench(cfg);
-	std::printf("Benchmarking %s vs %s (%d arenas, beta %.2f, "
-				"training scenario pool)\n",
+	std::printf("Benchmarking %s vs %s (%d arenas, training scenario pool)\n",
 				model.string().c_str(), bench.OpponentName(),
-				cfg.necto.benchArenas, cfg.necto.benchBeta);
+				cfg.necto.benchArenas);
 
 	for (int r = 0; r < rounds; r++) {
 		const Dash::NectoBenchResult result = bench.Run(model);

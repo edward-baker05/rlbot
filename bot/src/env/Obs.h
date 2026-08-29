@@ -11,6 +11,7 @@ enum class ObsMode {
 	Advanced,
 	Relative,
 	Predictive,
+	PadGeometry,
 };
 
 std::unique_ptr<RLGC::ObsBuilder> MakeObsBuilder(int maxPlayersPerTeam,

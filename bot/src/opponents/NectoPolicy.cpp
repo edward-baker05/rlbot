@@ -9,7 +9,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <map>
 #include <stdexcept>
 
@@ -195,10 +194,7 @@ struct NectoPolicy::Module {
 	torch::Device device = torch::kCPU;
 };
 
-NectoPolicy::NectoPolicy(const std::filesystem::path &modelPath, float beta,
-						 int64_t seed, bool useGPU)
-	: beta(std::clamp(beta, 0.f, 1.f)),
-	  rng(seed < 0 ? std::random_device{}() : static_cast<uint32_t>(seed)) {
+NectoPolicy::NectoPolicy(const std::filesystem::path &modelPath, bool useGPU) {
 	if (!std::filesystem::is_regular_file(modelPath))
 		throw std::runtime_error("NectoPolicy: no model file at " +
 								 modelPath.string());
@@ -237,13 +233,6 @@ NectoPolicy::NectoPolicy(const std::filesystem::path &modelPath, float beta,
 
 	if (family == NectoFamily::Nexto)
 		lookupTable = NextoLookupTable();
-
-	// agent.py: logits *= log((beta + 1) / (1 - beta), 3). Falls out to exactly
-	// 1.0 at beta = 0.5, which is why that value is plain on-policy sampling.
-	logitScale = (this->beta >= 1.f || this->beta <= 0.f)
-					 ? 0.f
-					 : std::log((this->beta + 1.f) / (1.f - this->beta)) /
-						   std::log(3.f);
 }
 
 NectoPolicy::~NectoPolicy() = default;
@@ -409,52 +398,17 @@ void NectoPolicy::BuildObs(NectoFamily family, const GameState &gs,
 	}
 }
 
-Action NectoPolicy::SampleAction(const float *const *heads,
+Action NectoPolicy::DecodeAction(const float *const *heads,
 								 const int *headSizes) {
 	int picked[NUM_HEADS] = {};
 
 	for (int h = 0; h < NUM_HEADS; h++) {
-		const int k = headSizes[h];
 		const float *logits = heads[h];
-
-		if (beta >= 1.f) { // argmax
-			int best = 0;
-			for (int c = 1; c < k; c++)
-				if (logits[c] > logits[best])
-					best = c;
-			picked[h] = best;
-			continue;
-		}
-
-		if (beta <= 0.f) { // uniform
-			picked[h] = std::uniform_int_distribution<int>(0, k - 1)(rng);
-			continue;
-		}
-
-		float scaled[MAX_HEAD_SIZE];
-		float maxLogit = -std::numeric_limits<float>::infinity();
-		for (int c = 0; c < k; c++) {
-			scaled[c] = logits[c] * logitScale;
-			maxLogit = std::max(maxLogit, scaled[c]);
-		}
-
-		float sum = 0.f;
-		for (int c = 0; c < k; c++) {
-			scaled[c] = std::exp(scaled[c] - maxLogit);
-			sum += scaled[c];
-		}
-
-		const float u =
-			std::uniform_real_distribution<float>(0.f, 1.f)(rng) * sum;
-		float acc = 0.f;
-		picked[h] = k - 1;
-		for (int c = 0; c < k; c++) {
-			acc += scaled[c];
-			if (u <= acc) {
-				picked[h] = c;
-				break;
-			}
-		}
+		int best = 0;
+		for (int c = 1; c < headSizes[h]; c++)
+			if (logits[c] > logits[best])
+				best = c;
+		picked[h] = best;
 	}
 
 	// agent.py's mapping. Heads 0 and 1 are ternary and shift to {-1, 0, 1};
@@ -479,46 +433,11 @@ Action NectoPolicy::SampleAction(const float *const *heads,
 	return act;
 }
 
-Action NectoPolicy::SampleLookupAction(const float *logits, int count) {
-	// Same temperature semantics as SampleAction, over one wide head instead of
-	// five narrow ones. nexto/agent.py runs a single Categorical here, and at
-	// beta = 0 zeroes the finite logits, which is a uniform draw over all of
-	// them -- every entry is finite, since nothing is padded at this width.
+Action NectoPolicy::DecodeLookupAction(const float *logits, int count) {
 	int picked = 0;
-
-	if (beta >= 1.f) { // argmax
-		for (int c = 1; c < count; c++)
-			if (logits[c] > logits[picked])
-				picked = c;
-	} else if (beta <= 0.f) { // uniform
-		picked = std::uniform_int_distribution<int>(0, count - 1)(rng);
-	} else {
-		logitBuf.resize(count);
-
-		float maxLogit = -std::numeric_limits<float>::infinity();
-		for (int c = 0; c < count; c++) {
-			logitBuf[c] = logits[c] * logitScale;
-			maxLogit = std::max(maxLogit, logitBuf[c]);
-		}
-
-		float sum = 0.f;
-		for (int c = 0; c < count; c++) {
-			logitBuf[c] = std::exp(logitBuf[c] - maxLogit);
-			sum += logitBuf[c];
-		}
-
-		const float u =
-			std::uniform_real_distribution<float>(0.f, 1.f)(rng) * sum;
-		float acc = 0.f;
-		picked = count - 1;
-		for (int c = 0; c < count; c++) {
-			acc += logitBuf[c];
-			if (u <= acc) {
-				picked = c;
-				break;
-			}
-		}
-	}
+	for (int c = 1; c < count; c++)
+		if (logits[c] > logits[picked])
+			picked = c;
 
 	return lookupTable[picked];
 }
@@ -596,7 +515,7 @@ void NectoPolicy::InferBatch(const std::vector<NectoRequest> &requests,
 
 			const float *data = logits.data_ptr<float>();
 			for (int j = 0; j < b; j++)
-				outActions[idxs[j]] = SampleLookupAction(
+				outActions[idxs[j]] = DecodeLookupAction(
 					data + static_cast<size_t>(j) * count, count);
 			continue;
 		}
@@ -638,7 +557,7 @@ void NectoPolicy::InferBatch(const std::vector<NectoRequest> &requests,
 			for (int h = 0; h < NUM_HEADS; h++)
 				headPtrs[h] = heads[h].data_ptr<float>() +
 							  static_cast<size_t>(j) * headSizes[h];
-			outActions[idxs[j]] = SampleAction(headPtrs, headSizes);
+			outActions[idxs[j]] = DecodeAction(headPtrs, headSizes);
 		}
 	}
 }

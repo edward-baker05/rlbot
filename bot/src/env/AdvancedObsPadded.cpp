@@ -3,6 +3,7 @@
 #include <RLGymCPP/Gamestates/StateUtil.h>
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 using namespace RLGC;
@@ -39,7 +40,12 @@ FList AdvancedObsPadded::BuildObs(const Player &player,
 	result += selfObs;
 	int playerObsSize = static_cast<int>(selfObs.size());
 
-	std::vector<FList> teammates = {}, opponents = {};
+	// Distance to the ball, so that slot order is a property of the state
+	// rather than of the draw. This used to be a shuffle, on the usual
+	// permutation-invariance reasoning -- but zero padding ran first, so at 1v1
+	// the single real opponent landed in a random one of `maxPlayers` slots on
+	// every step.
+	std::vector<std::pair<float, FList>> teammates = {}, opponents = {};
 
 	for (auto &otherPlayer : state.players) {
 		if (otherPlayer.carId == player.carId)
@@ -48,7 +54,8 @@ FList AdvancedObsPadded::BuildObs(const Player &player,
 		FList playerObs = {};
 		AddPlayerToObs(playerObs, otherPlayer, inv, ball);
 		((otherPlayer.team == player.team) ? teammates : opponents)
-			.push_back(playerObs);
+			.emplace_back(otherPlayer.pos.DistSq(state.ball.pos),
+						  std::move(playerObs));
 	}
 
 	if (static_cast<int>(teammates.size()) > maxPlayers - 1)
@@ -61,23 +68,22 @@ FList AdvancedObsPadded::BuildObs(const Player &player,
 			"AdvancedObsPadded: Too many opponents for Obs, maximum is "
 			<< maxPlayers);
 
-	for (int i = 0; i < 2; i++) {
-		auto &playerList = i ? teammates : opponents;
-		int targetCount = i ? maxPlayers - 1 : maxPlayers;
+	auto emitSorted = [&](std::vector<std::pair<float, FList>> &playerList,
+						  int targetCount) {
+		std::sort(playerList.begin(), playerList.end(),
+				  [](const std::pair<float, FList> &a,
+					 const std::pair<float, FList> &b) {
+					  return a.first < b.first;
+				  });
 
-		while (static_cast<int>(playerList.size()) < targetCount) {
-			FList pad = FList(playerObsSize);
-			playerList.push_back(pad);
-		}
-	}
+		for (auto &entry : playerList)
+			result += entry.second;
+		for (int i = static_cast<int>(playerList.size()); i < targetCount; i++)
+			result += FList(playerObsSize);
+	};
 
-	std::shuffle(teammates.begin(), teammates.end(), ::Math::GetRandEngine());
-	std::shuffle(opponents.begin(), opponents.end(), ::Math::GetRandEngine());
-
-	for (auto &teammate : teammates)
-		result += teammate;
-	for (auto &opponent : opponents)
-		result += opponent;
+	emitSorted(teammates, maxPlayers - 1);
+	emitSorted(opponents, maxPlayers);
 
 	return result;
 }

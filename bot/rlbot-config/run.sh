@@ -65,8 +65,9 @@ export DASH_ACTION_DELAY="${DASH_ACTION_DELAY:-${HIVE_ACTION_DELAY:-7}}"
 
 # Observation builder. MUST match TrainConfig::obs -- it sets the input width,
 # so a mismatch fails loudly at model load rather than playing badly:
-#   default 89 / advanced 225 / predictive 249  (at padding width 3)
-export DASH_OBS="${DASH_OBS:-${HIVE_OBS:-predictive}}"
+#   default 89 / advanced 225 / predictive 249 / padgeometry 297
+#   (at padding width 3)
+export DASH_OBS="${DASH_OBS:-${HIVE_OBS:-padgeometry}}"
 
 # Action masking. MUST match the value training used (TrainConfig::maskActions).
 # This one does NOT change the input width, so a mismatch loads fine and simply

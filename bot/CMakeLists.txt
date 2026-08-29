@@ -97,6 +97,8 @@ add_library(DashCore STATIC
 	src/env/Env.h
 	src/env/Obs.cpp
 	src/env/Obs.h
+	src/env/PadGeometryObs.cpp
+	src/env/PadGeometryObs.h
 	src/env/PredictiveObs.cpp
 	src/env/PredictiveObs.h
 	src/env/RelativeObs.cpp
@@ -219,6 +221,8 @@ target_link_libraries(DashBot PRIVATE DashCore)
 add_executable(DashTests
 	tests/test_main.cpp
 	tests/test_ballpredictor.cpp
+	tests/test_entropyschedule.cpp
+	tests/test_padgeometryobs.cpp
 	tests/test_predictiveobs.cpp
 	tests/test_migrateobs.cpp
 	tests/test_nectodevice.cpp
