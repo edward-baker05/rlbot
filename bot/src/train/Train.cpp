@@ -374,6 +374,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"pickupBoost", b.pickupBoost},
 		{"saveBoost", b.saveBoost},
 		{"speed", b.speed},
+		{"wavedash", b.wavedash},
 		{"bump", b.bump},
 		{"demo", b.demo},
 		{"save", b.save},

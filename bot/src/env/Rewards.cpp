@@ -46,6 +46,9 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Speed", b.speed, RewardKind::Continuous,
 		 [] { return new SpeedReward(); }},
 
+		{"Wavedash", b.wavedash, RewardKind::Event,
+		 [] { return new WavedashReward(); }},
+
 		{"Bump", b.bump, RewardKind::Event, [] { return new BumpReward(); }},
 
 		{"Demo", b.demo, RewardKind::Event,

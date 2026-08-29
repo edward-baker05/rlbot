@@ -24,6 +24,7 @@ struct RewardBudget {
 	float pickupBoost = 0.10f;
 	float saveBoost = 0.0003f;
 	float speed = 0.0002f;
+	float wavedash = 0.01f;
 
 	float bump = 0.15f;
 	float demo = 0.4f;
