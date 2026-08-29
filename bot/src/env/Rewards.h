@@ -241,8 +241,7 @@ class AirVelToBallReward : public AerialReward {
 		Vec normVel = player.vel / CommonValues::CAR_MAX_SPEED;
 		float velDot = dirToBall.Dot(normVel);
 
-		return (player.HasFlipOrJump() / 2.f + 0.5f) * heightFactor *
-			   heightFactor * RS_MAX(0.f, velDot);
+		return heightFactor * heightFactor * RS_MAX(0.f, velDot);
 	}
 };
 
@@ -310,7 +309,7 @@ class ImprovedAirTouchReward : public AerialReward {
 		float climb = GetClimb(player) / heightSpan;
 		climb = RS_CLAMP(climb, 0.f, 1.f);
 
-		float touchReward = height * (0.2f + 0.8f * climb);
+		float touchReward = height * (0.5f + 0.5f * climb);
 
 		if (state.prev) {
 			Vec deltaVel = state.ball.vel - state.prev->ball.vel;
@@ -325,7 +324,7 @@ class ImprovedAirTouchReward : public AerialReward {
 			}
 		}
 
-		return touchReward;
+		return (player.HasFlipOrJump() / 2.f + 0.5f) * touchReward;
 	}
 };
 
