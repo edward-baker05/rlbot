@@ -16,7 +16,7 @@ struct RewardBudget {
 	float goal = 1.f;
 	float strongTouch = 0.45f;
 
-	float airTouch = 0.40f;
+	float airTouch = 0.50f;
 	float airVtB = 0.01f;
 	float airFaceBall = 0.005f;
 	float airLaunch = 0.01f;
