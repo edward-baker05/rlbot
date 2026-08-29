@@ -99,7 +99,7 @@ class PadAwarePickupBoostReward : public Reward {
 			return 0.f;
 
 		if (player.boost < FULL_BOOST)
-			return SMALL_PAD_REWARD;
+			return SMALL_PAD_REWARD * (1 + state.ball.pos.IsZero());
 
 		return sqrtf(player.boost / 100.f) - sqrtf(player.prev->boost / 100.f);
 	}
