@@ -1,0 +1,13 @@
+{
+    "return_stat": {
+        "count": 2609550,
+        "mean": 0.5168553123564814,
+        "var": 5332150.963468485
+    },
+    "run_id": "duygw0ps",
+    "skill_ratings": {
+        "1v1": 151.08749389648438
+    },
+    "total_iterations": 17397,
+    "total_timesteps": 3575016450
+}

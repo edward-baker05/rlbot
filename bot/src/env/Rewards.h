@@ -200,7 +200,7 @@ class AirFaceBallReward : public AerialReward {
 	float minHeight;
 	float maxHeight;
 
-	AirFaceBallReward(float minHeight = 500.f, float maxHeight = 1800.f)
+	AirFaceBallReward(float minHeight = 300.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight) {}
 
 	virtual float GetReward(const Player &player, const GameState &state,
@@ -231,7 +231,7 @@ class AirVelToBallReward : public AerialReward {
 	float minHeight;
 	float maxHeight;
 
-	AirVelToBallReward(float minHeight = 500.f, float maxHeight = 1800.f)
+	AirVelToBallReward(float minHeight = 300.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight) {}
 
 	virtual float GetReward(const Player &player, const GameState &state,
@@ -248,7 +248,7 @@ class AirVelToBallReward : public AerialReward {
 		float velDot = dirToBall.Dot(normVel);
 
 		return (player.HasFlipOrJump() / 2.f + 0.5f) * heightFactor *
-			   RS_MAX(0.f, velDot);
+			   heightFactor * RS_MAX(0.f, velDot);
 	}
 };
 
@@ -258,7 +258,7 @@ class AirLaunchReward : public AerialReward {
 	constexpr static float MAX_AIR_TIME = 1.5f;
 	constexpr static float MAX_REWARDED_Z_VEL = 1000.f;
 
-	AirLaunchReward(float minHeight = 500.f) : minHeight(minHeight) {}
+	AirLaunchReward(float minHeight = 300.f) : minHeight(minHeight) {}
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
@@ -316,7 +316,7 @@ class ImprovedAirTouchReward : public AerialReward {
 		float climb = GetClimb(player) / heightSpan;
 		climb = RS_CLAMP(climb, 0.f, 1.f);
 
-		float touchReward = height * (0.2f + 0.8f * climb);
+		float touchReward = height * height * (0.2f + 0.8f * climb);
 
 		if (state.prev) {
 			Vec deltaVel = state.ball.vel - state.prev->ball.vel;
