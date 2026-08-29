@@ -418,6 +418,24 @@ BOOSTPAD_NULL_ANCHOR = """	Car* curLockedCar = NULL;
 BOOSTPAD_NULL_BODY = """	Car* curLockedCar = NULL;
 	uint32_t prevLockedCarID = 0;"""
 
+# constexpr can never actually be honored here -- the body casts `this` to a
+# float* and indexes it, which is never a valid constant expression -- so GCC
+# 15+ warns on the declaration at every include site. x/y/z are named members,
+# so indexing through them keeps the function genuinely constexpr-capable.
+VEC_CONST_INDEX_ANCHOR = """	constexpr float operator[](uint32_t index) const {
+		assert(index >= 0 && index < 3);
+		return ((float*)this)[index];
+	}"""
+
+VEC_CONST_INDEX_BODY = """	constexpr float operator[](uint32_t index) const {
+		assert(index >= 0 && index < 3);
+		switch (index) {
+		case 0:  return x;
+		case 1:  return y;
+		default: return z;
+		}
+	}"""
+
 GIGALEARN_MINIMUM_ANCHOR = 'cmake_minimum_required (VERSION 3.8)'
 
 GIGALEARN_MINIMUM_BODY = 'cmake_minimum_required (VERSION 3.12)'
@@ -1419,6 +1437,13 @@ PATCHES = [
 		"body": BOOSTPAD_NULL_BODY,
 	},
 	{
+		"name": "vec-const-index-constexpr",
+		"path": "external/GigaLearnCPP/GigaLearnCPP/RLGymCPP/RocketSim/src/Math/MathTypes/MathTypes.h",
+		"marker": "switch (index) {\n\t\tcase 0:  return x;",
+		"anchor": VEC_CONST_INDEX_ANCHOR,
+		"body": VEC_CONST_INDEX_BODY,
+	},
+	{
 		"name": "gigalearn-cmake-minimum",
 		"path": "external/GigaLearnCPP/GigaLearnCPP/CMakeLists.txt",
 		"marker": "cmake_minimum_required (VERSION 3.12)",
@@ -1726,7 +1751,8 @@ def main():
 	bad = False
 	for patch in PATCHES:
 		status, message = process(patch, args.check)
-		print(f"  {message}")
+		if message:
+			print(f"  {message}")
 		if status in ("failed", "missing") or (args.check and status == "absent"):
 			bad = True
 
