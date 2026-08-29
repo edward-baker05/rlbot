@@ -287,18 +287,50 @@ class AirLaunchReward : public AerialReward {
 // direction to net
 class ImprovedAirTouchReward : public AerialReward {
   public:
+	constexpr static float STREAK_GROWTH = 1.1f;
+	constexpr static int MAX_STREAK = 15;
+
 	float minHeight;
 	float maxHeight;
 	float heightSpan;
+
+	// Air touches made by each player since they were last on a surface.
+	std::vector<int> touchStreak;
 
 	ImprovedAirTouchReward(float minHeight = 250.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight),
 		  heightSpan(maxHeight - minHeight) {}
 
+	bool IsAirTouch(const Player &player, const GameState &state) const {
+		return player.ballTouchedStep && IsAerialing(player) &&
+			   state.ball.pos.z > minHeight;
+	}
+
+	virtual void Reset(const GameState &initialState) override {
+		AerialReward::Reset(initialState);
+		touchStreak.assign(initialState.players.size(), 0);
+	}
+
+	virtual void PreStep(const GameState &state) override {
+		AerialReward::PreStep(state);
+		touchStreak.resize(state.players.size(), 0);
+
+		for (const Player &player : state.players) {
+			if (player.index < 0 ||
+				static_cast<size_t>(player.index) >= touchStreak.size())
+				continue;
+
+			if (player.isOnGround)
+				touchStreak[player.index] = 0;
+			else if (IsAirTouch(player, state))
+				touchStreak[player.index] =
+					RS_MIN(touchStreak[player.index] + 1, MAX_STREAK);
+		}
+	}
+
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		if (!player.ballTouchedStep || !IsAerialing(player) ||
-			state.ball.pos.z <= minHeight)
+		if (!IsAirTouch(player, state))
 			return 0;
 
 		float height = (state.ball.pos.z - minHeight) / heightSpan;
@@ -324,7 +356,15 @@ class ImprovedAirTouchReward : public AerialReward {
 			}
 		}
 
-		return (player.HasFlipOrJump() / 2.f + 0.5f) * touchReward;
+		int streak = 1;
+		if (player.index >= 0 &&
+			static_cast<size_t>(player.index) < touchStreak.size())
+			streak = RS_MAX(1, touchStreak[player.index]);
+
+		touchReward *= powf(STREAK_GROWTH, (float)(streak - 1));
+
+		return RS_CLAMP((player.HasFlipOrJump() / 2.f + 0.5f) * touchReward,
+						-1.f, 1.f);
 	}
 };
 
