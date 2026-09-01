@@ -26,7 +26,7 @@ struct RewardBudget {
 	float pickupBoost = 0.10f;
 	float saveBoost = 0.0003f;
 	float speed = 0.0002f;
-	float wavedash = 0.01f;
+	float wavedash = 0.1f;
 
 	float bump = 0.15f;
 	float demo = 0.4f;
@@ -152,23 +152,12 @@ struct TrainConfig {
 	int miniBatchSize = 50'000;
 	int epochs = 2;
 
-	// 0.49 is t3's measured entropy under maskEntropy; a fixed scale only slows
-	// entropy's descent, so the controller holds it there instead. The
-	// reasoning for these and the four knobs below is in
-	// scratch/02-ppo-algorithm-surface.md.
 	float entropyScale = 0.02f;
 	float entropyTarget = 0.49f;
 	float entropyAdjustRate = 0.15f;
 
-	// Under maskEntropy the target is normalised, so 0.49 pins the policy at
-	// 49% of maximum randomness for the whole run and it can never sharpen.
-	// These anneal the target instead. Deliberately a pure function of
-	// totalTimesteps: a schedule with its own integrator would be one more
-	// thing a resume could lose.
-	//
-	// entropyTargetMin >= entropyTarget disables the decay.
 	float entropyTargetMin = 0.25f;
-	float entropyTargetDecayPerB = 0.06f;
+	float entropyTargetDecayPerB = 0.05f;
 	int64_t entropyDecayFromSteps = 0;
 
 	bool maskEntropy = true;
@@ -208,14 +197,6 @@ struct TrainConfig {
 	}
 };
 
-// Constant until `fromSteps`, then linear at `decayPerB` per billion steps,
-// then flat at `targetMin`. A free function taking its inputs rather than a
-// method, so the training loop can hold four scalars instead of a config copy.
-//
-// fromSteps <= 0 disables the decay rather than measuring from step zero: a run
-// resumed at 4B would otherwise drop the target by 0.08 the moment the anchor
-// was left off the command line, which is a silent change to the one knob this
-// is meant to make legible.
 inline float EntropyTargetAt(int64_t totalTimesteps, float target,
 							 float targetMin, float decayPerB,
 							 int64_t fromSteps) {
