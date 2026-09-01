@@ -19,6 +19,12 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 			 return new ImprovedAirTouchReward(cfg.aerial.minBallHeight,
 											   cfg.aerial.maxBallHeight);
 		 }},
+		{"Aerial Distance", b.aerialDistance, RewardKind::Event,
+		 [] { return new AerialDistanceReward(); }},
+
+		{"Dribble Flick", b.dribbleFlick, RewardKind::Continuous,
+		 [] { return new Community::DribbleFlickReward(); }},
+
 		{"Air Velocity to Ball", b.airVtB, RewardKind::Continuous,
 		 [=] {
 			 return new AirVelToBallReward(cfg.aerial.minBallHeight,

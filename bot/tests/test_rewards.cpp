@@ -143,6 +143,45 @@ std::vector<float> BareSequence(Reward *owned,
 	return out;
 }
 
+// Like BareSequence, but links state.prev/player.prev between consecutive
+// steps, for rewards (AerialDistanceReward) that read them.
+struct Chain {
+	std::vector<GameState> steps;
+
+	void Link() {
+		for (size_t i = 1; i < steps.size(); i++) {
+			steps[i].prev = &steps[i - 1];
+			for (size_t p = 0; p < steps[i].players.size(); p++)
+				steps[i].players[p].prev = &steps[i - 1].players[p];
+		}
+	}
+};
+
+std::vector<float> ChainRewards(Reward *owned, Chain &chain, int playerIdx) {
+	std::unique_ptr<Reward> reward(owned);
+	chain.Link();
+	reward->Reset(chain.steps.front());
+
+	std::vector<float> out;
+	for (GameState &state : chain.steps) {
+		reward->PreStep(state);
+		out.push_back(reward->GetAllRewards(state, false)[playerIdx]);
+	}
+	return out;
+}
+
+// A single AerialDistanceReward step: blue at bluePos, ball at ballPos,
+// blue optionally touching. Orange sits out of the way throughout.
+GameState AerialDistanceStep(Vec bluePos, Vec ballPos, bool blueTouches) {
+	GameState state;
+	state.players = {MakePlayer(0, 1, Team::BLUE, bluePos),
+					 MakePlayer(1, 2, Team::ORANGE, Vec(0, 3000, 17))};
+	state.ball.pos = ballPos;
+	if (blueTouches)
+		state.players[BLUE].ballTouchedStep = true;
+	return state;
+}
+
 // Ball in the blue half, rolling hard at the blue net and inside both posts.
 // The orange touch is what ConditionalVelocityBallToGoalReward gates on.
 Scenario BallAtBlueNet() {
@@ -472,4 +511,216 @@ TEST_CASE("a big pad keeps the sqrt curve, and so does topping off to full") {
 TEST_CASE("no boost gained pays nothing") {
 	CHECK(PadPickup(50.f, 50.f) == doctest::Approx(0.f));
 	CHECK(PadPickup(50.f, 20.f) == doctest::Approx(0.f));
+}
+
+// AerialDistanceReward is unwired (see GeneralRewardSpecs), but is exercised
+// bare here since it ported the height axis wrong: the Python source reads
+// position.z (up), the port read pos.y (the goal-to-goal axis) instead.
+TEST_CASE("aerial distance's touch reward reads height, not field position") {
+	Chain grounded;
+	grounded.steps = {AerialDistanceStep(Vec(0, 4000, 17), Vec(0, 4000, 17), false),
+					  AerialDistanceStep(Vec(0, 4000, 17), Vec(0, 4000, 17), true)};
+
+	Chain airborne;
+	airborne.steps = {AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
+					  AerialDistanceStep(Vec(0, 0, 2000), Vec(0, 0, 2000), true)};
+
+	float groundedPaid =
+		ChainRewards(new AerialDistanceReward(), grounded, BLUE).back();
+	float airbornePaid =
+		ChainRewards(new AerialDistanceReward(), airborne, BLUE).back();
+
+	CHECK(groundedPaid == doctest::Approx(0.f));
+	CHECK(airbornePaid == doctest::Approx((2000.f - 256.f) / BACK_WALL_Y));
+}
+
+// Python clears its own last_touch_agent when the tracked player lands, which
+// forces the next touch back through the height-reward branch. The port
+// checked lastTouchCarID (GameState's own field, which the reward can't
+// clear) instead, so a second touch after landing paid the zeroed chain
+// distance rather than a fresh height reward.
+TEST_CASE("the chain resets when the carrier lands, even without another touch") {
+	Chain chain;
+	chain.steps = {
+		AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
+		AerialDistanceStep(Vec(0, 0, 1500), Vec(0, 0, 1500), true),
+		AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
+		AerialDistanceStep(Vec(0, 0, 1500), Vec(0, 0, 1500), true),
+	};
+
+	std::vector<float> paid = ChainRewards(new AerialDistanceReward(), chain, BLUE);
+
+	CHECK(paid[1] > 0.f);
+	CHECK(paid[3] == doctest::Approx(paid[1]));
+}
+
+TEST_CASE("a repeat touch while still airborne pays for distance travelled "
+		 "since the last touch") {
+	Chain chain;
+	chain.steps = {
+		AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
+		AerialDistanceStep(Vec(0, 0, 1000), Vec(0, 0, 1000), true),
+		AerialDistanceStep(Vec(500, 0, 1000), Vec(300, 0, 1000), false),
+		AerialDistanceStep(Vec(500, 0, 1000), Vec(300, 0, 1000), true),
+	};
+
+	std::vector<float> paid = ChainRewards(new AerialDistanceReward(), chain, BLUE);
+
+	CHECK(paid[1] > 0.f);
+	CHECK(paid[3] == doctest::Approx((500.f + 300.f) / BACK_WALL_Y));
+}
+
+// distances/rewards are sized to player count and were indexed by carId, an
+// arena-lifetime id that has no relation to array position -- an
+// out-of-bounds read/write, not just a misattributed reward.
+TEST_CASE("carId does not have to match player index for the reward to land "
+		 "on the right player") {
+	GameState start;
+	start.players = {MakePlayer(0, 100000, Team::BLUE, Vec(0, 0, 17)),
+					 MakePlayer(1, 2, Team::ORANGE, Vec(0, 3000, 17))};
+	start.ball.pos = Vec(0, 0, 17);
+
+	GameState touch;
+	touch.players = {MakePlayer(0, 100000, Team::BLUE, Vec(0, 0, 1500)),
+					 MakePlayer(1, 2, Team::ORANGE, Vec(0, 3000, 17))};
+	touch.ball.pos = Vec(0, 0, 1500);
+	touch.players[BLUE].ballTouchedStep = true;
+
+	Chain chain;
+	chain.steps = {start, touch};
+
+	std::vector<float> paid = ChainRewards(new AerialDistanceReward(), chain, BLUE);
+
+	CHECK(paid[1] > 0.f);
+}
+
+// w1 == w2 == 0 does not chain in C++ the way it does in Python: it parses as
+// (w1 == w2) == 0, true whenever the weights merely differ, and the port also
+// mutated the member weights permanently instead of using local fallbacks.
+TEST_CASE("an asymmetric weight is not clobbered back to equal weights") {
+	Chain chain;
+	chain.steps = {AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
+				  AerialDistanceStep(Vec(0, 0, 1000), Vec(0, 0, 3000), true)};
+
+	AerialDistanceReward *reward = new AerialDistanceReward();
+	reward->carDistanceWeight = 0.f;
+	reward->ballDistanceWeight = 1.f;
+
+	float paid = ChainRewards(reward, chain, BLUE).back();
+
+	// Weighting ball height only: (0*1000 + 1*3000)/1 - 256 = 2744.
+	CHECK(paid == doctest::Approx((3000.f - 256.f) / BACK_WALL_Y));
+}
+
+// Train.cpp's metrics probe calls GetReward once more on every reward it does
+// not special-case. That threw while the chain lived in GetAllRewards, and a
+// second call must not re-pay or re-advance the chain either.
+TEST_CASE("the metrics probe's extra GetReward call is safe") {
+	Chain chain;
+	chain.steps = {AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
+				   AerialDistanceStep(Vec(0, 0, 1500), Vec(0, 0, 1500), true),
+				   AerialDistanceStep(Vec(400, 0, 1500), Vec(200, 0, 1500), true)};
+	chain.Link();
+
+	AerialDistanceReward reward;
+	reward.Reset(chain.steps.front());
+
+	std::vector<float> paid;
+	for (GameState &state : chain.steps) {
+		reward.PreStep(state);
+		paid.push_back(reward.GetAllRewards(state, false)[BLUE]);
+		CHECK(reward.GetReward(state.players[BLUE], state, false) ==
+			  doctest::Approx(paid.back()));
+	}
+
+	CHECK(paid[1] == doctest::Approx((1500.f - 256.f) / BACK_WALL_Y));
+	CHECK(paid[2] == doctest::Approx((400.f + 200.f) / BACK_WALL_Y));
+}
+
+// Blue cradles the ball; orange sits at oppDist along +y. The flick branches
+// need blue airborne with its flip spent, which HasFlipOrJump() reads off
+// hasFlipped and airTimeSinceJump rather than any single flag.
+GameState CradleStep(float ballZ, Vec carried, bool onGround, bool hasFlip,
+					 float oppDist) {
+	GameState state;
+	Player blue = MakePlayer(0, 1, Team::BLUE, Vec(0, -60, 17));
+	blue.vel = carried;
+	blue.isOnGround = onGround;
+	blue.hasFlipped = !onGround && !hasFlip;
+	blue.airTimeSinceJump = onGround ? 0.f : 0.2f;
+
+	state.players = {blue, MakePlayer(1, 2, Team::ORANGE, Vec(0, oppDist, 17))};
+	state.ball.pos = Vec(0, 0, ballZ);
+	state.ball.vel = carried;
+	return state;
+}
+
+float FlickReward(GameState state) {
+	Community::DribbleFlickReward reward;
+	reward.Reset(state);
+	return reward.GetReward(state.players[BLUE], state, false);
+}
+
+// The rungs are the point: getting the ball into the zone at all, then holding
+// it there, then flicking out of it. Each has to outrank the one below or the
+// ladder does not lead anywhere.
+TEST_CASE("dribble flick climbs from reaching the zone to carrying to "
+		  "flicking") {
+	const Vec carried = Vec(0, 1000, 0);
+
+	const float inZone = FlickReward(CradleStep(250.f, Vec(), true, true, 5000.f));
+	const float carrying = FlickReward(CradleStep(140.f, carried, true, true, 5000.f));
+	const float withFlip = FlickReward(CradleStep(140.f, carried, false, true, 200.f));
+	const float flicked = FlickReward(CradleStep(140.f, carried, false, false, 200.f));
+
+	CHECK(inZone == doctest::Approx(0.1f));
+	CHECK(carrying == doctest::Approx(0.3f));
+	CHECK(withFlip > carrying);
+	CHECK(flicked > withFlip);
+	CHECK(flicked <= 1.f);
+}
+
+// Once an opponent closes, holding the carry pays nothing at all -- not even
+// the zone rung -- which is what leaves flicking as the only paying option.
+TEST_CASE("a challenged carry held on the ground earns nothing") {
+	CHECK(FlickReward(CradleStep(140.f, Vec(0, 1000, 0), true, true, 200.f)) ==
+		  doctest::Approx(0.f));
+}
+
+// PossessionReward moved off GetAllRewards, so its whole-arena pass now runs in
+// PreStep. The sign is the part that matters: whoever reaches the ball first is
+// positive and their opponent is the exact negation.
+TEST_CASE("possession favours the car that gets there first, symmetrically") {
+	GameState state;
+	state.players = {MakePlayer(0, 1, Team::BLUE, Vec(0, -400, 17)),
+					 MakePlayer(1, 2, Team::ORANGE, Vec(0, 3500, 17))};
+	state.ball.pos = Vec(0, 0, BALL_RADIUS);
+
+	PossessionReward reward;
+	reward.Reset(state);
+	reward.PreStep(state);
+	std::vector<float> paid = reward.GetAllRewards(state, false);
+
+	CHECK(paid[BLUE] > 0.f);
+	CHECK(paid[ORANGE] == doctest::Approx(-paid[BLUE]));
+
+	// Train.cpp evaluates this reward a second time for its metrics row.
+	CHECK(reward.GetReward(state.players[BLUE], state, false) ==
+		  doctest::Approx(paid[BLUE]));
+	CHECK(reward.GetReward(state.players[ORANGE], state, false) ==
+		  doctest::Approx(paid[ORANGE]));
+}
+
+// A team with nobody left to contest cannot be scored against on time-to-ball,
+// so the whole arena pays zero rather than an arbitrary sign.
+TEST_CASE("possession pays nothing when only one team is present") {
+	GameState state;
+	state.players = {MakePlayer(0, 1, Team::BLUE, Vec(0, -400, 17))};
+	state.ball.pos = Vec(0, 0, BALL_RADIUS);
+
+	PossessionReward reward;
+	reward.Reset(state);
+	reward.PreStep(state);
+
+	CHECK(reward.GetAllRewards(state, false)[BLUE] == doctest::Approx(0.f));
 }

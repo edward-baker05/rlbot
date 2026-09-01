@@ -190,6 +190,87 @@ class AerialReward : public Reward {
 	}
 };
 
+class AerialDistanceReward : public Reward {
+  public:
+	constexpr static float RAMP_HEIGHT = 256.f;
+
+	float touchHeightWeight = 1.f;
+	float carDistanceWeight = 1.f;
+	float ballDistanceWeight = 1.f;
+	float distanceNormalisation = 1 / BACK_WALL_Y;
+	std::vector<float> distances;
+
+	std::vector<float> pending;
+
+	int chainCarId = -1;
+
+	AerialDistanceReward(float _touchHeightWeight = 1.f,
+						 float _carDistanceWeight = 1.f,
+						 float _ballDistanceWeight = 1.f)
+		: touchHeightWeight(_touchHeightWeight),
+		  carDistanceWeight(_carDistanceWeight),
+		  ballDistanceWeight(_ballDistanceWeight) {}
+
+	virtual void Reset(const GameState &initialState) override {
+		distances.assign(initialState.players.size(), 0.f);
+		pending.assign(initialState.players.size(), 0.f);
+		chainCarId = -1;
+	}
+
+	virtual void PreStep(const GameState &state) override {
+		distances.resize(state.players.size(), 0.f);
+		pending.assign(state.players.size(), 0.f);
+
+		for (const Player &player : state.players) {
+			int idx = player.index;
+			int id = (int)player.carId;
+
+			if (idx < 0 || static_cast<size_t>(idx) >= pending.size())
+				continue;
+
+			if (chainCarId == id) {
+				if (player.pos.z < RAMP_HEIGHT) {
+					distances[idx] = 0;
+					chainCarId = -1;
+				} else if (state.prev && player.prev) {
+					float distCar = player.pos.Dist(player.prev->pos);
+					float distBall = state.ball.pos.Dist(state.prev->ball.pos);
+					distances[idx] += (distCar * carDistanceWeight +
+									   distBall * ballDistanceWeight);
+				}
+			}
+
+			if (player.ballTouchedStep) {
+				if (chainCarId == id) {
+					pending[idx] += distances[idx] * distanceNormalisation;
+				} else {
+					float w1 = carDistanceWeight;
+					float w2 = ballDistanceWeight;
+					if (w1 == 0.f && w2 == 0.f)
+						w1 = w2 = 1.f;
+
+					float touchHeight =
+						(w1 * player.pos.z + w2 * state.ball.pos.z) / (w1 + w2);
+					touchHeight = RS_MAX(0.f, touchHeight - RAMP_HEIGHT);
+					pending[idx] +=
+						touchHeight * distanceNormalisation * touchHeightWeight;
+					chainCarId = id;
+				}
+				distances[idx] = 0;
+			}
+		}
+	}
+
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) override {
+		if (player.index < 0 ||
+			static_cast<size_t>(player.index) >= pending.size())
+			return 0.f;
+
+		return pending[player.index];
+	}
+};
+
 class AirFaceBallReward : public AerialReward {
   public:
 	float minHeight;
@@ -288,15 +369,9 @@ class AirLaunchReward : public AerialReward {
 // direction to net
 class ImprovedAirTouchReward : public AerialReward {
   public:
-	constexpr static float STREAK_GROWTH = 1.1f;
-	constexpr static int MAX_STREAK = 15;
-
 	float minHeight;
 	float maxHeight;
 	float heightSpan;
-
-	// Air touches made by each player since they were last on a surface.
-	std::vector<int> touchStreak;
 
 	ImprovedAirTouchReward(float minHeight = 250.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight),
@@ -305,28 +380,6 @@ class ImprovedAirTouchReward : public AerialReward {
 	bool IsAirTouch(const Player &player, const GameState &state) const {
 		return player.ballTouchedStep && IsAerialing(player) &&
 			   state.ball.pos.z > minHeight;
-	}
-
-	virtual void Reset(const GameState &initialState) override {
-		AerialReward::Reset(initialState);
-		touchStreak.assign(initialState.players.size(), 0);
-	}
-
-	virtual void PreStep(const GameState &state) override {
-		AerialReward::PreStep(state);
-		touchStreak.resize(state.players.size(), 0);
-
-		for (const Player &player : state.players) {
-			if (player.index < 0 ||
-				static_cast<size_t>(player.index) >= touchStreak.size())
-				continue;
-
-			if (player.isOnGround)
-				touchStreak[player.index] = 0;
-			else if (IsAirTouch(player, state))
-				touchStreak[player.index] =
-					RS_MIN(touchStreak[player.index] + 1, MAX_STREAK);
-		}
 	}
 
 	virtual float GetReward(const Player &player, const GameState &state,
@@ -357,13 +410,6 @@ class ImprovedAirTouchReward : public AerialReward {
 			}
 		}
 
-		int streak = 1;
-		if (player.index >= 0 &&
-			static_cast<size_t>(player.index) < touchStreak.size())
-			streak = RS_MAX(1, touchStreak[player.index]);
-
-		touchReward *= powf(STREAK_GROWTH, (float)(streak - 1));
-
 		return RS_CLAMP((player.HasFlipOrJump() / 2.f + 0.5f) * touchReward,
 						-1.f, 1.f);
 	}
@@ -393,6 +439,8 @@ class PossessionReward : public Reward {
 	constexpr static float MIN_TIME = 0.1f;
 	constexpr static float MAX_TIME = 4.0f;
 
+	std::vector<float> pending;
+
 	static float TimeToBall(const Player &player, const GameState &state) {
 		Vec toBall = state.ball.pos - player.pos;
 
@@ -405,9 +453,12 @@ class PossessionReward : public Reward {
 		return RS_CLAMP(t, MIN_TIME, MAX_TIME);
 	}
 
-	virtual std::vector<float> GetAllRewards(const GameState &state,
-											 bool isFinal) override {
-		std::vector<float> rewards(state.players.size(), 0.f);
+	virtual void Reset(const GameState &initialState) override {
+		pending.assign(initialState.players.size(), 0.f);
+	}
+
+	virtual void PreStep(const GameState &state) override {
+		pending.assign(state.players.size(), 0.f);
 
 		float teamTime[2] = {MAX_TIME, MAX_TIME};
 		bool teamExists[2] = {false, false};
@@ -424,18 +475,28 @@ class PossessionReward : public Reward {
 		}
 
 		if (!teamExists[0] || !teamExists[1])
-			return rewards;
+			return;
 
-		for (int i = 0; i < state.players.size(); i++) {
-			int team = (int)state.players[i].team;
+		for (const Player &player : state.players) {
+			if (player.index < 0 ||
+				static_cast<size_t>(player.index) >= pending.size())
+				continue;
 
+			int team = (int)player.team;
 			float selfTime = teamTime[team];
 			float oppTime = teamTime[1 - team];
 
-			rewards[i] = (oppTime - selfTime) / (oppTime + selfTime);
+			pending[player.index] = (oppTime - selfTime) / (oppTime + selfTime);
 		}
+	}
 
-		return rewards;
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) override {
+		if (player.index < 0 ||
+			static_cast<size_t>(player.index) >= pending.size())
+			return 0.f;
+
+		return pending[player.index];
 	}
 };
 

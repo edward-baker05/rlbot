@@ -385,6 +385,8 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"strongTouch", b.strongTouch},
 		{"airTouch", b.airTouch},
 		{"airVtB", b.airVtB},
+		{"aerialDistance", b.aerialDistance},
+		{"dribbleFlick", b.dribbleFlick},
 		{"airFaceBall", b.airFaceBall},
 		{"airLaunch", b.airLaunch},
 		{"pickupBoost", b.pickupBoost},

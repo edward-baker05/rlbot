@@ -861,6 +861,9 @@ class DribbleFlickReward : public Reward {
 		return false;
 	}
 
+	// A ladder, not a single payout: the cradle base is the rung for getting
+	// the ball onto the roof at all, and the branches below pay for holding it
+	// there and then flicking out of it once an opponent closes.
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
 		float reward = cradle_reward.GetReward(player, state, isFinal) * 0.1f;
@@ -888,7 +891,7 @@ class DribbleFlickReward : public Reward {
 								   1.f);
 						return player.HasFlipOrJump()
 								   ? reward + 0.3f
-								   : reward + 0.4f + speedRatio * 0.5;
+								   : reward + 0.4f + speedRatio * 0.5f;
 					}
 				}
 			} else if (stable) {
