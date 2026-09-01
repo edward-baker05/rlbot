@@ -49,8 +49,9 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Speed", b.speed, RewardKind::Continuous,
 		 [] { return new SpeedReward(); }},
 
-		{"Wavedash", b.wavedash, RewardKind::Event,
-		 [] { return new WavedashReward(); }},
+		// Temporarily removed until I have a better reward
+		// {"Wavedash", b.wavedash, RewardKind::Event,
+		//  [] { return new WavedashReward(); }},
 
 		{"Bump", b.bump, RewardKind::Event, [] { return new BumpReward(); }},
 
@@ -62,11 +63,11 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Awkward Contact", b.awkwardContact, RewardKind::Continuous,
 		 [] { return new AwkwardContactPenalty(); }},
 
-		{"Possession", b.possession, RewardKind::Continuous,
-		 [] { return new PossessionReward(); }},
-
-		{"Velocity: Ball to Goal (Own)", b.velBtG, RewardKind::Continuous,
-		 [] { return new ConditionalVelocityBallToGoalReward(true); }},
+		// {"Possession", b.possession, RewardKind::Continuous,
+		//  [] { return new PossessionReward(); }},
+		//
+		// {"Velocity: Ball to Goal (Own)", b.velBtG, RewardKind::Continuous,
+		//  [] { return new ConditionalVelocityBallToGoalReward(true); }},
 	};
 }
 
