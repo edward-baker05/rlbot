@@ -14,11 +14,12 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Strong Touch", b.strongTouch, RewardKind::Event,
 		 [] { return new ZeroSumReward(new DirectionalTouchReward(), 1); }},
 
-		{"Air Touch", b.airTouch, RewardKind::Event,
-		 [=] {
-			 return new ImprovedAirTouchReward(cfg.aerial.minBallHeight,
-											   cfg.aerial.maxBallHeight);
-		 }},
+		// {"Air Touch", b.airTouch, RewardKind::Event,
+		//  [=] {
+		// 	 return new ImprovedAirTouchReward(cfg.aerial.minBallHeight,
+		// 									   cfg.aerial.maxBallHeight);
+		//  }},
+
 		{"Aerial Distance", b.aerialDistance, RewardKind::Event,
 		 [] { return new AerialDistanceReward(); }},
 
@@ -50,8 +51,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		 [] { return new SpeedReward(); }},
 
 		// Temporarily removed until I have a better reward
-		// {"Wavedash", b.wavedash, RewardKind::Event,
-		//  [] { return new WavedashReward(); }},
+		// {"Wavedash", b.wavedash, RewardKind::Event, [] { return new
+		// WavedashReward(); }},
 
 		{"Bump", b.bump, RewardKind::Event, [] { return new BumpReward(); }},
 

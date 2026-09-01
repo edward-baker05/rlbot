@@ -422,7 +422,7 @@ TEST_CASE("the whole stack prefers the ball leaving our own net") {
 }
 
 // Train.cpp's StepCallback calls GetReward a SECOND time, on the same live
-// reward objects EnvSet just stepped, to build the RewardMass metrics. A reward
+// reward objects EnvSet just stepped, to build the per-reward metrics. A reward
 // that mutates its own state in GetReward therefore reports zero forever after,
 // while training itself looks fine -- which is exactly what the shot latch did.
 TEST_CASE("GetReward is repeatable for the same state") {

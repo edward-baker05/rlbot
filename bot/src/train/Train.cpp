@@ -231,10 +231,7 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 			g_EpisodeRewardPosSums = g_EpisodeRewardSums;
 		}
 
-		std::vector<float> posTotals(g_RewardLabels.size(), 0.f);
-		std::vector<float> signedTotals(g_RewardLabels.size(), 0.f);
 		std::vector<float> maxAbs(g_RewardLabels.size(), 0.f);
-		int totalLearnerCars = 0;
 
 		// Reused across arenas so the per-arena loop does no allocation.
 		std::vector<const Player *> learnerCars;
@@ -262,7 +259,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 
 			if (learnerCars.empty())
 				continue;
-			totalLearnerCars += static_cast<int>(learnerCars.size());
 
 			const auto &arenaRewards = envSet.rewards[a];
 			const auto &probes = g_RewardProbes[a];
@@ -280,8 +276,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 				// The mean hides a rare enormous value, which is the shape of
 				// reward bug that wrecks the critic.
 				auto record = [&](float value) {
-					posTotals[j] += RS_MAX(0.f, value);
-					signedTotals[j] += value;
 					maxAbs[j] = RS_MAX(maxAbs[j], std::fabs(value));
 					episodeSums[j] += value * invArenaCars;
 					episodePosSums[j] += RS_MAX(0.f, value) * invArenaCars;
@@ -331,8 +325,10 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 			}
 
 			// What one car earned from each reward over the whole episode --
-			// the number a budget is actually chosen against, since a
-			// per-step mean hides how long a term had to accumulate.
+			// the number a budget is chosen against. RewardPerEpisode is
+			// signed, so a pure penalty is visible there and reads 0 in
+			// RewardEarnedPerEpisode. Zero-sum rows are pre-zero-sum, which
+			// is the term's real size rather than the ~0 its two sides sum to.
 			if (terminal) {
 				for (size_t j = 0; j < g_RewardLabels.size(); j++) {
 					const float weight = g_RewardLabels[j].second;
@@ -355,24 +351,6 @@ static void StepCallback(Learner *learner, const std::vector<GameState> &states,
 			if (!report.Has(key) || report[key] < weighted)
 				report[key] = weighted;
 		}
-
-		if (totalLearnerCars > 0) {
-			const float invCars = 1.f / static_cast<float>(totalLearnerCars);
-			for (size_t j = 0; j < g_RewardLabels.size(); j++) {
-				const float meanPos = posTotals[j] * invCars;
-				const float meanSigned = signedTotals[j] * invCars;
-				report.AddAvg("RewardPositive/" + g_RewardLabels[j].first,
-							  meanPos);
-				report.AddAvg("RewardMass/" + g_RewardLabels[j].first,
-							  meanPos * g_RewardLabels[j].second);
-				// The only row a reward budget can be read off: RewardMass
-				// drops the negative half, so a pure penalty reads as 0 there.
-				// Zero-sum rows are pre-zero-sum, which is the term's real
-				// size rather than the ~0 its two sides sum to.
-				report.AddAvg("RewardMean/" + g_RewardLabels[j].first,
-							  meanSigned * g_RewardLabels[j].second);
-			}
-		}
 	}
 }
 
@@ -383,7 +361,6 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 	j["rewards"] = {
 		{"goal", b.goal},
 		{"strongTouch", b.strongTouch},
-		{"airTouch", b.airTouch},
 		{"airVtB", b.airVtB},
 		{"aerialDistance", b.aerialDistance},
 		{"dribbleFlick", b.dribbleFlick},
@@ -396,9 +373,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"bump", b.bump},
 		{"demo", b.demo},
 		{"save", b.save},
-		{"velBtG", b.velBtG},
 		{"awkwardContact", b.awkwardContact},
-		{"possession", b.possession},
 	};
 
 	j["aerial"] = {
@@ -722,6 +697,10 @@ void RunTraining(const TrainConfig &cfg) {
 	lc.skillTracker.updateInterval = cfg.selfPlay.skillUpdateInterval;
 	lc.skillTracker.simTime = cfg.selfPlay.skillSimTime;
 	lc.skillTracker.maxSimTime = cfg.selfPlay.skillMaxSimTime;
+
+	// GigaLearn's own Rewards/* rows are an unweighted single-player sample of
+	// what RewardPerEpisode/* already reports exactly.
+	lc.addRewardsToMetrics = false;
 
 	lc.sendMetrics = cfg.sendMetrics;
 	lc.metricsProjectName = cfg.wandbProject;
