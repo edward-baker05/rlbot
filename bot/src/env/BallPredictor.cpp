@@ -6,13 +6,31 @@ using namespace RLGC;
 
 namespace Dash {
 
+namespace {
+
+bool IsBounce(const RocketSim::Vec& prevVel, const RocketSim::Vec& vel) {
+	const float prevSpeed = prevVel.Length();
+	const float speed = vel.Length();
+
+	if (prevSpeed <= BallPredictor::BOUNCE_MIN_SPEED ||
+	    speed <= BallPredictor::BOUNCE_MIN_SPEED)
+		return false;
+
+	const float cosAngle = prevVel.Dot(vel) / (prevSpeed * speed);
+	return cosAngle < BallPredictor::BOUNCE_COS_THRESHOLD ||
+	       std::abs(speed - prevSpeed) > BallPredictor::BOUNCE_SPEED_JUMP;
+}
+
+}  // namespace
+
 BallPredictor::BallPredictor() {
 	// Car-less: a ball-only arena is far cheaper to step than a full one, and
 	// cars are exactly what we are predicting the absence of.
 	arena = RocketSim::Arena::Create(RocketSim::GameMode::SOCCAR);
 
-	traj.pos.resize(SIM_HORIZON_TICKS + 1);
-	traj.vel.resize(SIM_HORIZON_TICKS + 1);
+	traj.posRing.resize(WINDOW_TICKS);
+	traj.velRing.resize(WINDOW_TICKS);
+	bounceRing.resize(WINDOW_TICKS);
 }
 
 BallPredictor::~BallPredictor() {
@@ -24,7 +42,8 @@ void BallPredictor::Reset() {
 	hasCache = false;
 }
 
-bool BallPredictor::CacheValidFor(const RLGC::GameState& state) const {
+bool BallPredictor::CacheUsableFor(const RLGC::GameState& state,
+                                   int& outOffset) const {
 	if (!hasCache)
 		return false;
 
@@ -32,21 +51,25 @@ bool BallPredictor::CacheValidFor(const RLGC::GameState& state) const {
 	if (state.lastTickCount < traj.startTick)
 		return false;
 
-	const uint64_t offset = state.lastTickCount - traj.startTick;
+	const uint64_t delta = state.lastTickCount - traj.startTick;
+	if (delta >= (uint64_t)traj.Size())
+		return false;
 
-	// Keep enough runway for the deepest sample.
-	if (offset + SAMPLE_TICKS.back() > (uint64_t)SIM_HORIZON_TICKS)
+	const int offset = (int)delta;
+
+	// Sliding this far would push the goal out of the front of the window,
+	// leaving the whole window frozen on a goal that has already happened.
+	if (frozen && traj.goalTick < offset)
 		return false;
 
 	// Did the ball actually go where we said it would?
-	const RocketSim::Vec posErr = state.ball.pos - traj.pos[offset];
-	if (posErr.Length() > POS_TOLERANCE)
+	if ((state.ball.pos - traj.PosAt(offset)).Length() > POS_TOLERANCE)
 		return false;
 
-	const RocketSim::Vec velErr = state.ball.vel - traj.vel[offset];
-	if (velErr.Length() > VEL_TOLERANCE)
+	if ((state.ball.vel - traj.VelAt(offset)).Length() > VEL_TOLERANCE)
 		return false;
 
+	outOffset = offset;
 	return true;
 }
 
@@ -57,63 +80,114 @@ void BallPredictor::Simulate(const RLGC::GameState& state) {
 	bs.angVel = state.ball.angVel;
 	arena->ball->SetState(bs);
 
+	traj.head = 0;
 	traj.startTick = state.lastTickCount;
-	traj.bounceTick = -1;
-	traj.bouncePos = {};
 	traj.goalTick = -1;
 	traj.goalTeam = -1;
+	frozen = false;
 
-	traj.pos[0] = bs.pos;
-	traj.vel[0] = bs.vel;
+	traj.posRing[0] = bs.pos;
+	traj.velRing[0] = bs.vel;
+	bounceRing[0] = 0;
 
-	for (int i = 1; i <= SIM_HORIZON_TICKS; i++) {
+	const int n = traj.Size();
+	for (int i = 1; i < n; i++) {
 		arena->Step(1);
+		tickCount++;
+
 		const RocketSim::BallState cur = arena->ball->GetState();
-		traj.pos[i] = cur.pos;
-		traj.vel[i] = cur.vel;
+		traj.posRing[i] = cur.pos;
+		traj.velRing[i] = cur.vel;
+		bounceRing[i] = IsBounce(traj.velRing[i - 1], cur.vel) ? 1 : 0;
 
-		if (traj.bounceTick < 0) {
-			const RocketSim::Vec& prevVel = traj.vel[i - 1];
-			const float prevSpeed = prevVel.Length();
-			const float curSpeed = cur.vel.Length();
-
-			if (prevSpeed > BOUNCE_MIN_SPEED && curSpeed > BOUNCE_MIN_SPEED) {
-				const float cosAngle =
-					prevVel.Dot(cur.vel) / (prevSpeed * curSpeed);
-				const bool turned = cosAngle < BOUNCE_COS_THRESHOLD;
-				const bool jumped =
-					std::abs(curSpeed - prevSpeed) > BOUNCE_SPEED_JUMP;
-
-				if (turned || jumped) {
-					traj.bounceTick = i;
-					traj.bouncePos = cur.pos;
-				}
-			}
-		}
-
-		if (traj.goalTick < 0 && arena->IsBallScored()) {
+		if (arena->IsBallScored()) {
+			frozen = true;
 			traj.goalTick = i;
 			// RS_TEAM_FROM_Y's convention: the net the ball crossed into.
 			traj.goalTeam = cur.pos.y > 0 ? 1 : 0;
 
-			// Stop here. Past the goal line the simulation is meaningless --
-			// the real game would have reset -- so freeze the remainder rather
-			// than feeding the network an imaginary continuation.
-			for (int j = i + 1; j <= SIM_HORIZON_TICKS; j++) {
-				traj.pos[j] = cur.pos;
-				traj.vel[j] = {0, 0, 0};
+			for (int j = i + 1; j < n; j++) {
+				traj.posRing[j] = cur.pos;
+				traj.velRing[j] = {0, 0, 0};
+				bounceRing[j] = 0;
 			}
 			break;
 		}
 	}
 
+	RefreshBounce();
 	hasCache = true;
 	simCount++;
 }
 
+void BallPredictor::AppendTick() {
+	// The slot holding the present is about to fall off the front, so it is
+	// also the slot the new tail state goes into.
+	const int slot = traj.head;
+	const int prevSlot = slot == 0 ? traj.Size() - 1 : slot - 1;
+	const RocketSim::Vec prevVel = traj.velRing[prevSlot];
+
+	RocketSim::Vec pos, vel;
+	bool scored = false;
+
+	if (frozen) {
+		pos = traj.posRing[prevSlot];
+		vel = {0, 0, 0};
+	} else {
+		arena->Step(1);
+		tickCount++;
+
+		const RocketSim::BallState cur = arena->ball->GetState();
+		pos = cur.pos;
+		vel = cur.vel;
+		scored = arena->IsBallScored();
+	}
+
+	traj.head = slot + 1 == traj.Size() ? 0 : slot + 1;
+	traj.startTick++;
+
+	traj.posRing[slot] = pos;
+	traj.velRing[slot] = vel;
+	bounceRing[slot] = IsBounce(prevVel, vel) ? 1 : 0;
+
+	if (traj.goalTick >= 0)
+		traj.goalTick--;
+
+	if (scored) {
+		frozen = true;
+		traj.goalTick = traj.Size() - 1;
+		traj.goalTeam = pos.y > 0 ? 1 : 0;
+	}
+}
+
+void BallPredictor::RefreshBounce() {
+	traj.bounceTick = -1;
+	traj.bouncePos = {};
+
+	for (int i = 1; i < traj.Size(); i++) {
+		if (bounceRing[traj.Wrap(i)]) {
+			traj.bounceTick = i;
+			traj.bouncePos = traj.PosAt(i);
+			break;
+		}
+	}
+}
+
+void BallPredictor::Advance(int ticks) {
+	for (int i = 0; i < ticks; i++)
+		AppendTick();
+
+	RefreshBounce();
+}
+
 const BallTrajectory& BallPredictor::Get(const RLGC::GameState& state) {
-	if (!CacheValidFor(state))
+	int offset = 0;
+
+	if (!CacheUsableFor(state, offset))
 		Simulate(state);
+	else if (offset > 0)
+		Advance(offset);
+
 	return traj;
 }
 

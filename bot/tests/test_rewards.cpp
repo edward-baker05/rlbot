@@ -271,6 +271,41 @@ TEST_CASE("air rewards survive an airborne spawn") {
 						   BLUE) > 0.f);
 }
 
+// Blue chases a ball that is pulling away from it, the shape of the first half
+// of a double touch. The gap to the ball grew, which used to blank the reward
+// outright; only the car's own approach counts now, so where the ball was a
+// step ago cannot switch it off.
+TEST_CASE("air face ball ignores what the ball is doing") {
+	auto faceBall = [](Vec prevBallPos, Vec blueVel) {
+		Scenario scenario = MakeScenario(Vec(0, 0, 1200), Vec(0, 3000, 0),
+										 prevBallPos, Vec(0, 3000, 0));
+
+		for (GameState *gs : {&scenario.prev, &scenario.state}) {
+			Player &blue = gs->players[BLUE];
+			blue.pos = Vec(0, -850, 640);
+			blue.vel = blueVel;
+			blue.isOnGround = false;
+			blue.hasFlipped = true;
+		}
+		scenario.state.players[BLUE].pos = Vec(0, -790, 690);
+		scenario.Link();
+
+		return BareContribution(new AirFaceBallReward(650.f, 1800.f), scenario,
+								BLUE);
+	};
+
+	const Vec chasing = Vec(0, 700, 400);
+	const float receding = faceBall(Vec(0, -400, 1200), chasing);
+	const float closing = faceBall(Vec(0, 400, 1200), chasing);
+
+	CHECK(receding > 0.f);
+	CHECK(receding == doctest::Approx(closing));
+
+	// The guard that replaced it: nose on the ball while flying away from it.
+	CHECK(faceBall(Vec(0, 400, 1200), Vec(0, -700, -400)) ==
+		  doctest::Approx(0.f));
+}
+
 // The flip side of that seeding: a car that genuinely left the ground high up a
 // wall is still not aerialing, so wall rides cannot farm the air rewards.
 TEST_CASE("air rewards ignore a wall launch") {
@@ -507,6 +542,31 @@ TEST_CASE("a zeroed distance weight is not clobbered back to equal weights") {
 		  doctest::Approx(ChainRewards(ballHeightOnly(), highCar, BLUE).back()));
 }
 
+// Blue attacks +y, so an air dribble carried upfield has to outrank the same
+// distance carried back towards blue's own net. The floor keeps the wrong-way
+// chain worth something rather than killing the mechanic outright.
+TEST_CASE("an aerial chain pays more when the ball travels at the net") {
+	auto carry = [](float dy) {
+		GameState open =
+			AerialDistanceStep(Vec(0, 0, 1500), Vec(0, 0, 1500), true);
+
+		GameState carried =
+			AerialDistanceStep(Vec(0, dy, 1500), Vec(0, dy, 1500), false);
+		carried.ball.vel = Vec(0, dy, 0);
+
+		GameState close = AerialDistanceStep(Vec(0, 2 * dy, 1500),
+											 Vec(0, 2 * dy, 1500), true);
+		close.ball.vel = Vec(0, dy, 0);
+
+		Chain chain;
+		chain.steps = {open, carried, close};
+		return ChainRewards(new AerialDistanceReward(), chain, BLUE).back();
+	};
+
+	CHECK(carry(600.f) > carry(-600.f));
+	CHECK(carry(-600.f) > 0.f);
+}
+
 // Blue cradles the ball; orange sits at oppDist along +y. The flick branches
 // need blue airborne with its flip spent, which HasFlipOrJump() reads off
 // hasFlipped and airTimeSinceJump rather than any single flag.
@@ -565,13 +625,18 @@ TEST_CASE("a challenged carry held on the ground is punished") {
 
 // Blue cradles at `carryVel`, then the ball separates at `releasePos`/
 // `releaseVel`. FlickReward pays across the window after the carry ends, so
-// both steps have to run through one instance.
-float Flick(Vec carryVel, Vec releasePos, Vec releaseVel, float oppDist) {
+// both steps have to run through one instance. `dodged` picks which airborne
+// input broke the carry, since only a flip is a flick.
+float Flick(Vec carryVel, Vec releasePos, Vec releaseVel, float oppDist,
+			bool dodged = true) {
 	GameState carry = CradleStep(140.f, carryVel, true, true, oppDist);
 
 	GameState release = carry;
 	release.ball.pos = releasePos;
 	release.ball.vel = releaseVel;
+	release.players[BLUE].isOnGround = false;
+	release.players[BLUE].hasFlipped = dodged;
+	release.players[BLUE].hasDoubleJumped = !dodged;
 
 	FlickReward reward;
 	reward.Reset(carry);
@@ -585,7 +650,7 @@ float Flick(Vec carryVel, Vec releasePos, Vec releaseVel, float oppDist) {
 
 // Blue holds the carry for `groundSteps` on the ground and `airborneSteps`
 // riding up with the ball, then pops it towards the net.
-float CarryThenRelease(int groundSteps, int airborneSteps) {
+float CarryThenRelease(int groundSteps, int airborneSteps, bool dodged = true) {
 	std::vector<GameState> steps;
 	for (int i = 0; i < groundSteps; i++)
 		steps.push_back(CradleStep(140.f, Vec(), true, true, 5000.f));
@@ -600,6 +665,9 @@ float CarryThenRelease(int groundSteps, int airborneSteps) {
 	GameState release = steps.back();
 	release.ball.pos = Vec(0, 100, release.ball.pos.z + 160.f);
 	release.ball.vel = Vec(0, 1500, 0);
+	release.players[BLUE].isOnGround = false;
+	release.players[BLUE].hasFlipped = dodged;
+	release.players[BLUE].hasDoubleJumped = !dodged;
 	steps.push_back(release);
 
 	return BareSequence(new FlickReward(), steps, BLUE).back();
@@ -643,6 +711,18 @@ TEST_CASE("only a carry held on the ground arms the flick") {
 		  doctest::Approx(0.f));
 }
 
+// A double jump out of a carry pops the ball just as hard, so power and
+// direction alone cannot tell the two apart. Flipping is what makes it a flick.
+TEST_CASE("only a dodge out of the carry pays") {
+	const FlickReward reward;
+
+	CHECK(Flick(Vec(), Vec(0, 100, 300), Vec(0, 1500, 0), 5000.f, false) ==
+		  doctest::Approx(0.f));
+	CHECK(Flick(Vec(), Vec(0, 100, 300), Vec(0, 1500, 0), 5000.f, true) > 0.f);
+	CHECK(CarryThenRelease(reward.minCarrySteps, 0, false) ==
+		  doctest::Approx(0.f));
+}
+
 // The separation spans several steps. Paying the peak once, rather than a sum
 // over every step the ball is still flying, is what keeps this an event.
 TEST_CASE("a flick pays its peak once across the window") {
@@ -651,6 +731,8 @@ TEST_CASE("a flick pays its peak once across the window") {
 	GameState release = carry;
 	release.ball.pos = Vec(0, 100, 300);
 	release.ball.vel = Vec(0, 1500, 0);
+	release.players[BLUE].isOnGround = false;
+	release.players[BLUE].hasFlipped = true;
 
 	FlickReward reward;
 	reward.Reset(carry);

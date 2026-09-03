@@ -116,9 +116,9 @@ TEST_CASE("the deploy clock lets BallPredictor reuse its trajectory") {
 	// it -- which is what an untouched ball does.
 	auto pkt2 = MakeBasePacket(10.f + 8.f / 120.f);
 	pkt2.balls[0]->physics = std::make_unique<rlbot::flat::Physics>(
-		rlbot::flat::Vector3(traj.pos[8].x, traj.pos[8].y, traj.pos[8].z),
+		rlbot::flat::Vector3(traj.PosAt(8).x, traj.PosAt(8).y, traj.PosAt(8).z),
 		rlbot::flat::Rotator(0.f, 0.f, 0.f),
-		rlbot::flat::Vector3(traj.vel[8].x, traj.vel[8].y, traj.vel[8].z),
+		rlbot::flat::Vector3(traj.VelAt(8).x, traj.VelAt(8).y, traj.VelAt(8).z),
 		rlbot::flat::Vector3(0.f, 0.f, 0.f));
 	fx.Build(pkt2);
 

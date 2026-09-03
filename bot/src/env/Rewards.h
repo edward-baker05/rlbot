@@ -145,7 +145,8 @@ class OwnGoalThreatPunishment : public Reward {
 
 // Fires on the release of a ground carry, scoring the velocity the flick
 // imparted against how much of it points at the net. A vertical pop scores near
-// zero on direction; simply dropping the ball scores near zero on power.
+// zero on direction; simply dropping the ball scores near zero on power. Only
+// a dodge pays, since a double jump leaves hasFlipped false.
 class FlickReward : public Reward {
   public:
 	constexpr static float MAX_GROUND_Z = 200.f;
@@ -158,11 +159,11 @@ class FlickReward : public Reward {
 	std::vector<Vec> carryVel;
 	std::vector<int> windowLeft, carrySteps, airSteps;
 	std::vector<float> bestScore;
-	std::vector<bool> latched, wasChallenged;
+	std::vector<bool> latched, wasChallenged, flipped;
 
 	FlickReward(float minDistance = 300.f, float maxVelDiff = 300.f,
 				float powerRef = RLGC::Math::KPHToVel(120.f),
-				float freeFlickScale = 0.5f, int windowSteps = 3,
+				float freeFlickScale = 0.3f, int windowSteps = 3,
 				int minCarrySteps = 4, int maxAirSteps = 5)
 		: minDistance(minDistance), maxVelDiff(maxVelDiff), powerRef(powerRef),
 		  freeFlickScale(freeFlickScale), windowSteps(windowSteps),
@@ -180,6 +181,7 @@ class FlickReward : public Reward {
 		bestScore.assign(64, 0.f);
 		latched.assign(64, false);
 		wasChallenged.assign(64, false);
+		flipped.assign(64, false);
 	}
 
 	virtual void Reset(const GameState &initialState) override {
@@ -223,6 +225,9 @@ class FlickReward : public Reward {
 					continue;
 				}
 
+				// The dodge can land on either side of the step that breaks
+				// the latch, so hold it from the moment it is first seen.
+				flipped[id] = latched[id] && (flipped[id] || player.hasFlipped);
 				carrySteps[id] = latched[id] ? carrySteps[id] + 1 : 1;
 				latched[id] = true;
 				carryVel[id] = player.vel;
@@ -241,6 +246,10 @@ class FlickReward : public Reward {
 			if (windowLeft[id] <= 0)
 				continue;
 			windowLeft[id]--;
+
+			flipped[id] = flipped[id] || player.hasFlipped;
+			if (!flipped[id])
+				continue;
 
 			Vec targetGoal =
 				(player.team == Team::BLUE) ? ORANGE_GOAL_BACK : BLUE_GOAL_BACK;
@@ -324,11 +333,12 @@ class AerialDistanceReward : public Reward {
   public:
 	constexpr static float RAMP_HEIGHT = 256.f;
 
-	float touchHeightWeight = 1.f;
-	float carDistanceWeight = 1.f;
-	float ballDistanceWeight = 1.f;
-	float distanceNormalisation = 1 / BACK_WALL_Y;
+	float touchHeightWeight;
+	float carDistanceWeight;
+	float ballDistanceWeight;
 	std::vector<float> distances;
+	float distanceNormalisation = 1 / BACK_WALL_Y;
+	float minGoalwardScale = 0.3f;
 
 	std::vector<float> pending;
 
@@ -336,10 +346,29 @@ class AerialDistanceReward : public Reward {
 
 	AerialDistanceReward(float _touchHeightWeight = 1.f,
 						 float _carDistanceWeight = 1.f,
-						 float _ballDistanceWeight = 2.f)
+						 float _ballDistanceWeight = 3.f)
 		: touchHeightWeight(_touchHeightWeight),
 		  carDistanceWeight(_carDistanceWeight),
 		  ballDistanceWeight(_ballDistanceWeight) {}
+
+	// Scales a step of the chain by how much of the ball's travel points at the
+	// net. Deliberately flat in z, since air plays climb away from the goal
+	// before they come down towards it.
+	float GoalwardScale(const Player &player, const GameState &state) const {
+		Vec targetGoal = (player.team == Team::BLUE)
+							 ? CommonValues::ORANGE_GOAL_CENTER
+							 : CommonValues::BLUE_GOAL_CENTER;
+
+		Vec toGoal = targetGoal - state.ball.pos;
+		Vec ballVel = state.ball.vel;
+		toGoal.z = 0.f;
+		ballVel.z = 0.f;
+
+		float align =
+			RS_MAX(0.f, toGoal.Normalized().Dot(ballVel.Normalized()));
+
+		return minGoalwardScale + (1.f - minGoalwardScale) * align;
+	}
 
 	virtual void Reset(const GameState &initialState) override {
 		distances.assign(initialState.players.size(), 0.f);
@@ -365,7 +394,8 @@ class AerialDistanceReward : public Reward {
 				} else if (state.prev && player.prev) {
 					float distCar = player.pos.Dist(player.prev->pos);
 					float distBall = state.ball.pos.Dist(state.prev->ball.pos);
-					distances[idx] += (distCar * carDistanceWeight +
+					distances[idx] += GoalwardScale(player, state) *
+									  (distCar * carDistanceWeight +
 									   distBall * ballDistanceWeight);
 				}
 			}
@@ -411,21 +441,20 @@ class AirFaceBallReward : public AerialReward {
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		if (!state.prev || !player.prev)
-			return 0.f;
-
 		if (!IsAerialing(player) || state.ball.pos.z <= minHeight)
 			return 0.f;
 
-		if ((player.pos - state.ball.pos).Length() >=
-			(player.prev->pos - state.prev->ball.pos).Length())
+		Vec dirToBall = (state.ball.pos - player.pos).Normalized();
+
+		// Blocks facing the ball while flying away from it, without caring how
+		// fast the ball itself is receding.
+		if (player.vel.Dot(dirToBall) <= 0.f)
 			return 0.f;
 
 		float heightFactor =
 			(state.ball.pos.z - minHeight) / (maxHeight - minHeight);
 		heightFactor = RS_CLAMP(heightFactor, 0.f, 1.f);
 
-		Vec dirToBall = (state.ball.pos - player.pos).Normalized();
 		float alignment = player.rotMat.forward.Dot(dirToBall);
 
 		return heightFactor * RS_MAX(0.f, alignment);
@@ -467,17 +496,13 @@ class AirLaunchReward : public AerialReward {
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		if (!state.prev || !player.prev)
-			return 0.f;
-
 		if (!IsAerialing(player, 0.f) || state.ball.pos.z <= minHeight)
 			return 0.f;
 
 		if (player.airTimeSinceJump > MAX_AIR_TIME || player.vel.z <= 0.f)
 			return 0.f;
 
-		if ((player.pos - state.ball.pos).Length() >=
-			(player.prev->pos - state.prev->ball.pos).Length())
+		if (player.vel.Dot((state.ball.pos - player.pos).Normalized()) <= 0.f)
 			return 0.f;
 
 		Vec dirXY = Vec(state.ball.pos.x - player.pos.x,

@@ -79,7 +79,7 @@ TEST_CASE("PredictiveObs samples are the predicted ball in the car's frame") {
 
 	for (int k = 0; k < BallPredictor::NUM_SAMPLES; k++) {
 		const Vec expected =
-			car.rotMat.Dot(t.pos[BallPredictor::SAMPLE_TICKS[k]] - car.pos) *
+			car.rotMat.Dot(t.PosAt(BallPredictor::SAMPLE_TICKS[k]) - car.pos) *
 			RLGC::AdvancedObs::POS_COEF;
 
 		CHECK(result[base + k * 3 + 0] == doctest::Approx(expected.x).epsilon(0.001));

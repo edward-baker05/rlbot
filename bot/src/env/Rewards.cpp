@@ -20,6 +20,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		// 									   cfg.aerial.maxBallHeight);
 		//  }},
 
+		// TODO: ZeroSumReward() following 3 rewards
 		{"Aerial Distance", b.aerialDistance, RewardKind::Event,
 		 [] { return new AerialDistanceReward(); }},
 
@@ -34,6 +35,10 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 										   cfg.aerial.maxBallHeight);
 		 }},
 
+		// This is causing issues with suboptimal direction in the air; the bot
+		// prefers to face where the ball is right now, which for far/fast balls
+		// leads to chasing and incredibly inefficient boost usage, making it
+		// either late to the ball or miss it entirely. Important to fix.
 		{"Air Face Ball", b.airFaceBall, RewardKind::Continuous,
 		 [=] {
 			 return new AirFaceBallReward(cfg.aerial.minBallHeight,
@@ -52,15 +57,20 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Speed", b.speed, RewardKind::Continuous,
 		 [] { return new SpeedReward(); }},
 
-		// Temporarily removed until I have a better reward
+		// Temporarily removed until I have a better reward; this is an
+		// important reward to get working, alongside wall/chaindashing
 		// {"Wavedash", b.wavedash, RewardKind::Event, [] { return new
 		// WavedashReward(); }},
 
 		{"Bump", b.bump, RewardKind::Event, [] { return new BumpReward(); }},
 
+		// TODO: Implement (air) dribble bump plays as shot variety, not the
+		// only attacking technique. Very strong but likely hard to balance
+		// because of their strength
 		{"Demo", b.demo, RewardKind::Event,
 		 [] { return new ZeroSumReward(new DemoReward(), 0); }},
 
+		// TODO: ZeroSumReward() this
 		{"Save", b.save, RewardKind::Event, [] { return new SaveReward(); }},
 
 		{"Awkward Contact", b.awkwardContact, RewardKind::Continuous,

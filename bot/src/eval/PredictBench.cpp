@@ -16,6 +16,9 @@ using namespace RLGC;
 
 namespace Dash {
 
+extern uint64_t g_predictNanos;
+extern uint64_t g_assembleNanos;
+
 namespace {
 
 struct BenchArena {
@@ -26,7 +29,8 @@ struct BenchArena {
 
 struct BenchResult {
 	double envStepsPerSec = 0;
-	uint64_t simulations = 0;   // full trajectory re-simulations
+	uint64_t simulations = 0;   // full window re-simulations
+	uint64_t simTicks = 0;      // ball-only arena ticks stepped
 	uint64_t envSteps = 0;
 };
 
@@ -94,8 +98,10 @@ BenchResult TimeMode(ObsMode mode, int numArenas, int steps, int tickSkip,
 	BenchResult out = {};
 	out.envSteps = (uint64_t)numArenas * steps;
 	for (auto& a : arenas) {
-		if (auto* pred = dynamic_cast<PredictiveObs*>(a.obs.get()))
+		if (auto* pred = dynamic_cast<PredictiveObs*>(a.obs.get())) {
 			out.simulations += pred->SimulationCount();
+			out.simTicks += pred->SimulatedTickCount();
+		}
 		delete a.arena;
 	}
 
@@ -109,21 +115,21 @@ double ReportArm(const char* regime, int numArenas, int steps, int tickSkip,
                  bool drive) {
 	const BenchResult advanced =
 		TimeMode(ObsMode::Advanced, numArenas, steps, tickSkip, drive);
+	g_predictNanos = 0;
+	g_assembleNanos = 0;
 	const BenchResult predictive =
 		TimeMode(ObsMode::Predictive, numArenas, steps, tickSkip, drive);
 
 	const double lossPct =
 		100.0 * (1.0 - predictive.envStepsPerSec / advanced.envStepsPerSec);
 
-	// How often the cache misses is the whole story: each miss costs
-	// SIM_HORIZON_TICKS ball-only ticks against tickSkip full-arena ticks.
 	const double stepsPerSim =
 		predictive.simulations
 			? (double)predictive.envSteps / (double)predictive.simulations
 			: 0.0;
 	const double ballTicksPerEnvStep =
-		stepsPerSim > 0
-			? (double)BallPredictor::SIM_HORIZON_TICKS / stepsPerSim
+		predictive.envSteps
+			? (double)predictive.simTicks / (double)predictive.envSteps
 			: 0.0;
 
 	std::printf("\n%s\n", regime);
@@ -132,6 +138,9 @@ double ReportArm(const char* regime, int numArenas, int steps, int tickSkip,
 	std::printf("  %-12s %10.0f env-steps/sec\n", "Predictive",
 	            predictive.envStepsPerSec);
 	std::printf("  throughput loss: %.1f%%\n", lossPct);
+	std::printf("  predictor.Get(): %.1f us/env-step   rest of BuildObs: %.1f us/env-step\n",
+	            (double)g_predictNanos / 1000.0 / (double)predictive.envSteps,
+	            (double)g_assembleNanos / 1000.0 / (double)predictive.envSteps);
 	std::printf("  cache: 1 re-simulation per %.1f env-steps "
 	            "(%.1f ball-only ticks simulated per env-step, "
 	            "against %d full-arena ticks)\n",
@@ -147,27 +156,23 @@ int RunPredictBench(int numArenas, int steps) {
 	std::printf("Warming up...\n");
 	TimeMode(ObsMode::Advanced, numArenas, steps / 4, tickSkip, true);
 
-	std::printf("\n%d arenas, %d steps, tickSkip %d, horizon %d ticks, "
+	std::printf("\n%d arenas, %d steps, tickSkip %d, window %d ticks, "
 	            "deepest sample %d ticks\n",
 	            numArenas, steps, tickSkip,
-	            BallPredictor::SIM_HORIZON_TICKS,
+	            BallPredictor::WINDOW_TICKS,
 	            BallPredictor::SAMPLE_TICKS.back());
 
 	// The regime that matters is the driven one: training arenas have the ball
-	// touched every second or two, which invalidates the cache long before the
-	// horizon is consumed and makes the unconsumed tail pure waste. The idle
-	// arm is reported alongside it as the best case the cache can ever reach.
+	// touched every second or two, and every touch costs a full window
+	// re-simulation. The idle arm is the floor, where sliding is all there is.
 	ReportArm("IDLE (cars take no input; ball is never touched -- best case)",
 	          numArenas, steps, tickSkip, false);
 	const double lossPct =
 		ReportArm("DRIVEN (random inputs; ball is touched -- representative)",
 		          numArenas, steps, tickSkip, true);
 
-	// The spec opened at ~15%. Measurement showed that unreachable for a
-	// 6-sample, 2.60s schedule: the floor for any implementation is
-	// deepest_sample * tickSkip / touch_interval ball-only ticks per env-step,
-	// which is ~16.6 here, or roughly a quarter of throughput. The schedule was
-	// kept and the budget widened rather than the other way round.
+	// A sliding window costs tickSkip ball-only ticks per env-step for an
+	// untouched ball, plus one window re-simulation per touch.
 	static constexpr double GATE_PCT = 25.0;
 
 	std::printf("\n  GATE (driven): %s -- %.1f%% loss, budget %.0f%%\n",

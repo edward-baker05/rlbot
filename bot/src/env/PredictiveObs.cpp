@@ -2,7 +2,10 @@
 
 #include <RLGymCPP/Gamestates/StateUtil.h>
 
+#include <chrono>
 #include <cmath>
+
+namespace Dash { uint64_t g_predictNanos = 0; uint64_t g_assembleNanos = 0; }
 
 using namespace RLGC;
 
@@ -21,14 +24,17 @@ FList PredictiveObs::BuildObs(const Player& player, const GameState& state) {
 	// Predict in world space once per arena tick -- both cars in a 1v1 share
 	// this call, and the cache makes the second one free -- then invert per
 	// player, the same way every other block in this obs is built.
+	const auto t0 = std::chrono::steady_clock::now();
 	const BallTrajectory& traj = predictor.Get(state);
+	const auto t1 = std::chrono::steady_clock::now();
+	g_predictNanos += std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
 
 	const PhysState self = InvertPhys(player, inv);
 
 	for (int k = 0; k < BallPredictor::NUM_SAMPLES; k++) {
 		PhysState slice = {};
-		slice.pos = traj.pos[BallPredictor::SAMPLE_TICKS[k]];
-		slice.vel = traj.vel[BallPredictor::SAMPLE_TICKS[k]];
+		slice.pos = traj.PosAt(BallPredictor::SAMPLE_TICKS[k]);
+		slice.vel = traj.VelAt(BallPredictor::SAMPLE_TICKS[k]);
 		const PhysState predicted = InvertPhys(slice, inv);
 
 		// Car-local, matching AdvancedObs::AddPlayerToObs's convention for the
@@ -74,6 +80,9 @@ FList PredictiveObs::BuildObs(const Player& player, const GameState& state) {
 		if (!std::isfinite(v))
 			v = 0.f;
 	}
+
+	const auto t2 = std::chrono::steady_clock::now();
+	g_assembleNanos += std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
 
 	return result;
 }

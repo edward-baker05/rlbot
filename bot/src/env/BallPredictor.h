@@ -8,29 +8,43 @@
 
 namespace Dash {
 
-// A tick-indexed ball trajectory, sampled at RocketSim's fixed 120Hz.
-// Index i is the predicted state i ticks after `startTick`; index 0 is the
-// present.
+// A ball trajectory over a fixed window, sampled at RocketSim's fixed 120Hz.
+// Offset 0 is always the present; offset i is the predicted state i ticks from
+// now. Storage is a ring buffer, so sliding the window forward costs nothing.
 struct BallTrajectory {
-	std::vector<RocketSim::Vec> pos;
-	std::vector<RocketSim::Vec> vel;
+	std::vector<RocketSim::Vec> posRing;
+	std::vector<RocketSim::Vec> velRing;
+	int head = 0;
 	uint64_t startTick = 0;
 
-	// Tick offsets from startTick, or -1 for "did not happen in the horizon".
+	// Tick offsets from the present, or -1 for "not in the window".
 	int bounceTick = -1;
 	RocketSim::Vec bouncePos = {};
 	int goalTick = -1;
 	int goalTeam = -1;  // 0 = blue's net, 1 = orange's net, -1 = none
+
+	int Size() const { return (int)posRing.size(); }
+
+	int Wrap(int offset) const {
+		const int i = head + offset;
+		return i < Size() ? i : i - Size();
+	}
+
+	const RocketSim::Vec& PosAt(int offset) const { return posRing[Wrap(offset)]; }
+	const RocketSim::Vec& VelAt(int offset) const { return velRing[Wrap(offset)]; }
 };
 
 // Predicts where the ball goes if nobody touches it.
 //
-// The trajectory is only invalidated by a touch (or a reset), so a single
-// simulation is reused across many env steps. Rather than plumbing touch
-// events through, invalidation is detected by comparing the live ball against
-// this predictor's own prediction for the current tick: any divergence beyond
-// float noise means something interfered. That covers touches, goal resets and
-// state setters uniformly, with no event wiring to get out of sync.
+// The window is pinned to the present: advancing by d ticks drops d states off
+// the front and simulates d new ones onto the back, so an untouched ball costs
+// exactly tickSkip ball-only ticks per env step. A touch invalidates everything
+// and forces a full re-simulation of the window.
+//
+// Rather than plumbing touch events through, invalidation is detected by
+// comparing the live ball against this predictor's own prediction for the
+// current tick: any divergence beyond float noise means something interfered.
+// That covers touches, goal resets and state setters uniformly.
 class BallPredictor {
 public:
 	static constexpr int TICK_RATE = 120;
@@ -43,31 +57,9 @@ public:
 	static constexpr std::array<int, NUM_SAMPLES> SAMPLE_TICKS =
 		{18, 36, 66, 114, 192, 312};
 
-	// How far past the deepest sample to simulate, so the trajectory can be
-	// consumed for a while before it runs out of runway.
-	//
-	// Sized by measurement. Each re-simulation costs the whole horizon and
-	// buys E[min(runway, time-to-next-touch)] ticks of use, so the amortized
-	// cost is (deepest + runway) / E[min(runway, T)] -- a curve with a genuine
-	// interior minimum, since a short runway re-simulates constantly and a long
-	// one simulates tail that a touch throws away unread.
-	//
-	// predict-bench, on a 3600 under random inputs (T ~ 600 ticks):
-	//
-	//   runway 300 -> 21.3 ball-only ticks per env-step  (50.9% loss)
-	//   runway 408 -> 19.8                               (35-44% loss)
-	//
-	// The minimum sits near runway 550 and is worth about 3% over 408, which is
-	// inside this benchmark's run-to-run spread. 408 it stays -- the 6-second
-	// horizon the design started with turns out to have been the right call.
-	//
-	// Note this is the SHALLOW end of the cost: a trained policy touches the
-	// ball far more often than random inputs do, which shortens T and pushes
-	// the optimum runway down. Re-measure if the sample schedule changes.
-	static constexpr int CACHE_RUNWAY_TICKS = 408;
-
-	static constexpr int SIM_HORIZON_TICKS =
-		SAMPLE_TICKS.back() + CACHE_RUNWAY_TICKS;
+	// Offsets 0 through the deepest sample. Nothing deeper is ever read, and
+	// with a sliding window nothing deeper needs to be simulated either.
+	static constexpr int WINDOW_TICKS = SAMPLE_TICKS.back() + 1;
 
 	// Divergence beyond this means the ball was interfered with. RocketSim is
 	// deterministic, so an untouched ball matches to float precision; these are
@@ -93,24 +85,41 @@ public:
 	BallPredictor(const BallPredictor&) = delete;
 	BallPredictor& operator=(const BallPredictor&) = delete;
 
-	// Returns a trajectory valid for `state`, re-simulating only if needed.
-	// The reference is invalidated by the next call.
+	// Returns a trajectory whose offset 0 is `state`, re-simulating or sliding
+	// as needed. The reference is invalidated by the next call.
 	const BallTrajectory& Get(const RLGC::GameState& state);
 
 	// Drops the cache. Call on episode reset.
 	void Reset();
 
-	// Number of full simulations run. For the performance gate and tests.
+	// Full window re-simulations. For the performance gate and tests.
 	uint64_t SimulationCount() const { return simCount; }
+
+	// Ball-only arena ticks stepped, whether by re-simulation or by sliding.
+	// This is the real cost of the predictor.
+	uint64_t SimulatedTickCount() const { return tickCount; }
 
 private:
 	void Simulate(const RLGC::GameState& state);
-	bool CacheValidFor(const RLGC::GameState& state) const;
+	void Advance(int ticks);
+	void AppendTick();
+	void RefreshBounce();
+	bool CacheUsableFor(const RLGC::GameState& state, int& outOffset) const;
 
 	RocketSim::Arena* arena = nullptr;
 	BallTrajectory traj = {};
+
+	// Per-tick "this tick is a bounce" flags, in the same ring layout as traj.
+	std::vector<uint8_t> bounceRing;
+
+	// Set once a goal is inside the window: past the goal line the simulation
+	// is meaningless, so the tail is held still rather than fed to the network
+	// as an imaginary continuation.
+	bool frozen = false;
+
 	bool hasCache = false;
 	uint64_t simCount = 0;
+	uint64_t tickCount = 0;
 };
 
 }  // namespace Dash
