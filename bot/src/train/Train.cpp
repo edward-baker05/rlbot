@@ -364,6 +364,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 		{"airVtB", b.airVtB},
 		{"aerialDistance", b.aerialDistance},
 		{"dribbleFlick", b.dribbleFlick},
+		{"flick", b.flick},
 		{"airFaceBall", b.airFaceBall},
 		{"airLaunch", b.airLaunch},
 		{"pickupBoost", b.pickupBoost},
@@ -379,6 +380,7 @@ static nlohmann::json ConfigToJson(const TrainConfig &cfg) {
 	j["aerial"] = {
 		{"aerialSpawnChance", cfg.aerial.aerialSpawnChance},
 		{"hoverFraction", cfg.aerial.hoverFraction},
+		{"backboardFollowFraction", cfg.aerial.backboardFollowFraction},
 		{"minBallHeight", cfg.aerial.minBallHeight},
 		{"maxBallHeight", cfg.aerial.maxBallHeight},
 		{"initialBoost", cfg.aerial.initialBoost},

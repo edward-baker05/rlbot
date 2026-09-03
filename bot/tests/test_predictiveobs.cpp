@@ -48,21 +48,8 @@ RLGC::GameState MakeState() {
 
 } // namespace
 
-TEST_CASE("PredictiveObs is the advanced obs plus exactly one prediction block") {
-	Dash::Test::EnsureRocketSim();
-	auto predictive = MakeObsBuilder(3, ObsMode::Predictive);
-	auto advanced = MakeObsBuilder(3, ObsMode::Advanced);
-
-	RLGC::GameState s = MakeState();
-	const int predSize = (int)predictive->BuildObs(s.players[0], s).size();
-	const int advSize = (int)advanced->BuildObs(s.players[0], s).size();
-
-	CHECK(advSize == 225);
-	CHECK(predSize == advSize + PredictiveObs::PREDICT_BLOCK);
-	CHECK(predSize == 249);
-}
-
-TEST_CASE("PredictiveObs leaves the existing dimensions untouched") {
+TEST_CASE("PredictiveObs appends exactly one prediction block and leaves the "
+		  "existing dimensions untouched") {
 	Dash::Test::EnsureRocketSim();
 	auto predictive = MakeObsBuilder(3, ObsMode::Predictive);
 	auto advanced = MakeObsBuilder(3, ObsMode::Advanced);

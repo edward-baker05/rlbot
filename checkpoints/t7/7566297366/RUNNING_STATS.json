@@ -1,0 +1,21 @@
+{
+    "controllers": {
+        "entropy_controller_engaged": true,
+        "entropy_scale": 0.004000000189989805,
+        "entropy_scale_min": 0.004000000189989805,
+        "kl_base_lr_captured": true,
+        "kl_base_policy_lr": 9.999999747378752e-05,
+        "policy_lr": 3.6394940252648667e-05
+    },
+    "return_stat": {
+        "count": 4994550,
+        "mean": 0.288951186650053,
+        "var": 6161921.747622477
+    },
+    "run_id": "pj41skvc",
+    "skill_ratings": {
+        "1v1": 260.7852478027344
+    },
+    "total_iterations": 33297,
+    "total_timesteps": 7566297366
+}

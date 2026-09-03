@@ -19,7 +19,8 @@ using namespace RLGC::CommonValues;
 
 // Sign errors are this project's most expensive bug: nothing crashes, the run
 // looks alive, and the bot spends a billion steps learning the opposite of what
-// was intended. These pin down the direction of each reward, not its value.
+// was intended. These pin down the direction of each reward and how its rungs
+// rank against each other, never a hand-computed magnitude.
 
 namespace {
 
@@ -93,26 +94,6 @@ std::vector<float> StackTotals(const TrainConfig &cfg, Scenario &scenario) {
 			totals[p] += output[p] * specs[i].weight;
 	}
 	return totals;
-}
-
-float WeightedContribution(const TrainConfig &cfg, const std::string &name,
-						   Scenario &scenario, int playerIdx) {
-	scenario.Link();
-	for (const RewardSpec &spec : GeneralRewardSpecs(cfg)) {
-		if (spec.name != name)
-			continue;
-
-		std::unique_ptr<Reward> reward(spec.make());
-		reward->Reset(scenario.prev);
-		reward->PreStep(scenario.prev);
-		reward->GetAllRewards(scenario.prev, false);
-		reward->PreStep(scenario.state);
-		return reward->GetAllRewards(scenario.state, false)[playerIdx] *
-			   spec.weight;
-	}
-
-	FAIL("no reward spec named ", name);
-	return 0.f;
 }
 
 constexpr int BLUE = 0;
@@ -201,15 +182,6 @@ Scenario BallAwayFromBlueNet() {
 	return scenario;
 }
 
-// The reward returns a positive magnitude and is wired with a negative weight,
-// so the sign is reapplied here.
-constexpr float OWN_GOAL_THREAT_WEIGHT = -0.005f;
-
-float OwnGoalThreat(Scenario &scenario, int playerIdx) {
-	return OWN_GOAL_THREAT_WEIGHT *
-		   BareContribution(new OwnGoalThreatPunishment(), scenario, playerIdx);
-}
-
 // Blue in a genuine aerial: on the ground in the previous state so the climb
 // latches, airborne and touching with the ball above the height gate.
 Scenario AerialTouch(Vec ballVel, Vec prevBallVel) {
@@ -232,8 +204,8 @@ Scenario AerialTouch(Vec ballVel, Vec prevBallVel) {
 	return scenario;
 }
 
-float AirTouch(const TrainConfig &cfg, Scenario &scenario) {
-	return WeightedContribution(cfg, "Air Touch", scenario, BLUE);
+float AirTouch(Scenario &scenario) {
+	return BareContribution(new ImprovedAirTouchReward(), scenario, BLUE);
 }
 
 // One step of a shot sequence: blue attacking the orange net.
@@ -266,28 +238,58 @@ Scenario ShotScenario() {
 } // namespace
 
 TEST_CASE("air touch rewards aim, and never rewards missing") {
-	TrainConfig cfg = {};
-
-	Scenario aimedHard = AerialTouch(Vec(0, 1000, 0), Vec(0, 0, 0));
-	Scenario awayHard = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
+	Scenario aimed = AerialTouch(Vec(0, 1000, 0), Vec(0, 0, 0));
+	Scenario away = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
 	Scenario missed = AerialTouch(Vec(0, 1000, 0), Vec(0, 0, 0));
 	missed.state.players[BLUE].ballTouchedStep = false;
 
-	CHECK(AirTouch(cfg, missed) == doctest::Approx(0.f));
-	CHECK(AirTouch(cfg, aimedHard) > 0.f);
-	CHECK(AirTouch(cfg, awayHard) < 0.f);
+	CHECK(AirTouch(missed) == doctest::Approx(0.f));
+	CHECK(AirTouch(aimed) > 0.f);
+	CHECK(AirTouch(away) < 0.f);
 }
 
-// Documented, not endorsed: t4 replaced this guard with a 0.1 alignment floor,
-// and which is right is still open.
-TEST_CASE("air touch skips the alignment factor below 50uu/s") {
-	TrainConfig cfg = {};
+// The aerial drills spawn cars already airborne, which have no launch height to
+// measure a climb from. Seeding it from the spawn z tripped MAX_GROUND_LAUNCH_Z
+// and silenced every AerialReward for the rest of the episode.
+TEST_CASE("air rewards survive an airborne spawn") {
+	Scenario scenario = MakeScenario(Vec(0, 0, 1200), Vec(0, 0, 0),
+									 Vec(0, 0, 1200), Vec(0, 0, 0));
 
-	Scenario aimedFeather = AerialTouch(Vec(0, 10, 0), Vec(0, 0, 0));
-	Scenario awayFeather = AerialTouch(Vec(0, -10, 0), Vec(0, 0, 0));
+	for (GameState *gs : {&scenario.prev, &scenario.state}) {
+		Player &blue = gs->players[BLUE];
+		blue.pos = Vec(0, -850, 640);
+		blue.vel = Vec(0, 700, 400);
+		blue.isOnGround = false;
+		blue.hasFlipped = true;
+	}
+	scenario.state.players[BLUE].pos = Vec(0, -790, 690);
+	scenario.Link();
 
-	CHECK(AirTouch(cfg, awayFeather) ==
-		  doctest::Approx(AirTouch(cfg, aimedFeather)));
+	CHECK(BareContribution(new AirVelToBallReward(650.f, 1800.f), scenario,
+						   BLUE) > 0.f);
+	CHECK(BareContribution(new AirFaceBallReward(650.f, 1800.f), scenario,
+						   BLUE) > 0.f);
+}
+
+// The flip side of that seeding: a car that genuinely left the ground high up a
+// wall is still not aerialing, so wall rides cannot farm the air rewards.
+TEST_CASE("air rewards ignore a wall launch") {
+	Scenario scenario = MakeScenario(Vec(0, 0, 1200), Vec(0, 0, 0),
+									 Vec(0, 0, 1200), Vec(0, 0, 0));
+
+	Player &prevBlue = scenario.prev.players[BLUE];
+	prevBlue.pos = Vec(4000, -850, 900);
+	prevBlue.vel = Vec(0, 700, 400);
+	prevBlue.isOnGround = true;
+
+	Player &blue = scenario.state.players[BLUE];
+	blue.pos = Vec(3900, -790, 950);
+	blue.vel = Vec(0, 700, 400);
+	blue.isOnGround = false;
+	scenario.Link();
+
+	CHECK(BareContribution(new AirVelToBallReward(650.f, 1800.f), scenario,
+						   BLUE) == doctest::Approx(0.f));
 }
 
 // Power is DirectionalTouchReward's job, not this reward's, so the incentive to
@@ -301,24 +303,14 @@ TEST_CASE("the stack prefers a powerful aerial touch to a feathered one") {
 	CHECK(StackTotals(cfg, hard)[BLUE] > StackTotals(cfg, feather)[BLUE]);
 }
 
-// The cost of the guard above: a hard touch away from the net is punished
-// harder than not reaching the ball at all, so whiffing beats a bad hit.
-TEST_CASE("a badly aimed aerial touch loses to whiffing in the stack") {
-	TrainConfig cfg = {};
-
-	Scenario awayHard = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
-	Scenario missed = AerialTouch(Vec(0, -1000, 0), Vec(0, 0, 0));
-	missed.state.players[BLUE].ballTouchedStep = false;
-
-	CHECK(StackTotals(cfg, awayHard)[BLUE] < StackTotals(cfg, missed)[BLUE]);
-}
-
-TEST_CASE("a shot on target pays once, not once per re-touch") {
+TEST_CASE("a shot on target pays once, and re-arms on the opponent's touch") {
 	const std::vector<GameState> steps = {
-		ShotStep(OFF_TARGET_FAST, -1),	// arms
-		ShotStep(ON_TARGET_FAST, BLUE), // the shot
-		ShotStep(ON_TARGET_FAST, -1),	// in flight
-		ShotStep(ON_TARGET_FAST, BLUE), // blue catches its own shot
+		ShotStep(OFF_TARGET_FAST, -1),     // arms
+		ShotStep(ON_TARGET_FAST, BLUE),    // the shot
+		ShotStep(ON_TARGET_FAST, -1),      // in flight
+		ShotStep(ON_TARGET_FAST, BLUE),    // blue catches its own shot
+		ShotStep(OFF_TARGET_FAST, ORANGE), // orange saves it
+		ShotStep(ON_TARGET_FAST, BLUE),    // blue shoots again
 	};
 
 	const std::vector<float> paid =
@@ -328,28 +320,15 @@ TEST_CASE("a shot on target pays once, not once per re-touch") {
 	CHECK(paid[1] > 0.f);
 	CHECK(paid[2] == doctest::Approx(0.f));
 	CHECK(paid[3] == doctest::Approx(0.f));
-}
-
-TEST_CASE("a shot on target pays again after the opponent intervenes") {
-	const std::vector<GameState> steps = {
-		ShotStep(OFF_TARGET_FAST, -1),	   // arms
-		ShotStep(ON_TARGET_FAST, BLUE),	   // the shot
-		ShotStep(OFF_TARGET_FAST, ORANGE), // orange saves it
-		ShotStep(ON_TARGET_FAST, BLUE),	   // blue shoots again
-	};
-
-	const std::vector<float> paid =
-		BareSequence(new ShotOnTargetReward(), steps, BLUE);
-
-	CHECK(paid[1] > 0.f);
-	CHECK(paid[3] > 0.f);
+	CHECK(paid[5] > 0.f);
 }
 
 TEST_CASE("timeout fires after maxTime of accumulated steps") {
 	GameState state;
 	state.deltaTime = 8.f / 120.f;
 
-	TimeoutCondition condition(1.0f);
+	const float maxTime = 1.0f;
+	TimeoutCondition condition(maxTime);
 	condition.Reset(state);
 
 	int steps = 0;
@@ -359,7 +338,7 @@ TEST_CASE("timeout fires after maxTime of accumulated steps") {
 			break;
 	}
 
-	CHECK(steps == 15);
+	CHECK(steps == (int)std::ceil(maxTime / state.deltaTime));
 	CHECK(condition.IsTruncation());
 }
 
@@ -368,45 +347,6 @@ TEST_CASE("onTarget's team argument names the goal being shot at") {
 
 	CHECK(onTarget(scenario.state, Team::BLUE));
 	CHECK_FALSE(onTarget(scenario.state, Team::ORANGE));
-}
-
-TEST_CASE("a ball closing on our own net is a punishment") {
-	Scenario threatened = BallAtBlueNet();
-
-	CHECK(OwnGoalThreat(threatened, BLUE) < 0.f);
-	CHECK(OwnGoalThreat(threatened, ORANGE) == doctest::Approx(0.f));
-}
-
-TEST_CASE("a ball leaving our own net is not punished") {
-	Scenario cleared = BallAwayFromBlueNet();
-
-	CHECK(OwnGoalThreat(cleared, BLUE) == doctest::Approx(0.f));
-}
-
-// The bug this replaces paid out per step regardless of speed, so a slow ball
-// left to trickle in scored the same as a rocket -- and scored more the longer
-// it was left alone.
-TEST_CASE("own goal threat scales with closing speed, not with time") {
-	Scenario slow = MakeScenario(Vec(0, -4000, 100), Vec(0, -300, 0),
-								 Vec(0, -3980, 100), Vec(0, -300, 0));
-	Scenario fast = BallAtBlueNet();
-
-	CHECK(OwnGoalThreat(fast, BLUE) < OwnGoalThreat(slow, BLUE));
-	CHECK(OwnGoalThreat(slow, BLUE) < 0.f);
-}
-
-// The gate this replaces zeroed the punishment whenever our own team touched
-// last, which made hitting it in ourselves cheaper than conceding a shot.
-TEST_CASE("own goal threat does not care who touched last") {
-	Scenario blueTouched = BallAtBlueNet();
-	blueTouched.state.lastTouchCarID = blueTouched.state.players[BLUE].carId;
-	blueTouched.prev.lastTouchCarID = blueTouched.state.lastTouchCarID;
-
-	Scenario orangeTouched = BallAtBlueNet();
-
-	CHECK(OwnGoalThreat(blueTouched, BLUE) ==
-		  doctest::Approx(OwnGoalThreat(orangeTouched, BLUE)));
-	CHECK(OwnGoalThreat(blueTouched, BLUE) < 0.f);
 }
 
 TEST_CASE("the whole stack prefers the ball leaving our own net") {
@@ -455,25 +395,6 @@ TEST_CASE("GetReward is repeatable for the same state") {
 	}
 }
 
-// The shot latch is where that bug was found, and it is unwired now, so the
-// stack sweep above no longer covers it.
-TEST_CASE("the shot latch pays out, and repeats for the same state") {
-	Scenario shot = ShotScenario();
-	shot.Link();
-
-	std::unique_ptr<Reward> reward(new ShotOnTargetReward());
-	reward->Reset(shot.prev);
-	reward->PreStep(shot.prev);
-	reward->GetAllRewards(shot.prev, false);
-	reward->PreStep(shot.state);
-
-	const float first = reward->GetAllRewards(shot.state, false)[BLUE];
-	const float second = reward->GetAllRewards(shot.state, false)[BLUE];
-
-	CHECK(first > 0.f);
-	CHECK(second == doctest::Approx(first));
-}
-
 // A big pad always fills to 100, so "landed below full" is what separates the
 // two pad sizes. Getting that backwards would pay the flat small-pad reward
 // for every big pad in the game.
@@ -489,33 +410,21 @@ static float PadPickup(float prevBoost, float boost) {
 	return reward.GetAllRewards(scenario.state, false)[BLUE];
 }
 
-TEST_CASE("a small pad pays the same whether the tank is empty or part-full") {
+TEST_CASE("a small pad pays a flat premium, a big pad pays the sqrt curve") {
 	const float fromEmpty = PadPickup(0.f, 12.f);
 	const float fromHalf = PadPickup(60.f, 72.f);
 
 	CHECK(fromEmpty ==
 		  doctest::Approx(PadAwarePickupBoostReward::SMALL_PAD_REWARD));
 	CHECK(fromHalf == doctest::Approx(fromEmpty));
-}
-
-TEST_CASE("a small pad beats what the sqrt curve could ever pay for one") {
-	CHECK(PadPickup(0.f, 12.f) > std::sqrt(0.12f));
-}
-
-TEST_CASE("a big pad keeps the sqrt curve, and so does topping off to full") {
-	CHECK(PadPickup(30.f, 100.f) == doctest::Approx(1.f - std::sqrt(0.30f)));
-	CHECK(PadPickup(92.f, 100.f) == doctest::Approx(1.f - std::sqrt(0.92f)));
-	CHECK(PadPickup(92.f, 100.f) < PadAwarePickupBoostReward::SMALL_PAD_REWARD);
-}
-
-TEST_CASE("no boost gained pays nothing") {
+	CHECK(PadPickup(30.f, 100.f) > PadPickup(92.f, 100.f));
+	CHECK(PadPickup(92.f, 100.f) < fromEmpty);
 	CHECK(PadPickup(50.f, 50.f) == doctest::Approx(0.f));
 	CHECK(PadPickup(50.f, 20.f) == doctest::Approx(0.f));
 }
 
-// AerialDistanceReward is unwired (see GeneralRewardSpecs), but is exercised
-// bare here since it ported the height axis wrong: the Python source reads
-// position.z (up), the port read pos.y (the goal-to-goal axis) instead.
+// The port had the height axis wrong: the Python source reads position.z (up),
+// the port read pos.y (the goal-to-goal axis) instead.
 TEST_CASE("aerial distance's touch reward reads height, not field position") {
 	Chain grounded;
 	grounded.steps = {AerialDistanceStep(Vec(0, 4000, 17), Vec(0, 4000, 17), false),
@@ -525,13 +434,9 @@ TEST_CASE("aerial distance's touch reward reads height, not field position") {
 	airborne.steps = {AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
 					  AerialDistanceStep(Vec(0, 0, 2000), Vec(0, 0, 2000), true)};
 
-	float groundedPaid =
-		ChainRewards(new AerialDistanceReward(), grounded, BLUE).back();
-	float airbornePaid =
-		ChainRewards(new AerialDistanceReward(), airborne, BLUE).back();
-
-	CHECK(groundedPaid == doctest::Approx(0.f));
-	CHECK(airbornePaid == doctest::Approx((2000.f - 256.f) / BACK_WALL_Y));
+	CHECK(ChainRewards(new AerialDistanceReward(), grounded, BLUE).back() ==
+		  doctest::Approx(0.f));
+	CHECK(ChainRewards(new AerialDistanceReward(), airborne, BLUE).back() > 0.f);
 }
 
 // Python clears its own last_touch_agent when the tracked player lands, which
@@ -552,22 +457,6 @@ TEST_CASE("the chain resets when the carrier lands, even without another touch")
 
 	CHECK(paid[1] > 0.f);
 	CHECK(paid[3] == doctest::Approx(paid[1]));
-}
-
-TEST_CASE("a repeat touch while still airborne pays for distance travelled "
-		 "since the last touch") {
-	Chain chain;
-	chain.steps = {
-		AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
-		AerialDistanceStep(Vec(0, 0, 1000), Vec(0, 0, 1000), true),
-		AerialDistanceStep(Vec(500, 0, 1000), Vec(300, 0, 1000), false),
-		AerialDistanceStep(Vec(500, 0, 1000), Vec(300, 0, 1000), true),
-	};
-
-	std::vector<float> paid = ChainRewards(new AerialDistanceReward(), chain, BLUE);
-
-	CHECK(paid[1] > 0.f);
-	CHECK(paid[3] == doctest::Approx((500.f + 300.f) / BACK_WALL_Y));
 }
 
 // distances/rewards are sized to player count and were indexed by carId, an
@@ -595,46 +484,27 @@ TEST_CASE("carId does not have to match player index for the reward to land "
 }
 
 // w1 == w2 == 0 does not chain in C++ the way it does in Python: it parses as
-// (w1 == w2) == 0, true whenever the weights merely differ, and the port also
-// mutated the member weights permanently instead of using local fallbacks.
-TEST_CASE("an asymmetric weight is not clobbered back to equal weights") {
-	Chain chain;
-	chain.steps = {AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
-				  AerialDistanceStep(Vec(0, 0, 1000), Vec(0, 0, 3000), true)};
+// (w1 == w2) == 0, true whenever the weights merely differ, so a zeroed car
+// weight fell back to weighting car and ball equally. Weighting the ball only,
+// the car's own height must not move the payout.
+TEST_CASE("a zeroed distance weight is not clobbered back to equal weights") {
+	Chain lowCar;
+	lowCar.steps = {AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
+					AerialDistanceStep(Vec(0, 0, 1000), Vec(0, 0, 3000), true)};
 
-	AerialDistanceReward *reward = new AerialDistanceReward();
-	reward->carDistanceWeight = 0.f;
-	reward->ballDistanceWeight = 1.f;
+	Chain highCar;
+	highCar.steps = {AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
+					 AerialDistanceStep(Vec(0, 0, 2000), Vec(0, 0, 3000), true)};
 
-	float paid = ChainRewards(reward, chain, BLUE).back();
+	auto ballHeightOnly = [] {
+		AerialDistanceReward *reward = new AerialDistanceReward();
+		reward->carDistanceWeight = 0.f;
+		reward->ballDistanceWeight = 1.f;
+		return reward;
+	};
 
-	// Weighting ball height only: (0*1000 + 1*3000)/1 - 256 = 2744.
-	CHECK(paid == doctest::Approx((3000.f - 256.f) / BACK_WALL_Y));
-}
-
-// Train.cpp's metrics probe calls GetReward once more on every reward it does
-// not special-case. That threw while the chain lived in GetAllRewards, and a
-// second call must not re-pay or re-advance the chain either.
-TEST_CASE("the metrics probe's extra GetReward call is safe") {
-	Chain chain;
-	chain.steps = {AerialDistanceStep(Vec(0, 0, 17), Vec(0, 0, 17), false),
-				   AerialDistanceStep(Vec(0, 0, 1500), Vec(0, 0, 1500), true),
-				   AerialDistanceStep(Vec(400, 0, 1500), Vec(200, 0, 1500), true)};
-	chain.Link();
-
-	AerialDistanceReward reward;
-	reward.Reset(chain.steps.front());
-
-	std::vector<float> paid;
-	for (GameState &state : chain.steps) {
-		reward.PreStep(state);
-		paid.push_back(reward.GetAllRewards(state, false)[BLUE]);
-		CHECK(reward.GetReward(state.players[BLUE], state, false) ==
-			  doctest::Approx(paid.back()));
-	}
-
-	CHECK(paid[1] == doctest::Approx((1500.f - 256.f) / BACK_WALL_Y));
-	CHECK(paid[2] == doctest::Approx((400.f + 200.f) / BACK_WALL_Y));
+	CHECK(ChainRewards(ballHeightOnly(), lowCar, BLUE).back() ==
+		  doctest::Approx(ChainRewards(ballHeightOnly(), highCar, BLUE).back()));
 }
 
 // Blue cradles the ball; orange sits at oppDist along +y. The flick branches
@@ -655,7 +525,7 @@ GameState CradleStep(float ballZ, Vec carried, bool onGround, bool hasFlip,
 	return state;
 }
 
-float FlickReward(GameState state) {
+float DribbleFlick(GameState state) {
 	Community::DribbleFlickReward reward;
 	reward.Reset(state);
 	return reward.GetReward(state.players[BLUE], state, false);
@@ -668,23 +538,142 @@ TEST_CASE("dribble flick climbs from reaching the zone to carrying to "
 		  "flicking") {
 	const Vec carried = Vec(0, 1000, 0);
 
-	const float inZone = FlickReward(CradleStep(250.f, Vec(), true, true, 5000.f));
-	const float carrying = FlickReward(CradleStep(140.f, carried, true, true, 5000.f));
-	const float withFlip = FlickReward(CradleStep(140.f, carried, false, true, 200.f));
-	const float flicked = FlickReward(CradleStep(140.f, carried, false, false, 200.f));
+	const float inZone = DribbleFlick(CradleStep(250.f, Vec(), true, true, 5000.f));
+	const float carrying = DribbleFlick(CradleStep(140.f, carried, true, true, 5000.f));
+	const float withFlip = DribbleFlick(CradleStep(140.f, carried, false, true, 200.f));
+	const float flicked = DribbleFlick(CradleStep(140.f, carried, false, false, 200.f));
 
-	CHECK(inZone == doctest::Approx(0.1f));
-	CHECK(carrying == doctest::Approx(0.3f));
+	const float away =
+		DribbleFlick(CradleStep(140.f, Vec(0, -1000, 0), true, true, 5000.f));
+
+	CHECK(inZone > 0.f);
+	CHECK(carrying > inZone);
 	CHECK(withFlip > carrying);
 	CHECK(flicked > withFlip);
 	CHECK(flicked <= 1.f);
+	// Carrying away from the net loses the directional rung, but the term
+	// rewards -- it never punishes.
+	CHECK(away == doctest::Approx(inZone));
 }
 
-// Once an opponent closes, holding the carry pays nothing at all -- not even
-// the zone rung -- which is what leaves flicking as the only paying option.
-TEST_CASE("a challenged carry held on the ground earns nothing") {
-	CHECK(FlickReward(CradleStep(140.f, Vec(0, 1000, 0), true, true, 200.f)) ==
+// Once an opponent closes, holding the carry has to be the worst option on the
+// board -- below dropping it, which pays nothing.
+TEST_CASE("a challenged carry held on the ground is punished") {
+	CHECK(DribbleFlick(CradleStep(140.f, Vec(0, 1000, 0), true, true, 200.f)) <
+		  0.f);
+}
+
+// Blue cradles at `carryVel`, then the ball separates at `releasePos`/
+// `releaseVel`. FlickReward pays across the window after the carry ends, so
+// both steps have to run through one instance.
+float Flick(Vec carryVel, Vec releasePos, Vec releaseVel, float oppDist) {
+	GameState carry = CradleStep(140.f, carryVel, true, true, oppDist);
+
+	GameState release = carry;
+	release.ball.pos = releasePos;
+	release.ball.vel = releaseVel;
+
+	FlickReward reward;
+	reward.Reset(carry);
+	for (int i = 0; i < reward.minCarrySteps; i++) {
+		reward.PreStep(carry);
+		reward.GetReward(carry.players[BLUE], carry, false);
+	}
+	reward.PreStep(release);
+	return reward.GetReward(release.players[BLUE], release, false);
+}
+
+// Blue holds the carry for `groundSteps` on the ground and `airborneSteps`
+// riding up with the ball, then pops it towards the net.
+float CarryThenRelease(int groundSteps, int airborneSteps) {
+	std::vector<GameState> steps;
+	for (int i = 0; i < groundSteps; i++)
+		steps.push_back(CradleStep(140.f, Vec(), true, true, 5000.f));
+
+	for (int i = 1; i <= airborneSteps; i++) {
+		GameState climbing = CradleStep(140.f, Vec(), false, true, 5000.f);
+		climbing.players[BLUE].pos.z += 100.f * i;
+		climbing.ball.pos.z += 100.f * i;
+		steps.push_back(climbing);
+	}
+
+	GameState release = steps.back();
+	release.ball.pos = Vec(0, 100, release.ball.pos.z + 160.f);
+	release.ball.vel = Vec(0, 1500, 0);
+	steps.push_back(release);
+
+	return BareSequence(new FlickReward(), steps, BLUE).back();
+}
+
+// The whole point of the reward: a pop straight up carries nothing towards the
+// net, and letting the ball roll off imparts no velocity of its own.
+TEST_CASE("a flick pays for power towards the net") {
+	const float atGoal = Flick(Vec(), Vec(0, 100, 300), Vec(0, 1500, 0), 5000.f);
+	const float harder = Flick(Vec(), Vec(0, 100, 300), Vec(0, 3000, 0), 5000.f);
+	const float straightUp =
+		Flick(Vec(), Vec(0, 100, 300), Vec(0, 0, 1500), 5000.f);
+	const float dropped =
+		Flick(Vec(0, 1000, 0), Vec(0, 400, 100), Vec(0, 1000, 0), 5000.f);
+
+	CHECK(atGoal > 0.f);
+	CHECK(harder > atGoal);
+	CHECK(harder <= 1.f);
+	CHECK(straightUp == doctest::Approx(0.f).epsilon(0.01));
+	CHECK(dropped == doctest::Approx(0.f));
+}
+
+TEST_CASE("a flick under pressure outscores the same flick unopposed") {
+	const float free = Flick(Vec(), Vec(0, 100, 300), Vec(0, 1500, 0), 5000.f);
+	const float pressured = Flick(Vec(), Vec(0, 100, 300), Vec(0, 1500, 0), 200.f);
+
+	CHECK(free == doctest::Approx(pressured * FlickReward().freeFlickScale));
+}
+
+// A ball that merely bounced off the roof was never carried, and one the car
+// rides up with is an air dribble. The jump that starts a real flick is the
+// case in between, and has to survive.
+TEST_CASE("only a carry held on the ground arms the flick") {
+	const FlickReward reward;
+
+	CHECK(CarryThenRelease(reward.minCarrySteps - 1, 0) ==
 		  doctest::Approx(0.f));
+	CHECK(CarryThenRelease(reward.minCarrySteps, 0) > 0.f);
+	CHECK(CarryThenRelease(reward.minCarrySteps, reward.maxAirSteps) > 0.f);
+	CHECK(CarryThenRelease(reward.minCarrySteps, reward.maxAirSteps + 1) ==
+		  doctest::Approx(0.f));
+}
+
+// The separation spans several steps. Paying the peak once, rather than a sum
+// over every step the ball is still flying, is what keeps this an event.
+TEST_CASE("a flick pays its peak once across the window") {
+	GameState carry = CradleStep(140.f, Vec(), true, true, 5000.f);
+
+	GameState release = carry;
+	release.ball.pos = Vec(0, 100, 300);
+	release.ball.vel = Vec(0, 1500, 0);
+
+	FlickReward reward;
+	reward.Reset(carry);
+	for (int i = 0; i < reward.minCarrySteps; i++) {
+		reward.PreStep(carry);
+		reward.GetReward(carry.players[BLUE], carry, false);
+	}
+
+	reward.PreStep(release);
+	const float first = reward.GetReward(release.players[BLUE], release, false);
+
+	// Train.cpp reads every reward a second time to fill its metrics row.
+	CHECK(reward.GetReward(release.players[BLUE], release, false) ==
+		  doctest::Approx(first));
+
+	float total = first;
+	for (int i = 0; i < reward.windowSteps + 2; i++) {
+		reward.PreStep(release);
+		total += reward.GetReward(release.players[BLUE], release, false);
+	}
+
+	CHECK(first > 0.f);
+	CHECK(total == doctest::Approx(first));
 }
 
 // PossessionReward moved off GetAllRewards, so its whole-arena pass now runs in

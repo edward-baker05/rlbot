@@ -143,6 +143,132 @@ class OwnGoalThreatPunishment : public Reward {
 	}
 };
 
+// Fires on the release of a ground carry, scoring the velocity the flick
+// imparted against how much of it points at the net. A vertical pop scores near
+// zero on direction; simply dropping the ball scores near zero on power.
+class FlickReward : public Reward {
+  public:
+	constexpr static float MAX_GROUND_Z = 200.f;
+
+	float minDistance, maxVelDiff, powerRef, freeFlickScale;
+	int windowSteps, minCarrySteps, maxAirSteps;
+	Community::CradleReward cradleReward;
+
+	std::vector<float> pending;
+	std::vector<Vec> carryVel;
+	std::vector<int> windowLeft, carrySteps, airSteps;
+	std::vector<float> bestScore;
+	std::vector<bool> latched, wasChallenged;
+
+	FlickReward(float minDistance = 300.f, float maxVelDiff = 300.f,
+				float powerRef = RLGC::Math::KPHToVel(120.f),
+				float freeFlickScale = 0.5f, int windowSteps = 3,
+				int minCarrySteps = 4, int maxAirSteps = 5)
+		: minDistance(minDistance), maxVelDiff(maxVelDiff), powerRef(powerRef),
+		  freeFlickScale(freeFlickScale), windowSteps(windowSteps),
+		  minCarrySteps(minCarrySteps), maxAirSteps(maxAirSteps),
+		  cradleReward(0.f) {
+		Clear(0);
+	}
+
+	void Clear(size_t numPlayers) {
+		pending.assign(numPlayers, 0.f);
+		carryVel.assign(64, Vec());
+		windowLeft.assign(64, 0);
+		carrySteps.assign(64, 0);
+		airSteps.assign(64, 0);
+		bestScore.assign(64, 0.f);
+		latched.assign(64, false);
+		wasChallenged.assign(64, false);
+	}
+
+	virtual void Reset(const GameState &initialState) override {
+		Clear(initialState.players.size());
+	}
+
+	// Looser than CradleReward: no absolute height ceiling, so the latch
+	// survives the jump at the start of a flick.
+	bool Attached(const Player &player, const GameState &state) {
+		return player.pos.z < state.ball.pos.z &&
+			   player.pos.Dist2D(state.ball.pos) <= 170.f &&
+			   (player.vel - state.ball.vel).Length() <= maxVelDiff;
+	}
+
+	// All of the latch advances here, so Train.cpp's second GetReward call for
+	// the metrics row reads the same value instead of consuming the window.
+	virtual void PreStep(const GameState &state) override {
+		pending.assign(state.players.size(), 0.f);
+
+		for (const Player &player : state.players) {
+			const int idx = player.index;
+			const int id = player.carId;
+			if (idx < 0 || static_cast<size_t>(idx) >= pending.size())
+				continue;
+
+			const bool cradled =
+				cradleReward.GetReward(player, state, false) > 0.f;
+
+			if (cradled || (latched[id] && Attached(player, state))) {
+				const bool grounded =
+					player.isOnGround && player.pos.z < MAX_GROUND_Z;
+				airSteps[id] =
+					grounded ? 0 : (latched[id] ? airSteps[id] + 1 : 1);
+
+				// A carry held this far off the ground is an air dribble, not a
+				// ground dribble, so drop it instead of arming the window.
+				if (airSteps[id] > maxAirSteps) {
+					latched[id] = false;
+					carrySteps[id] = 0;
+					windowLeft[id] = 0;
+					continue;
+				}
+
+				carrySteps[id] = latched[id] ? carrySteps[id] + 1 : 1;
+				latched[id] = true;
+				carryVel[id] = player.vel;
+				wasChallenged[id] =
+					Community::IsChallenged(player, state, minDistance);
+				// A ball that merely bounced off the roof is not a flick, so
+				// only a carry held this long arms the payout window.
+				windowLeft[id] =
+					(carrySteps[id] >= minCarrySteps) ? windowSteps : 0;
+				bestScore[id] = 0.f;
+				continue;
+			}
+
+			latched[id] = false;
+			carrySteps[id] = 0;
+			if (windowLeft[id] <= 0)
+				continue;
+			windowLeft[id]--;
+
+			Vec targetGoal =
+				(player.team == Team::BLUE) ? ORANGE_GOAL_BACK : BLUE_GOAL_BACK;
+			Vec ballDirToGoal = (targetGoal - state.ball.pos).Normalized();
+
+			float power = RS_MIN(
+				(state.ball.vel - carryVel[id]).Length() / powerRef, 1.f);
+			float dir = ballDirToGoal.Dot(state.ball.vel.Normalized());
+			float score = power * RS_MAX(0.f, dir) *
+						  (wasChallenged[id] ? 1.f : freeFlickScale);
+
+			// Only the gain over the window's best, so the total paid out per
+			// flick is its peak rather than a sum over the separation.
+			pending[idx] = RS_MAX(0.f, score - bestScore[id]);
+			bestScore[id] = RS_MAX(bestScore[id], score);
+		}
+	}
+
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) override {
+		if (player.index < 0 ||
+			static_cast<size_t>(player.index) >= pending.size())
+			return 0.f;
+
+		return pending[player.index];
+	}
+};
+
 class AerialReward : public Reward {
   public:
 	constexpr static float MAX_GROUND_LAUNCH_Z = 200.f;
@@ -154,9 +280,13 @@ class AerialReward : public Reward {
 	std::vector<float> launchZ;
 
 	virtual void Reset(const GameState &initialState) override {
+		// An airborne spawn has no real launch height, so it is left at the
+		// floor; seeding it from the spawn z instead trips the
+		// MAX_GROUND_LAUNCH_Z check and kills the reward for the whole episode.
 		launchZ.assign(initialState.players.size(), 0.f);
 		for (const Player &player : initialState.players)
-			launchZ[player.index] = player.pos.z;
+			if (player.isOnGround)
+				launchZ[player.index] = player.pos.z;
 	}
 
 	virtual void PreStep(const GameState &state) override {
@@ -206,7 +336,7 @@ class AerialDistanceReward : public Reward {
 
 	AerialDistanceReward(float _touchHeightWeight = 1.f,
 						 float _carDistanceWeight = 1.f,
-						 float _ballDistanceWeight = 1.f)
+						 float _ballDistanceWeight = 2.f)
 		: touchHeightWeight(_touchHeightWeight),
 		  carDistanceWeight(_carDistanceWeight),
 		  ballDistanceWeight(_ballDistanceWeight) {}

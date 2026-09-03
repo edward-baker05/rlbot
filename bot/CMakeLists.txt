@@ -228,6 +228,7 @@ add_executable(DashTests
 	tests/test_nectodevice.cpp
 	tests/test_packetconvert.cpp
 	tests/test_rewards.cpp
+	tests/test_statesetters.cpp
 )
 target_link_libraries(DashTests PRIVATE DashCore)
 target_include_directories(DashTests PRIVATE tests)

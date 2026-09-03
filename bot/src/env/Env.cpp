@@ -26,11 +26,16 @@ StateSetter *BuildSpawner(const TrainConfig &cfg, bool includeAerialDrill) {
 	StateSetter *base = groundBase;
 
 	if (includeAerialDrill && cfg.aerial.aerialSpawnChance > 0.f) {
-		float hoverWeight = RS_CLAMP(cfg.aerial.hoverFraction, 0.01f, 0.99f);
+		float hoverWeight = RS_CLAMP(cfg.aerial.hoverFraction, 0.01f, 0.98f);
+		float backboardWeight =
+			RS_CLAMP(cfg.aerial.backboardFollowFraction, 0.f,
+					 0.99f - hoverWeight);
 		StateSetter *aerialBase = new CombinedState({
 			{new AerialHoverState(cfg.aerial.initialBoost), hoverWeight},
+			{new BackboardFollowState(cfg.aerial.initialBoost),
+			 backboardWeight},
 			{new HighBallPopUpState(cfg.aerial.initialBoost),
-			 1.f - hoverWeight},
+			 1.f - hoverWeight - backboardWeight},
 		});
 
 		if (cfg.aerial.aerialSpawnChance >= 1.f) {

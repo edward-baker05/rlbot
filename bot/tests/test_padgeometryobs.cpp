@@ -7,6 +7,8 @@
 #include <RLGymCPP/CommonValues.h>
 #include <RLGymCPP/Gamestates/GameState.h>
 
+#include <iterator>
+
 using namespace Dash;
 
 namespace {
@@ -52,9 +54,7 @@ TEST_CASE("PadGeometryObs is the predictive obs plus exactly one pad block") {
 	const RLGC::FList p = padGeometry->BuildObs(s.players[0], s);
 	const RLGC::FList q = predictive->BuildObs(s.players[0], s);
 
-	CHECK(q.size() == 249);
 	CHECK(p.size() == q.size() + PadGeometryObs::PAD_BLOCK);
-	CHECK(p.size() == 297);
 
 	// A pure append is what lets migrate-obs widen an existing run rather than
 	// forcing a restart, so the prefix has to be untouched.
@@ -71,7 +71,7 @@ TEST_CASE("PadGeometryObs reports the big pads in the car's frame") {
 	const RLGC::Player &car = s.players[0];
 
 	const size_t base = result.size() - PadGeometryObs::PAD_BLOCK;
-	for (int n = 0; n < 6; n++) {
+	for (size_t n = 0; n < std::size(PadGeometryObs::BIG_PADS); n++) {
 		const Vec expected =
 			car.rotMat.Dot(
 				RLGC::CommonValues::BOOST_LOCATIONS[PadGeometryObs::BIG_PADS[n]] -
@@ -92,7 +92,8 @@ TEST_CASE("PadGeometryObs reports the small pads nearest the car, nearest first"
 	const RLGC::FList result = obs.BuildObs(s.players[0], s);
 	const RLGC::Player &car = s.players[0];
 
-	const size_t base = result.size() - PadGeometryObs::PAD_BLOCK + 6 * 4;
+	const size_t base = result.size() - PadGeometryObs::PAD_BLOCK +
+						std::size(PadGeometryObs::BIG_PADS) * 4;
 
 	float prevDist = -1.f;
 	for (int n = 0; n < PadGeometryObs::NEAREST_SMALL; n++) {

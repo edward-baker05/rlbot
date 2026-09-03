@@ -26,6 +26,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		{"Dribble Flick", b.dribbleFlick, RewardKind::Continuous,
 		 [] { return new Community::DribbleFlickReward(); }},
 
+		{"Flick", b.flick, RewardKind::Event, [] { return new FlickReward(); }},
+
 		{"Air Velocity to Ball", b.airVtB, RewardKind::Continuous,
 		 [=] {
 			 return new AirVelToBallReward(cfg.aerial.minBallHeight,
@@ -38,8 +40,8 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 										  cfg.aerial.maxBallHeight);
 		 }},
 
-		{"Air Launch", b.airLaunch, RewardKind::Continuous,
-		 [=] { return new AirLaunchReward(cfg.aerial.minBallHeight); }},
+		// {"Air Launch", b.airLaunch, RewardKind::Continuous,
+		// [=] { return new AirLaunchReward(cfg.aerial.minBallHeight); }},
 
 		{"Boost Pickup", b.pickupBoost, RewardKind::Event,
 		 [] { return new ZeroSumReward(new PadAwarePickupBoostReward(), 1); }},

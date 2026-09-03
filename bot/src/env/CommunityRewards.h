@@ -205,6 +205,17 @@ class ClearReward : public Reward {
 	}
 };
 
+inline bool IsChallenged(const Player &player, const GameState &state,
+						 float min_distance) {
+	for (const auto &p : state.players) {
+		if (p.team != player.team &&
+			p.pos.Dist(state.ball.pos) < min_distance) {
+			return true;
+		}
+	}
+	return false;
+}
+
 // [ball]
 class CradleReward : public Reward {
 
@@ -222,13 +233,8 @@ class CradleReward : public Reward {
 			player.pos.Dist2D(state.ball.pos) <= 170.0f) {
 			if (std::abs(state.ball.pos.x) < 3946.0f &&
 				std::abs(state.ball.pos.y) < 4970.0f) {
-				if (min_distance > 0.0f) {
-					for (const auto &p : state.players) {
-						if (p.team != player.team &&
-							p.pos.Dist(state.ball.pos) < min_distance) {
-							return 0.0f;
-						}
-					}
+				if (IsChallenged(player, state, min_distance)) {
+					return 0.0f;
 				}
 				return 1.0f;
 			}
@@ -864,37 +870,32 @@ class DribbleFlickReward : public Reward {
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
 		float reward = cradle_reward.GetReward(player, state, isFinal) * 0.1f;
-		if (reward > 0.0f) {
-			if (!training) {
-				reward = 0.0f;
-			}
-			bool stable = stable_carry(player, state);
-			bool challenged = false;
-			for (const auto &p : state.players) {
-				if (p.team != player.team &&
-					p.pos.Dist(state.ball.pos) < min_distance) {
-					challenged = true;
-					break;
-				}
-			}
-			if (challenged) {
-				if (stable) {
-					if (player.isOnGround) {
-						return reward - 0.1f;
-					} else {
-						float speedRatio =
-							RS_MIN(state.ball.vel.Length2D() /
-									   RLGC::Math::KPHToVel(100.f),
-								   1.f);
-						return player.HasFlipOrJump()
-								   ? reward + 0.3f
-								   : reward + 0.4f + speedRatio * 0.5f;
-					}
-				}
-			} else if (stable) {
-				return reward + 0.2f;
-			}
+		if (reward <= 0.0f) {
+			return 0.0f;
 		}
+		if (!training) {
+			reward = 0.0f;
+		}
+
+		Vec targetGoal =
+			(player.team == Team::BLUE) ? ORANGE_GOAL_BACK : BLUE_GOAL_BACK;
+		Vec ballDirToGoal = (targetGoal - state.ball.pos).Normalized();
+		float towardsGoal = ballDirToGoal.Dot(state.ball.vel.Normalized());
+		reward += 0.2f * RS_MAX(0.0f, towardsGoal);
+
+		if (!stable_carry(player, state)) {
+			return reward;
+		}
+
+		if (IsChallenged(player, state, min_distance)) {
+			// Under pressure, sitting on a ground carry has to rank below both
+			// ways out of it: flick, or drop it and contest.
+			if (player.isOnGround) {
+				return -0.1f;
+			}
+			return player.HasFlipOrJump() ? reward + 0.2f : reward + 0.3f;
+		}
+
 		return reward;
 	}
 };

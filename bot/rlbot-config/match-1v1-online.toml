@@ -1,0 +1,30 @@
+# Friend (online, joined via BakkesMod Rocket Plugin's Host tab) vs the bot.
+# You spectate.
+#
+# Unlike match-1v1.toml, this does NOT launch or restart Rocket League --
+# start the private match yourself first (host it, get your friend connected,
+# let the match actually begin), then run this config. RLBot attaches to the
+# match already running instead of creating a new local one.
+#
+# Only the bot car is listed: your friend is already in the match as a real
+# network player once they've joined, RLBot doesn't need to be told about
+# them. If RLBotServer complains about a missing/mismatched car count, add
+# back a `[[cars]] type = "Human" team = "Blue"` entry -- this split (declare
+# only what RLBot should spawn vs. declare the whole match) isn't verified
+# against the current RLBotServer build, so treat it as the first thing to
+# check if the bot doesn't take its slot.
+
+[rlbot]
+launcher = "NoLaunch"
+auto_start_agents = true
+wait_for_agents = true
+
+[match]
+existing_match_behavior = "ContinueAndSpawn"
+enable_state_setting = false
+enable_rendering = false
+
+[[cars]]
+team = "Orange"
+type = "RLBot"
+config_file = "bot.toml"

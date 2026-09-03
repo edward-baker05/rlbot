@@ -43,4 +43,15 @@ private:
 	float initialBoost;
 };
 
+class BackboardFollowState : public RLGC::StateSetter {
+public:
+	explicit BackboardFollowState(float initialBoost = 100.f)
+		: initialBoost(initialBoost) {}
+
+	void ResetArena(Arena* arena) override;
+
+private:
+	float initialBoost;
+};
+
 }  // namespace Dash

@@ -275,6 +275,9 @@ int RunTrain(int argc, char *argv[]) {
 				static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--aerial-hover-frac" && i + 1 < argc) {
 			cfg.aerial.hoverFraction = static_cast<float>(std::atof(argv[++i]));
+		} else if (arg == "--backboard-follow-frac" && i + 1 < argc) {
+			cfg.aerial.backboardFollowFraction =
+				static_cast<float>(std::atof(argv[++i]));
 		} else if (arg == "--fresh") {
 			fresh = true;
 		} else if (arg == "--self-play") {
