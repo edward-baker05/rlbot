@@ -16,7 +16,7 @@ struct RewardBudget {
 	float goal = 1.f;
 	float strongTouch = 0.20f;
 	float dribbleFlick = 0.01f;
-	float flick = 0.25f;
+	float flick = 0.35f;
 
 	float airVtB = 0.03f;
 	float aerialDistance = 0.15f;
