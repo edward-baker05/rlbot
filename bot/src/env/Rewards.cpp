@@ -50,7 +50,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 
 		{"Boost Pickup", b.pickupBoost, RewardKind::Event,
 		 [] {
-			 return new ZeroSumReward(new PadAwarePickupBoostReward(), 1, 0.5);
+			 return new ZeroSumReward(new PadAwarePickupBoostReward(), 1, 0);
 		 }},
 
 		{"Save Boost", b.saveBoost, RewardKind::Continuous,
