@@ -62,27 +62,29 @@ class DribbleDemoReward : public Reward {
 		if (!state.prev)
 			return 0.f;
 
-		if (player.eventState.demo &&
-			onTarget(state, RS_OPPOSITE_TEAM(player.team))) {
-			Vec goalPos = (player.team == Team::BLUE) ? ORANGE_GOAL_CENTER
-													  : BLUE_GOAL_CENTER;
-			// Check if the ball is within 2 seconds of scoring
-			Vec ballToGoal = goalPos - state.ball.pos;
-			float distanceBtG = ballToGoal.Length();
+		if (player.eventState.demo) {
+			if (onTarget(state, RS_OPPOSITE_TEAM(player.team))) {
+				Vec goalPos = (player.team == Team::BLUE) ? ORANGE_GOAL_CENTER
+														  : BLUE_GOAL_CENTER;
+				Vec ballToGoal = goalPos - state.ball.pos;
+				float distanceBtG = ballToGoal.Length();
 
-			// Catch against 0 division; the ball is essentially definitely
-			// going in if it's 1u from the goal
-			if (distanceBtG < 1.f)
-				return 1.f;
+				// Catch against 0 division; the ball is almost definitely
+				// going in anyway if it's 1u from the goal
+				if (distanceBtG < 1.f)
+					return 1.f;
 
-			Vec goalDir = ballToGoal / distanceBtG;
-			float ballVel = state.ball.vel.Dot(goalDir);
+				Vec goalDir = ballToGoal / distanceBtG;
+				float ballVel = state.ball.vel.Dot(goalDir);
 
-			if (ballVel < 1.f)
+				if (ballVel < 1.f)
+					return 0.4f;
+
+				float timeToGoal = distanceBtG / ballVel;
+				return (timeToGoal < 2.f) ? 1.f : 0.4f;
+			} else {
 				return 0.4f;
-
-			float timeToGoal = distanceBtG / ballVel;
-			return (timeToGoal < 2.f) ? 1.f : 0.4f;
+			}
 		}
 
 		return 0.f;
@@ -378,9 +380,9 @@ class AerialDistanceReward : public Reward {
 
 	int chainCarId = -1;
 
-	AerialDistanceReward(float _touchHeightWeight = 1.f,
-						 float _carDistanceWeight = 1.f,
-						 float _ballDistanceWeight = 3.f)
+	AerialDistanceReward(float _touchHeightWeight = 0.8f,
+						 float _carDistanceWeight = 0.3f,
+						 float _ballDistanceWeight = 1.f)
 		: touchHeightWeight(_touchHeightWeight),
 		  carDistanceWeight(_carDistanceWeight),
 		  ballDistanceWeight(_ballDistanceWeight) {}

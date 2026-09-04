@@ -20,10 +20,10 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		// 									   cfg.aerial.maxBallHeight);
 		//  }},
 
-		// TODO: ZeroSumReward() following 3 rewards
 		{"Aerial Distance", b.aerialDistance, RewardKind::Event,
-		 [] { return new AerialDistanceReward(); }},
+		 [] { return new ZeroSumReward(new AerialDistanceReward(), 1, 1); }},
 
+		// TODO: ZeroSumReward() following 2 rewards
 		{"Dribble Flick", b.dribbleFlick, RewardKind::Continuous,
 		 [] { return new Community::DribbleFlickReward(); }},
 
@@ -49,7 +49,9 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		// [=] { return new AirLaunchReward(cfg.aerial.minBallHeight); }},
 
 		{"Boost Pickup", b.pickupBoost, RewardKind::Event,
-		 [] { return new ZeroSumReward(new PadAwarePickupBoostReward(), 1); }},
+		 [] {
+			 return new ZeroSumReward(new PadAwarePickupBoostReward(), 1, 0.5);
+		 }},
 
 		{"Save Boost", b.saveBoost, RewardKind::Continuous,
 		 [] { return new SaveBoostReward(); }},
@@ -64,14 +66,11 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 
 		{"Bump", b.bump, RewardKind::Event, [] { return new BumpReward(); }},
 
-		// TODO: Implement (air) dribble bump plays as shot variety, not the
-		// only attacking technique. Very strong but likely hard to balance
-		// because of their strength
 		{"Demo", b.demo, RewardKind::Event,
-		 [] { return new ZeroSumReward(new DribbleDemoReward(), 0); }},
+		 [] { return new ZeroSumReward(new DribbleDemoReward(), 1); }},
 
-		// TODO: ZeroSumReward() this
-		{"Save", b.save, RewardKind::Event, [] { return new SaveReward(); }},
+		{"Save", b.save, RewardKind::Event,
+		 [] { return new ZeroSumReward(new SaveReward(), 1, 1); }},
 
 		{"Awkward Contact", b.awkwardContact, RewardKind::Continuous,
 		 [] { return new AwkwardContactPenalty(); }},
