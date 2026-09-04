@@ -262,6 +262,7 @@ TEST_CASE("air rewards survive an airborne spawn") {
 		blue.isOnGround = false;
 		blue.hasFlipped = true;
 	}
+	scenario.prev.players[BLUE].ballTouchedStep = true;
 	scenario.state.players[BLUE].pos = Vec(0, -790, 690);
 	scenario.Link();
 
@@ -287,6 +288,7 @@ TEST_CASE("air face ball ignores what the ball is doing") {
 			blue.isOnGround = false;
 			blue.hasFlipped = true;
 		}
+		scenario.prev.players[BLUE].ballTouchedStep = true;
 		scenario.state.players[BLUE].pos = Vec(0, -790, 690);
 		scenario.Link();
 
@@ -321,10 +323,86 @@ TEST_CASE("air rewards ignore a wall launch") {
 	blue.pos = Vec(3900, -790, 950);
 	blue.vel = Vec(0, 700, 400);
 	blue.isOnGround = false;
+	blue.ballTouchedStep = true;
 	scenario.Link();
 
 	CHECK(BareContribution(new AirVelToBallReward(650.f, 1800.f), scenario,
 						   BLUE) == doctest::Approx(0.f));
+}
+
+TEST_CASE("air face and vel to ball only pay after touching ball in air and reset on landing") {
+	auto makeStep = [](Vec bluePos, Vec ballPos, bool onGround, bool ballTouched) {
+		GameState state;
+		state.players = {MakePlayer(0, 1, Team::BLUE, bluePos),
+						 MakePlayer(1, 2, Team::ORANGE, Vec(0, 3000, 17))};
+		state.ball.pos = ballPos;
+		Player &blue = state.players[BLUE];
+		blue.isOnGround = onGround;
+		blue.ballTouchedStep = ballTouched;
+		Vec dir = (ballPos - bluePos).Normalized();
+		blue.vel = dir * 700.f;
+		blue.rotMat.forward = dir;
+		blue.rotMat.up = Vec(0, 0, 1);
+		blue.rotMat.right = blue.rotMat.forward.Cross(blue.rotMat.up);
+		return state;
+	};
+
+	// 1. Blue on ground, launching:
+	GameState step0 = makeStep(Vec(0, -1000, 17), Vec(0, 0, 1000), true, false);
+	// 2. In the air, climbing towards ball, no touch yet:
+	GameState step1 = makeStep(Vec(0, -600, 500), Vec(0, 0, 1000), false, false);
+	// 3. In the air, touches ball:
+	GameState step2 = makeStep(Vec(0, -200, 800), Vec(0, 0, 1000), false, true);
+	// 4. In the air, continuing aerial after touch without touching again:
+	GameState step3 = makeStep(Vec(0, 100, 900), Vec(0, 300, 1200), false, false);
+	// 5. Lands on the ground:
+	GameState step4 = makeStep(Vec(0, 500, 17), Vec(0, 600, 1200), true, false);
+	// 6. In the air again without touching the ball:
+	GameState step5 = makeStep(Vec(0, 600, 500), Vec(0, 700, 1200), false, false);
+
+	Chain chain;
+	chain.steps = {step0, step1, step2, step3, step4, step5};
+
+	SUBCASE("AirFaceBallReward") {
+		std::vector<float> paid =
+			ChainRewards(new AirFaceBallReward(300.f, 1800.f), chain, BLUE);
+		CHECK(paid[0] == doctest::Approx(0.f)); // on ground
+		CHECK(paid[1] == doctest::Approx(0.f)); // airborne before touch
+		CHECK(paid[2] > 0.f);                   // touch step pays
+		CHECK(paid[3] > 0.f);                   // subsequent aerial step pays
+		CHECK(paid[4] == doctest::Approx(0.f)); // landed resets payout
+		CHECK(paid[5] == doctest::Approx(0.f)); // airborne after landing, no touch
+	}
+
+	SUBCASE("AirVelToBallReward") {
+		std::vector<float> paid =
+			ChainRewards(new AirVelToBallReward(300.f, 1800.f), chain, BLUE);
+		CHECK(paid[0] == doctest::Approx(0.f)); // on ground
+		CHECK(paid[1] == doctest::Approx(0.f)); // airborne before touch
+		CHECK(paid[2] > 0.f);                   // touch step pays
+		CHECK(paid[3] > 0.f);                   // subsequent aerial step pays
+		CHECK(paid[4] == doctest::Approx(0.f)); // landed resets payout
+		CHECK(paid[5] == doctest::Approx(0.f)); // airborne after landing, no touch
+	}
+
+	SUBCASE("ground touch does not arm air rewards") {
+		GameState groundTouch =
+			makeStep(Vec(0, -1000, 17), Vec(0, -1000, 100), true, true);
+		GameState airNoTouch =
+			makeStep(Vec(0, -600, 500), Vec(0, 0, 1000), false, false);
+		Chain groundChain;
+		groundChain.steps = {step0, groundTouch, airNoTouch};
+
+		std::vector<float> facePaid =
+			ChainRewards(new AirFaceBallReward(300.f, 1800.f), groundChain, BLUE);
+		CHECK(facePaid[1] == doctest::Approx(0.f));
+		CHECK(facePaid[2] == doctest::Approx(0.f));
+
+		std::vector<float> velPaid =
+			ChainRewards(new AirVelToBallReward(300.f, 1800.f), groundChain, BLUE);
+		CHECK(velPaid[1] == doctest::Approx(0.f));
+		CHECK(velPaid[2] == doctest::Approx(0.f));
+	}
 }
 
 // Power is DirectionalTouchReward's job, not this reward's, so the incentive to

@@ -68,7 +68,7 @@ std::vector<RewardSpec> GeneralRewardSpecs(const TrainConfig &cfg) {
 		// only attacking technique. Very strong but likely hard to balance
 		// because of their strength
 		{"Demo", b.demo, RewardKind::Event,
-		 [] { return new ZeroSumReward(new DemoReward(), 0); }},
+		 [] { return new ZeroSumReward(new DribbleDemoReward(), 0); }},
 
 		// TODO: ZeroSumReward() this
 		{"Save", b.save, RewardKind::Event, [] { return new SaveReward(); }},

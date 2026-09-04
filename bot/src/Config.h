@@ -29,7 +29,7 @@ struct RewardBudget {
 	float wavedash = 0.1f;
 
 	float bump = 0.15f;
-	float demo = 0.4f;
+	float demo = 1.f;
 
 	float save = 0.5f;
 

@@ -55,6 +55,40 @@ inline bool onTarget(const GameState &state, Team goalTeam,
 	return projZ < GOAL_HEIGHT;
 }
 
+class DribbleDemoReward : public Reward {
+  public:
+	virtual float GetReward(const Player &player, const GameState &state,
+							bool isFinal) override {
+		if (!state.prev)
+			return 0.f;
+
+		if (player.eventState.demo &&
+			onTarget(state, RS_OPPOSITE_TEAM(player.team))) {
+			Vec goalPos = (player.team == Team::BLUE) ? ORANGE_GOAL_CENTER
+													  : BLUE_GOAL_CENTER;
+			// Check if the ball is within 2 seconds of scoring
+			Vec ballToGoal = goalPos - state.ball.pos;
+			float distanceBtG = ballToGoal.Length();
+
+			// Catch against 0 division; the ball is essentially definitely
+			// going in if it's 1u from the goal
+			if (distanceBtG < 1.f)
+				return 1.f;
+
+			Vec goalDir = ballToGoal / distanceBtG;
+			float ballVel = state.ball.vel.Dot(goalDir);
+
+			if (ballVel < 1.f)
+				return 0.4f;
+
+			float timeToGoal = distanceBtG / ballVel;
+			return (timeToGoal < 2.f) ? 1.f : 0.4f;
+		}
+
+		return 0.f;
+	}
+};
+
 // Should return power * direction when ball is hit
 class DirectionalTouchReward : public Reward {
   public:
@@ -367,7 +401,9 @@ class AerialDistanceReward : public Reward {
 		float align =
 			RS_MAX(0.f, toGoal.Normalized().Dot(ballVel.Normalized()));
 
-		return minGoalwardScale + (1.f - minGoalwardScale) * align;
+		float goalwardReward =
+			minGoalwardScale + (1.f - minGoalwardScale) * align;
+		return goalwardReward * goalwardReward;
 	}
 
 	virtual void Reset(const GameState &initialState) override {
@@ -431,17 +467,55 @@ class AerialDistanceReward : public Reward {
 	}
 };
 
-class AirFaceBallReward : public AerialReward {
+class AirTouchFollowReward : public AerialReward {
   public:
 	float minHeight;
 	float maxHeight;
+	std::vector<bool> hasAirTouched;
 
-	AirFaceBallReward(float minHeight = 300.f, float maxHeight = 1800.f)
+	AirTouchFollowReward(float minHeight = 300.f, float maxHeight = 1800.f)
 		: minHeight(minHeight), maxHeight(maxHeight) {}
+
+	virtual void Reset(const GameState &initialState) override {
+		AerialReward::Reset(initialState);
+		hasAirTouched.assign(initialState.players.size(), false);
+	}
+
+	virtual void PreStep(const GameState &state) override {
+		AerialReward::PreStep(state);
+		hasAirTouched.resize(state.players.size(), false);
+
+		for (const Player &player : state.players) {
+			int idx = player.index;
+			if (idx < 0 || static_cast<size_t>(idx) >= hasAirTouched.size())
+				continue;
+
+			if (player.isDemoed || player.isOnGround ||
+				player.worldContact.hasContact) {
+				hasAirTouched[idx] = false;
+			} else if (player.ballTouchedStep) {
+				hasAirTouched[idx] = true;
+			}
+		}
+	}
+
+	bool HasAirTouched(const Player &player) const {
+		if (player.index < 0 ||
+			static_cast<size_t>(player.index) >= hasAirTouched.size())
+			return false;
+		return hasAirTouched[player.index];
+	}
+};
+
+class AirFaceBallReward : public AirTouchFollowReward {
+  public:
+	AirFaceBallReward(float minHeight = 300.f, float maxHeight = 1800.f)
+		: AirTouchFollowReward(minHeight, maxHeight) {}
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		if (!IsAerialing(player) || state.ball.pos.z <= minHeight)
+		if (!HasAirTouched(player) || !IsAerialing(player) ||
+			state.ball.pos.z <= minHeight)
 			return 0.f;
 
 		Vec dirToBall = (state.ball.pos - player.pos).Normalized();
@@ -461,17 +535,15 @@ class AirFaceBallReward : public AerialReward {
 	}
 };
 
-class AirVelToBallReward : public AerialReward {
+class AirVelToBallReward : public AirTouchFollowReward {
   public:
-	float minHeight;
-	float maxHeight;
-
 	AirVelToBallReward(float minHeight = 300.f, float maxHeight = 1800.f)
-		: minHeight(minHeight), maxHeight(maxHeight) {}
+		: AirTouchFollowReward(minHeight, maxHeight) {}
 
 	virtual float GetReward(const Player &player, const GameState &state,
 							bool isFinal) override {
-		if (!IsAerialing(player) || state.ball.pos.z <= minHeight)
+		if (!HasAirTouched(player) || !IsAerialing(player) ||
+			state.ball.pos.z <= minHeight)
 			return 0.f;
 
 		float heightFactor =
